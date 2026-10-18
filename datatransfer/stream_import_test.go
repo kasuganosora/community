@@ -194,3 +194,25 @@ func TestImportArchivedParentsAndMissingReactionEmoji(t *testing.T) {
 		require.GreaterOrEqual(t, report.Archived["reaction"], 1)
 	}
 }
+
+func TestImportMapsRequireSigninToViewContents(t *testing.T) {
+	b := streamFixture(t, 2, 5)
+	b.Accounts[0].Settings = map[string]any{"requireSigninToViewContents": true}
+	b.Accounts[1].Settings = map[string]any{"requireSigninToViewContents": false}
+	o := Options{Scope: "site", TargetBaseURL: "https://site.example", StorageDir: t.TempDir()}
+	conn := importerDB(t)
+	preview, err := Preview(context.Background(), conn, b, o)
+	require.NoError(t, err)
+	for _, issue := range preview.Issues {
+		require.NotEqual(t, "unsupported_privacy_policy", issue.Code, issue.Message)
+	}
+	report, err := Import(context.Background(), conn, b, o, nil)
+	require.NoError(t, err, "%+v", report)
+	var got []models.Account
+	require.NoError(t, conn.Where("domain IS NULL").Order("username").Find(&got).Error)
+	flags := map[string]bool{}
+	for _, a := range got {
+		flags[a.Username] = a.RequireSigninToView
+	}
+	require.Equal(t, map[string]bool{"u0": true, "u1": false}, flags)
+}

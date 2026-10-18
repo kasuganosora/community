@@ -140,7 +140,8 @@ func Preview(ctx context.Context, conn *gorm.DB, b *Bundle, o Options) (*Report,
 		add("account", a.ID)
 		accounts[a.ID] = a
 		if o.Scope == "site" && a.Local {
-			for _, key := range []string{"requireSigninToViewContents", "makeNotesFollowersOnlyBefore", "makeNotesHiddenBefore"} {
+			// requireSigninToViewContents is imported as Account.RequireSigninToView.
+			for _, key := range []string{"makeNotesFollowersOnlyBefore", "makeNotesHiddenBefore"} {
 				if policyEnabled(a.Settings[key]) {
 					issue(r, "unsupported_privacy_policy", "account", a.ID, privacyPolicyMessage(a, key))
 				}

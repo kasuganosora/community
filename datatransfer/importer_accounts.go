@@ -61,6 +61,8 @@ func (i *importer) importAccounts() error {
 					target.Note = htmlsafe.StripTags(a.Note)
 					target.ImportedNoteHTML = htmlsafe.Sanitize(a.Note)
 				}
+				// Misskey requireSigninToViewContents maps 1:1 to the account setting.
+				target.RequireSigninToView = policyEnabled(a.Settings["requireSigninToViewContents"])
 				if !a.System {
 					c := credentials[a.ID]
 					user := models.User{UUID: uuid.NewString(), UserName: a.Username, IsAdmin: a.Admin, IsBan: a.Suspended, EmailHash: models.GetEmailHash(c.Email), IsMailVerified: c.EmailVerified, CreatedAt: timePointer(a.CreatedAt), UpdatedAt: timePointer(a.UpdatedAt)}

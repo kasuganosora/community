@@ -382,7 +382,7 @@ func TestPrivacyPolicyIssueNamesFieldAndValue(t *testing.T) {
 	o.Scope = "site"
 	b.Scope = "site"
 	o.TargetBaseURL = b.Source.BaseURL
-	b.Accounts[0].Settings = map[string]any{"requireSigninToViewContents": false, "makeNotesFollowersOnlyBefore": nil, "makeNotesHiddenBefore": float64(-2592000)}
+	b.Accounts[0].Settings = map[string]any{"requireSigninToViewContents": true, "makeNotesFollowersOnlyBefore": nil, "makeNotesHiddenBefore": float64(-2592000)}
 	r, err := Preview(context.Background(), conn, b, o)
 	require.NoError(t, err)
 	var messages []string
