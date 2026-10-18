@@ -189,7 +189,7 @@ tootctl two-factor scrub-preserved     # 清除旧导入归档里的明文 secre
    - 通行密钥 / 安全密钥（passkeys / WebAuthn）：不在主导入里，**导入完成后立即**单独运行  
      `tootctl passkeys import-misskey --dsn "$MISSKEY_DSN" --dry-run`，确认后去掉 `--dry-run`（按用户名匹配，可重复执行）。安装向导里是独立的 `passkeys` 阶段。预检对有安全密钥的账号给出 `security_keys_separate` 警告提醒这一步。
    - **引用（quote）笔记**（maid.lat：317 条）和**频道笔记**（5 条）只进入私有归档（archive-only），不作为公开帖子发布。回复它们的笔记照常发布，但不带回复链（帖子属性 `import_reply_parent_archived` 记录原父帖 ID）；转发它们的笔记同样只归档。
-   - **账号级可见性策略**：Misskey 的 `requireSigninToViewContents`（需要登录才能查看）、`makeNotesFollowersOnlyBefore` / `makeNotesHiddenBefore`（把某个时间点之前的笔记自动改为仅关注者可见 / 隐藏；正数是 Unix 秒，负数是"距今 N 秒"）在 Community 里没有对应功能。设置了其中任何一个的本地账号会在预检中报 `unsupported_privacy_policy`（阻断），报告会写明字段和值，例如 `makeNotesHiddenBefore=-2592000`。映射策略待定。
+   - **账号级可见性策略**：Misskey 的 `requireSigninToViewContents`（需要登录才能查看）会导入为 Community 的账号设置「需要登录才能查看我的帖子」（`accounts.require_signin_to_view`），不再阻断预检。开启后：未登录访客只能看到资料（名字、头像、简介），帖子相关 API 返回 401 `SIGNIN_REQUIRED`，时间线 / 标签 / 搜索 / 热门结果中剔除其帖子；未签名的 ActivityPub 拉取（帖子、outbox、followers/following/featured）返回 401，远端服务器的签名请求照常放行；Actor 文档和公钥保持公开，投递给关注者不变。`makeNotesFollowersOnlyBefore` / `makeNotesHiddenBefore`（把某个时间点之前的笔记自动改为仅关注者可见 / 隐藏；正数是 Unix 秒，负数是"距今 N 秒"）仍没有对应功能，设置了的本地账号在预检中报 `unsupported_privacy_policy`（阻断），报告写明字段和值，例如 `makeNotesHiddenBefore=-2592000`。
    - 使用目标站不存在的自定义表情（例如本地迁移范围之外的远端表情）的回应会归档，而不是让整个事务失败。
 6. **核对脚本以前会误报通过。** `verify_misskey_import.py` 现在：空目标库直接 FAIL；逐个检查每个本地用户是否存在；实例 Actor 的公钥必须等于 Misskey `instance.actor` 的公钥；连接失败显示真实错误（不再是 `HTTP 0`）。
 7. **旧导出器的隐藏错误。** 失败时会打印阶段、异常类型和 psql 的原始错误（密码已脱敏），`--verbose` 打印 traceback；psql 警告（例如 PGPASSFILE 权限不安全）也会显示。
