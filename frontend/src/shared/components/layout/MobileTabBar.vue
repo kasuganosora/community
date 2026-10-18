@@ -8,7 +8,17 @@ import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 
 import { t } from '@/shared/i18n'
 import { useNotificationUnread } from '@/shared/composables/useNotificationUnread'
+import { useNavUnread } from '@/shared/composables/useNavUnread'
 const { unread: unreadNotifications, label: unreadLabel } = useNotificationUnread()
+const { announcements: unreadAnnouncements, conversations: unreadConversations } = useNavUnread()
+/** Announcements and messages show a plain dot; notifications keep their count badge. */
+function hasDot(value: string) {
+  return (value === 'announcements' && unreadAnnouncements.value > 0) || (value === 'messages' && unreadConversations.value > 0)
+}
+function navLabel(value: string, label: string) {
+  if (value === 'notifications' && unreadNotifications.value > 0) return t('shared.unread.navCount', [label, unreadLabel.value])
+  return hasDot(value) ? t('shared.unread.navDot', [label]) : label
+}
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -46,11 +56,13 @@ function go(to: string) {
       class="tabbar__item"
       :class="{ 'tabbar__item--active': active === tab.value }"
       :aria-current="active === tab.value ? 'page' : undefined"
+      :aria-label="navLabel(tab.value, tab.label)"
       @click="go(tab.to)"
     >
       <span class="tabbar__icon">
         <t-icon :name="active === tab.value ? tab.iconActive : tab.icon" :size="26" />
-        <span v-if="tab.value === 'notifications' && unreadNotifications > 0" class="unread-badge" data-testid="notification-badge" :aria-label="$t('shared.unread.count', [unreadLabel])">{{ unreadLabel }}</span>
+        <span v-if="tab.value === 'notifications' && unreadNotifications > 0" class="unread-badge" data-testid="notification-badge" aria-hidden="true">{{ unreadLabel }}</span>
+          <span v-if="hasDot(tab.value)" class="unread-dot" :data-testid="`unread-dot-${tab.value}`" aria-hidden="true" />
       </span>
       <span class="tabbar__label">{{ tab.label }}</span>
     </button>
@@ -76,6 +88,17 @@ function go(to: string) {
 .tabbar__icon {
   position: relative;
   display: inline-flex;
+}
+
+.unread-dot {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  background: var(--color-danger, #f4212e);
+  box-shadow: 0 0 0 2px var(--color-bg);
 }
 
 .unread-badge {

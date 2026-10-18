@@ -406,7 +406,9 @@
       "label": "Langue"
     },
     "unread": {
-      "count": "{0} non lues"
+      "count": "{0} non lues",
+      "navDot": "{0}, non lu",
+      "navCount": "{0}, {1} non lus"
     },
     "AccountHoverCard": {
       "title": "Profil du compte",
@@ -2954,6 +2956,57 @@
       "locked": "Trop de codes erronés. Réessayez dans 15 minutes.",
       "setupExpired": "La configuration a expiré, recommencez",
       "failed": "L’opération a échoué"
+    },
+    "Blocks": {
+      "tab": "Blocages",
+      "edit": "Modifier",
+      "cancel": "Annuler",
+      "newFilter": "Nouveau filtre",
+      "editingFilter": "Modification : {0}",
+      "saveFilter": "Enregistrer",
+      "filterSaved": "Filtre mis à jour",
+      "keywordsPlaceholder": "Un mot-clé par ligne",
+      "keywordsHint": "Un par ligne ; les lignes vides et les doublons sont ignorés. {0} mot-clé | Un par ligne ; les lignes vides et les doublons sont ignorés. {0} mots-clés",
+      "domainsHint": "Un domaine par ligne ; vous pouvez coller une URL. {0} domaine | Un domaine par ligne ; vous pouvez coller une URL. {0} domaines",
+      "invalidDomains": "Domaines invalides : {0}",
+      "someDomainsFailed": "Impossible de bloquer : {0} ({1})",
+      "domainsBlocked": "{0} domaine bloqué | {0} domaines bloqués",
+      "blockedDomains": "Domaines bloqués",
+      "sort": "Tri",
+      "newest": "Plus récents",
+      "oldest": "Plus anciens",
+      "loadMore": "Charger plus",
+      "loadFailed": "Impossible de charger la liste",
+      "actionFailed": "Une erreur est survenue, réessayez",
+      "hiddenReblogs": "Utilisateurs masqués (partages)",
+      "hiddenReblogsHint": "Des comptes que vous suivez, sans leurs partages dans votre fil d’accueil.",
+      "hiddenReblogsEmpty": "Aucun compte n’a ses partages masqués.",
+      "showReblogs": "Afficher les partages",
+      "showReblogsDone": "Partages de nouveau affichés",
+      "mutes": "Utilisateurs masqués",
+      "mutesHint": "Les publications des comptes masqués n’apparaissent plus dans vos fils. Ils n’en sont pas informés.",
+      "mutesEmpty": "Vous n’avez masqué personne.",
+      "unmute": "Ne plus masquer",
+      "unmuteDone": "Compte de nouveau visible",
+      "blocks": "Utilisateurs bloqués",
+      "blocksHint": "Les comptes bloqués ne peuvent ni vous suivre ni interagir avec vous, et vous ne voyez plus leurs publications.",
+      "blocksEmpty": "Vous n’avez bloqué personne.",
+      "unblock": "Débloquer",
+      "unblockDone": "Compte débloqué",
+      "errors": {
+        "FILTER_TITLE_REQUIRED": "Indiquez un titre",
+        "FILTER_KEYWORDS_REQUIRED": "Ajoutez au moins un mot-clé",
+        "FILTER_KEYWORD_EMPTY": "Un mot-clé ne peut pas être vide",
+        "FILTER_KEYWORD_TOO_LONG": "Mot-clé trop long (200 caractères max.)",
+        "FILTER_TOO_MANY_KEYWORDS": "Trop de mots-clés (200 max.)",
+        "FILTER_ACTION_UNSUPPORTED": "Action de filtre non prise en charge",
+        "FILTER_CONTEXT_UNSUPPORTED": "Contexte de filtre non pris en charge",
+        "FILTER_NOT_FOUND": "Ce filtre n’existe plus",
+        "FILTER_KEYWORD_NOT_FOUND": "Les mots-clés ont changé ailleurs. Rechargez et réessayez",
+        "FILTER_INVALID_REQUEST": "Requête mal formée",
+        "DOMAIN_REQUIRED": "Indiquez un domaine",
+        "DOMAIN_INVALID": "Ce n’est pas un domaine valide"
+      }
     }
   },
   "timeline": {

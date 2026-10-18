@@ -1,13 +1,11 @@
 package account
 
 import (
-	"github.com/kasuganosora/community/controllers/api/common"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"strconv"
@@ -285,7 +283,7 @@ func buildRelationship(currentAccount *models.Account, targetAccount *models.Acc
 		"muting_notifications": false,
 		"requested":            requested,
 		"domain_blocking":      false,
-		"showing_reblogs":      true,
+		"showing_reblogs":      following && follow.ShowsReblogs(),
 		"endorsed":             false,
 		"note":                 "",
 	}
@@ -293,147 +291,71 @@ func buildRelationship(currentAccount *models.Account, targetAccount *models.Acc
 
 // BlocksList handles GET /api/v1/blocks.
 func BlocksList(c *gin.Context) {
-	limit := 40
-
-	if l := c.Query("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 80 {
-			limit = parsed
-		}
-	}
-
-	// Get current account
+	page := readRelationPage(c, 40)
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
-	// Query blocks
 	query := db.GetDB().Model(&models.Block{}).
-		Where("account_id = ? AND type = ?", account.Id, models.BlockTypeAccount).
-		Order("id DESC")
-
-	// Pagination
-	if maxId := c.Query("max_id"); maxId != "" {
-		if id, err := strconv.ParseUint(maxId, 10, 64); err == nil {
-			query = query.Where("id < ?", id)
-		}
-	}
+		Where("account_id = ? AND type = ?", account.Id, models.BlockTypeAccount)
 
 	blocks := make([]*models.Block, 0)
-	err := query.Limit(limit).Find(&blocks).Error
-	if err != nil {
+	if err := page.apply(c, query, "id").Find(&blocks).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get blocks error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 
 		return
 	}
 
-	// Get blocked accounts
-	targetIds := make([]uint64, 0, len(blocks))
+	cursors := make([]uint64, 0, len(blocks))
+	targets := make([]uint64, 0, len(blocks))
 	for _, b := range blocks {
-		targetIds = append(targetIds, b.TargetAccountId)
+		cursors = append(cursors, b.Id)
+		targets = append(targets, b.TargetAccountId)
 	}
 
-	accounts := make([]*models.Account, 0)
-	if len(targetIds) > 0 {
-		err := db.GetDB().Preload("Emojis").Preload("Extra").Where("id IN ?", targetIds).Find(&accounts).Error
-		if err != nil {
-			_ = c.Error(errors.Wrap(err, "get accounts error"))
-			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+	result, err := accountsInOrder(targets)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 
-			return
-		}
+		return
 	}
 
-	// Build account map for ordering
-	accountMap := make(map[uint64]*models.Account)
-	for _, acc := range accounts {
-		accountMap[acc.Id] = acc
-	}
-
-	// Build result in block order
-	result := make([]*serializer.Account, 0)
-
-	for _, b := range blocks {
-		if acc, ok := accountMap[b.TargetAccountId]; ok {
-			result = append(result, serializer.ToAccount(acc))
-		}
-	}
-
-	if len(blocks) > 0 {
-		common.SetPageLinksUint(c, blocks[0].Id, blocks[len(blocks)-1].Id, true)
-	}
-
+	page.links(c, cursors)
 	c.JSON(200, result)
 }
 
 // MutesList handles GET /api/v1/mutes.
 func MutesList(c *gin.Context) {
-	limit := 40
-
-	if l := c.Query("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 80 {
-			limit = parsed
-		}
-	}
-
-	// Get current account
+	page := readRelationPage(c, 40)
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
-	// Query mutes
 	query := db.GetDB().Model(&models.MuteAccount{}).
 		Where("account_id = ?", account.Id).
-		Where("expired_at IS NULL OR expired_at > ?", time.Now()).
-		Order("id DESC")
-
-	// Pagination
-	if maxId := c.Query("max_id"); maxId != "" {
-		if id, err := strconv.ParseUint(maxId, 10, 64); err == nil {
-			query = query.Where("id < ?", id)
-		}
-	}
+		Where("expired_at IS NULL OR expired_at > ?", time.Now())
 
 	mutes := make([]*models.MuteAccount, 0)
-	err := query.Limit(limit).Find(&mutes).Error
-	if err != nil {
+	if err := page.apply(c, query, "id").Find(&mutes).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get mutes error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 
 		return
 	}
 
-	// Get muted accounts
-	targetIds := make([]uint64, 0, len(mutes))
+	cursors := make([]uint64, 0, len(mutes))
+	targets := make([]uint64, 0, len(mutes))
 	for _, m := range mutes {
-		targetIds = append(targetIds, m.TargetId)
+		cursors = append(cursors, m.Id)
+		targets = append(targets, m.TargetId)
 	}
 
-	accounts := make([]*models.Account, 0)
-	if len(targetIds) > 0 {
-		err := db.GetDB().Preload("Emojis").Preload("Extra").Where("id IN ?", targetIds).Find(&accounts).Error
-		if err != nil {
-			_ = c.Error(errors.Wrap(err, "get accounts error"))
-			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+	result, err := accountsInOrder(targets)
+	if err != nil {
+		_ = c.Error(err)
+		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 
-			return
-		}
+		return
 	}
 
-	// Build account map for ordering
-	accountMap := make(map[uint64]*models.Account)
-	for _, acc := range accounts {
-		accountMap[acc.Id] = acc
-	}
-
-	// Build result in mute order
-	result := make([]*serializer.Account, 0)
-
-	for _, m := range mutes {
-		if acc, ok := accountMap[m.TargetId]; ok {
-			result = append(result, serializer.ToAccount(acc))
-		}
-	}
-
-	if len(mutes) > 0 {
-		common.SetPageLinksUint(c, mutes[0].Id, mutes[len(mutes)-1].Id, true)
-	}
-
+	page.links(c, cursors)
 	c.JSON(200, result)
 }

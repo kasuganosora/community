@@ -406,7 +406,9 @@
       "label": "語言"
     },
     "unread": {
-      "count": "{0} 則未讀"
+      "count": "{0} 則未讀",
+      "navDot": "{0}，有未讀",
+      "navCount": "{0}，{1} 則未讀"
     },
     "AccountHoverCard": {
       "title": "帳號資料",
@@ -2954,6 +2956,57 @@
       "locked": "錯誤次數過多，請 15 分鐘後再試",
       "setupExpired": "設定已逾時，請重新開始",
       "failed": "操作失敗"
+    },
+    "Blocks": {
+      "tab": "封鎖",
+      "edit": "編輯",
+      "cancel": "取消",
+      "newFilter": "新增過濾器",
+      "editingFilter": "正在編輯：{0}",
+      "saveFilter": "儲存變更",
+      "filterSaved": "過濾器已更新",
+      "keywordsPlaceholder": "每行一個關鍵字",
+      "keywordsHint": "每行一個，空行和重複會自動移除。目前 {0} 個。",
+      "domainsHint": "每行一個網域，可以直接貼上網址。目前 {0} 個。",
+      "invalidDomains": "這些不是有效的網域：{0}",
+      "someDomainsFailed": "未能封鎖：{0}（{1}）",
+      "domainsBlocked": "已封鎖 {0} 個網域",
+      "blockedDomains": "已封鎖的網域",
+      "sort": "排序",
+      "newest": "最新",
+      "oldest": "最早",
+      "loadMore": "載入更多",
+      "loadFailed": "清單載入失敗",
+      "actionFailed": "操作失敗，請重試",
+      "hiddenReblogs": "已隱藏的使用者（轉發）",
+      "hiddenReblogsHint": "你追蹤了這些使用者，但不想在首頁看到他們的轉發。",
+      "hiddenReblogsEmpty": "沒有隱藏轉發的使用者。",
+      "showReblogs": "顯示轉發",
+      "showReblogsDone": "已恢復顯示轉發",
+      "mutes": "已隱藏的使用者",
+      "mutesHint": "隱藏後，這些使用者的貼文不會出現在你的時間軸，對方不會收到通知。",
+      "mutesEmpty": "沒有隱藏的使用者。",
+      "unmute": "取消隱藏",
+      "unmuteDone": "已取消隱藏",
+      "blocks": "已封鎖的使用者",
+      "blocksHint": "封鎖後，對方無法追蹤你或與你互動，你也看不到對方的內容。",
+      "blocksEmpty": "沒有封鎖的使用者。",
+      "unblock": "解除封鎖",
+      "unblockDone": "已解除封鎖",
+      "errors": {
+        "FILTER_TITLE_REQUIRED": "請填寫標題",
+        "FILTER_KEYWORDS_REQUIRED": "至少要有一個關鍵字",
+        "FILTER_KEYWORD_EMPTY": "關鍵字不能為空",
+        "FILTER_KEYWORD_TOO_LONG": "關鍵字太長了（最多 200 個字元）",
+        "FILTER_TOO_MANY_KEYWORDS": "關鍵字太多了（最多 200 個）",
+        "FILTER_ACTION_UNSUPPORTED": "不支援的命中動作",
+        "FILTER_CONTEXT_UNSUPPORTED": "不支援的生效範圍",
+        "FILTER_NOT_FOUND": "過濾器不存在或已刪除",
+        "FILTER_KEYWORD_NOT_FOUND": "關鍵字已被修改，請重新整理後再試",
+        "FILTER_INVALID_REQUEST": "請求格式不正確",
+        "DOMAIN_REQUIRED": "請輸入網域",
+        "DOMAIN_INVALID": "網域格式不正確"
+      }
     }
   },
   "timeline": {

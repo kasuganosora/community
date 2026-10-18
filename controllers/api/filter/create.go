@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
@@ -17,42 +16,55 @@ type CreateFilterRequest struct {
 	ExpiresIn    uint64                  `json:"expires_in"`
 	Context      []string                `binding:"required" json:"context"`
 	FilterAction string                  `json:"filter_action"`
-	Keywords     []*models.FilterKeyword `binding:"required" json:"keywords"`
+	Keywords     []*models.FilterKeyword `json:"keywords"`
+	// KeywordsAttributes is the Mastodon v2 spelling; both are accepted.
+	KeywordsAttributes []KeywordAttribute `json:"keywords_attributes"`
 }
 
 func Create(c *gin.Context) {
 	var req CreateFilterRequest
 	err := controllers.BindBody(c, &req)
 	if err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()}) //nolint:goconst
+		fail(c, 400, ErrCodeFilterInvalidRequest, err.Error())
 
 		return
 	}
 
 	action, ok := models.ParseFilterAction(req.FilterAction)
 	if !ok {
-		c.AbortWithStatusJSON(422, gin.H{"error": "Unsupported filter action"})
+		fail(c, 422, ErrCodeFilterActionUnsupported, "Unsupported filter action")
 
 		return
 	}
 	if !models.ValidFilterContexts(req.Context) {
-		c.AbortWithStatusJSON(422, gin.H{"error": "Unsupported filter context"})
+		fail(c, 422, ErrCodeFilterContextUnsupported, "Unsupported filter context")
 
 		return
 	}
-	if len(req.Keywords) == 0 {
-		c.AbortWithStatusJSON(422, gin.H{"error": "At least one keyword is required"})
-
-		return
-	}
+	attrs := make([]KeywordAttribute, 0, len(req.Keywords)+len(req.KeywordsAttributes))
 	for _, keyword := range req.Keywords {
-		if keyword == nil || strings.TrimSpace(keyword.Keyword) == "" {
-			c.AbortWithStatusJSON(422, gin.H{"error": "Keyword cannot be empty"})
+		if keyword == nil {
+			fail(c, 422, ErrCodeFilterKeywordEmpty, "Keyword cannot be empty")
 
 			return
 		}
-		keyword.Keyword = strings.TrimSpace(keyword.Keyword)
-		keyword.Uuid = uuid.NewString()
+		whole := keyword.WholeWord
+		attrs = append(attrs, KeywordAttribute{Keyword: keyword.Keyword, WholeWord: &whole})
+	}
+	for _, attr := range req.KeywordsAttributes {
+		attr.Id = "" // nothing to update yet
+		attrs = append(attrs, attr)
+	}
+	keywords, kerr := applyKeywordAttributes("", nil, attrs)
+	if kerr != nil {
+		fail(c, kerr.status, kerr.code, kerr.msg)
+
+		return
+	}
+	if len(keywords) == 0 {
+		fail(c, 422, ErrCodeFilterKeywordsRequired, "At least one keyword is required")
+
+		return
 	}
 
 	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
@@ -60,12 +72,12 @@ func Create(c *gin.Context) {
 	filter := &models.Filter{
 		Title:        strings.TrimSpace(req.Title),
 		Context:      req.Context,
-		Keywords:     req.Keywords,
+		Keywords:     keywords,
 		AccountId:    currentAccount.Id,
 		FilterAction: action,
 	}
 	if filter.Title == "" {
-		c.AbortWithStatusJSON(422, gin.H{"error": "Title cannot be empty"})
+		fail(c, 422, ErrCodeFilterTitleRequired, "Title cannot be empty")
 
 		return
 	}

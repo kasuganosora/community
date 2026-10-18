@@ -228,6 +228,16 @@ func (w *timeoutResponseWriter) expireWith(status int, body []byte) {
 	if w.written {
 		return
 	}
+	if body == nil {
+		// The client is gone, so nobody reads this answer. Only record the
+		// status (gin keeps it without touching the header map) and leave the
+		// headers alone: the handler may still be setting them through a map
+		// it fetched before the cancel, and writing them here too is a
+		// concurrent map write that kills the process.
+		w.ResponseWriter.WriteHeader(status)
+
+		return
+	}
 	h := w.ResponseWriter.Header()
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	h.Del("Content-Encoding")

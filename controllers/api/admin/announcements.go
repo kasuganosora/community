@@ -4,6 +4,8 @@ import (
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/feed"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 	"strconv"
@@ -124,6 +126,7 @@ func SaveAdminAnnouncement(c *gin.Context) {
 		announcementError(c, saveErr)
 		return
 	}
+	notifyAnnouncementChanged(a.Id)
 	c.JSON(200, adminAnnouncement(a))
 }
 func PublishAdminAnnouncement(c *gin.Context)   { setAnnouncementPublished(c, true) }
@@ -148,6 +151,7 @@ func setAnnouncementPublished(c *gin.Context, published bool) {
 		announcementError(c, err)
 		return
 	}
+	notifyAnnouncementChanged(a.Id)
 	c.JSON(200, adminAnnouncement(a))
 }
 func DeleteAdminAnnouncement(c *gin.Context) {
@@ -169,5 +173,20 @@ func DeleteAdminAnnouncement(c *gin.Context) {
 		announcementError(c, err)
 		return
 	}
+	notifyAnnouncementChanged(id)
 	c.JSON(200, gin.H{})
+}
+
+// notifyAnnouncementChanged is a best-effort hint; clients recount on focus anyway.
+func notifyAnnouncementChanged(id uint64) {
+	defer func() {
+		// The feed service panics when Redis is not configured; a missing hint
+		// must never fail the admin write that already committed.
+		if r := recover(); r != nil {
+			log.Warn("announcement %d: stream hint unavailable: %v", id, r)
+		}
+	}()
+	if err := feed.PushAnnouncementChanged(id); err != nil {
+		log.Warn("announcement %d: stream hint failed: %v", id, err)
+	}
 }

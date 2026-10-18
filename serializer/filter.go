@@ -33,8 +33,9 @@ func ToFilter(filter *models.Filter) *Filter {
 }
 
 type FilterKeyword struct {
-	Id string `json:"id"`
-	models.FilterKeyword
+	Id        string `json:"id"`
+	Keyword   string `json:"keyword"`
+	WholeWord bool   `json:"whole_word"`
 }
 
 func ToFilterKeywords(filter *models.Filter) []*FilterKeyword {
@@ -48,8 +49,9 @@ func ToFilterKeywords(filter *models.Filter) []*FilterKeyword {
 
 func ToFilterKeyword(filter *models.Filter, keyword *models.FilterKeyword) *FilterKeyword {
 	return &FilterKeyword{
-		Id:            strconv.FormatUint(filter.Id, 10) + "-" + keyword.Uuid,
-		FilterKeyword: *keyword,
+		Id:        strconv.FormatUint(filter.Id, 10) + "-" + keyword.KeyID(),
+		Keyword:   keyword.Keyword,
+		WholeWord: keyword.WholeWord,
 	}
 }
 

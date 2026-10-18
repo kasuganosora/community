@@ -406,7 +406,9 @@
       "label": "Sprache"
     },
     "unread": {
-      "count": "{0} ungelesen"
+      "count": "{0} ungelesen",
+      "navDot": "{0}, ungelesen",
+      "navCount": "{0}, {1} ungelesen"
     },
     "AccountHoverCard": {
       "title": "Kontoprofil",
@@ -2954,6 +2956,57 @@
       "locked": "Zu viele falsche Codes. Versuche es in 15 Minuten erneut.",
       "setupExpired": "Die Einrichtung ist abgelaufen, bitte neu beginnen",
       "failed": "Vorgang fehlgeschlagen"
+    },
+    "Blocks": {
+      "tab": "Blockierungen",
+      "edit": "Bearbeiten",
+      "cancel": "Abbrechen",
+      "newFilter": "Neuer Filter",
+      "editingFilter": "Bearbeiten: {0}",
+      "saveFilter": "Änderungen speichern",
+      "filterSaved": "Filter aktualisiert",
+      "keywordsPlaceholder": "Ein Stichwort pro Zeile",
+      "keywordsHint": "Eins pro Zeile; Leerzeilen und Doppelte werden entfernt. {0} Stichwort | Eins pro Zeile; Leerzeilen und Doppelte werden entfernt. {0} Stichwörter",
+      "domainsHint": "Eine Domain pro Zeile; URLs einfügen geht auch. {0} Domain | Eine Domain pro Zeile; URLs einfügen geht auch. {0} Domains",
+      "invalidDomains": "Keine gültigen Domains: {0}",
+      "someDomainsFailed": "Nicht blockiert: {0} ({1})",
+      "domainsBlocked": "{0} Domain blockiert | {0} Domains blockiert",
+      "blockedDomains": "Blockierte Domains",
+      "sort": "Sortierung",
+      "newest": "Neueste",
+      "oldest": "Älteste",
+      "loadMore": "Mehr laden",
+      "loadFailed": "Liste konnte nicht geladen werden",
+      "actionFailed": "Etwas ist schiefgelaufen, bitte erneut versuchen",
+      "hiddenReblogs": "Ausgeblendete Nutzer (geteilte Beiträge)",
+      "hiddenReblogsHint": "Konten, denen du folgst, deren geteilte Beiträge du aber nicht in deiner Startseite sehen willst.",
+      "hiddenReblogsEmpty": "Bei niemandem sind geteilte Beiträge ausgeblendet.",
+      "showReblogs": "Geteilte Beiträge zeigen",
+      "showReblogsDone": "Geteilte Beiträge werden wieder angezeigt",
+      "mutes": "Stummgeschaltete Nutzer",
+      "mutesHint": "Beiträge stummgeschalteter Konten erscheinen nicht in deinen Timelines. Sie werden nicht benachrichtigt.",
+      "mutesEmpty": "Du hast niemanden stummgeschaltet.",
+      "unmute": "Stummschaltung aufheben",
+      "unmuteDone": "Stummschaltung aufgehoben",
+      "blocks": "Blockierte Nutzer",
+      "blocksHint": "Blockierte Konten können dir nicht folgen oder mit dir interagieren, und du siehst ihre Beiträge nicht.",
+      "blocksEmpty": "Du hast niemanden blockiert.",
+      "unblock": "Entsperren",
+      "unblockDone": "Entsperrt",
+      "errors": {
+        "FILTER_TITLE_REQUIRED": "Bitte einen Titel eingeben",
+        "FILTER_KEYWORDS_REQUIRED": "Mindestens ein Stichwort angeben",
+        "FILTER_KEYWORD_EMPTY": "Stichwörter dürfen nicht leer sein",
+        "FILTER_KEYWORD_TOO_LONG": "Ein Stichwort ist zu lang (max. 200 Zeichen)",
+        "FILTER_TOO_MANY_KEYWORDS": "Zu viele Stichwörter (max. 200)",
+        "FILTER_ACTION_UNSUPPORTED": "Nicht unterstützte Filteraktion",
+        "FILTER_CONTEXT_UNSUPPORTED": "Nicht unterstützter Filterbereich",
+        "FILTER_NOT_FOUND": "Dieser Filter existiert nicht mehr",
+        "FILTER_KEYWORD_NOT_FOUND": "Die Stichwörter wurden woanders geändert. Neu laden und erneut versuchen",
+        "FILTER_INVALID_REQUEST": "Ungültige Anfrage",
+        "DOMAIN_REQUIRED": "Bitte eine Domain eingeben",
+        "DOMAIN_INVALID": "Das sieht nicht nach einer Domain aus"
+      }
     }
   },
   "timeline": {

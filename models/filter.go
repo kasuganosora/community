@@ -255,9 +255,21 @@ func (ff Filters) GetHeightLevelFilter() *Filter {
 }
 
 type FilterKeyword struct {
-	Uuid      string `json:"-"`
+	// Uuid is persisted with the keyword so its public id stays stable across
+	// edits. Keywords saved before it was stored have none; KeyID derives one.
+	Uuid      string `json:"uuid,omitempty"`
 	Keyword   string `json:"keyword"`
 	WholeWord bool   `json:"whole_word"`
+}
+
+// KeyID is the keyword's stable identifier: its stored uuid, or for legacy
+// keywords without one a value derived from the keyword text.
+func (fw *FilterKeyword) KeyID() string {
+	if fw.Uuid != "" {
+		return fw.Uuid
+	}
+
+	return "k" + utils.Hash(md5.New(), fw.Keyword)[:16] //nolint:gosec // G401: an identifier, not a security hash
 }
 
 func (fw *FilterKeyword) Hash() string {

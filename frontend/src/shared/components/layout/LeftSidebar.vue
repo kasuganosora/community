@@ -13,7 +13,17 @@ import { activeNavSection } from '@/shared/utils/nav'
 
 import { t } from '@/shared/i18n'
 import { useNotificationUnread } from '@/shared/composables/useNotificationUnread'
+import { useNavUnread } from '@/shared/composables/useNavUnread'
 const { unread: unreadNotifications, label: unreadLabel } = useNotificationUnread()
+const { announcements: unreadAnnouncements, conversations: unreadConversations } = useNavUnread()
+/** Announcements and messages show a plain dot; notifications keep their count badge. */
+function hasDot(value: string) {
+  return (value === 'announcements' && unreadAnnouncements.value > 0) || (value === 'messages' && unreadConversations.value > 0)
+}
+function navLabel(value: string, label: string) {
+  if (value === 'notifications' && unreadNotifications.value > 0) return t('shared.unread.navCount', [label, unreadLabel.value])
+  return hasDot(value) ? t('shared.unread.navDot', [label]) : label
+}
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -80,14 +90,15 @@ async function handleLogout() {
         :key="item.value"
         class="nav-item"
         :class="{ 'nav-item--active': activeItem === item.value }"
-        :aria-label="item.label"
+        :aria-label="navLabel(item.value, item.label)"
         :title="item.label"
         @click="navigateTo(item)"
         :aria-current="activeItem === item.value ? 'page' : undefined"
       >
         <span class="nav-item__icon">
           <t-icon :name="activeItem === item.value ? item.iconActive : item.icon" :size="26" :aria-hidden="true" />
-          <span v-if="item.value === 'notifications' && unreadNotifications > 0" class="unread-badge" data-testid="notification-badge" :aria-label="$t('shared.unread.count', [unreadLabel])">{{ unreadLabel }}</span>
+          <span v-if="item.value === 'notifications' && unreadNotifications > 0" class="unread-badge" data-testid="notification-badge" aria-hidden="true">{{ unreadLabel }}</span>
+          <span v-if="hasDot(item.value)" class="unread-dot" :data-testid="`unread-dot-${item.value}`" aria-hidden="true" />
         </span>
         <span class="nav-item__label" :title="item.label">{{ item.label }}</span>
       </button>
@@ -134,6 +145,17 @@ async function handleLogout() {
 .tabbar__icon {
   position: relative;
   display: inline-flex;
+}
+
+.unread-dot {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-full);
+  background: var(--color-danger, #f4212e);
+  box-shadow: 0 0 0 2px var(--color-bg);
 }
 
 .unread-badge {

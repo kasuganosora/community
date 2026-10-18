@@ -54,7 +54,7 @@ func KeywordUpdate(c *gin.Context) {
 	var keyword *models.FilterKeyword
 
 	for _, k := range filter.Keywords {
-		if k.Keyword == keywordId {
+		if k.KeyID() == keywordId || k.Keyword == keywordId {
 			keyword = k
 
 			break

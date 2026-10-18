@@ -406,7 +406,9 @@
       "label": "言語"
     },
     "unread": {
-      "count": "未読 {0} 件"
+      "count": "未読 {0} 件",
+      "navDot": "{0}、未読あり",
+      "navCount": "{0}、未読 {1} 件"
     },
     "AccountHoverCard": {
       "title": "アカウント情報",
@@ -2954,6 +2956,57 @@
       "locked": "試行回数が多すぎます。15 分後にもう一度お試しください",
       "setupExpired": "設定の有効期限が切れました。最初からやり直してください",
       "failed": "操作に失敗しました"
+    },
+    "Blocks": {
+      "tab": "ブロック",
+      "edit": "編集",
+      "cancel": "キャンセル",
+      "newFilter": "新しいフィルター",
+      "editingFilter": "編集中：{0}",
+      "saveFilter": "変更を保存",
+      "filterSaved": "フィルターを更新しました",
+      "keywordsPlaceholder": "1行に1つずつキーワード",
+      "keywordsHint": "1行に1つ。空行と重複は自動で除きます。現在 {0} 件。",
+      "domainsHint": "1行に1ドメイン。URLをそのまま貼り付けてもOKです。現在 {0} 件。",
+      "invalidDomains": "有効なドメインではありません：{0}",
+      "someDomainsFailed": "ブロックできませんでした：{0}（{1}）",
+      "domainsBlocked": "{0} 件のドメインをブロックしました",
+      "blockedDomains": "ブロック中のドメイン",
+      "sort": "並び順",
+      "newest": "新しい順",
+      "oldest": "古い順",
+      "loadMore": "さらに読み込む",
+      "loadFailed": "リストを読み込めませんでした",
+      "actionFailed": "操作に失敗しました。もう一度お試しください",
+      "hiddenReblogs": "非表示のユーザー（ブースト）",
+      "hiddenReblogsHint": "フォロー中だけど、ホームでブーストを表示しないユーザーです。",
+      "hiddenReblogsEmpty": "ブーストを非表示にしているユーザーはいません。",
+      "showReblogs": "ブーストを表示",
+      "showReblogsDone": "ブーストの表示を再開しました",
+      "mutes": "ミュートしたユーザー",
+      "mutesHint": "ミュートしたユーザーの投稿はタイムラインに表示されません。相手には通知されません。",
+      "mutesEmpty": "ミュートしているユーザーはいません。",
+      "unmute": "ミュート解除",
+      "unmuteDone": "ミュートを解除しました",
+      "blocks": "ブロックしたユーザー",
+      "blocksHint": "ブロックした相手はあなたをフォローしたり反応したりできず、あなたにも相手の内容は表示されません。",
+      "blocksEmpty": "ブロックしているユーザーはいません。",
+      "unblock": "ブロック解除",
+      "unblockDone": "ブロックを解除しました",
+      "errors": {
+        "FILTER_TITLE_REQUIRED": "タイトルを入力してください",
+        "FILTER_KEYWORDS_REQUIRED": "キーワードを1つ以上入力してください",
+        "FILTER_KEYWORD_EMPTY": "キーワードを空にはできません",
+        "FILTER_KEYWORD_TOO_LONG": "キーワードが長すぎます（最大200文字）",
+        "FILTER_TOO_MANY_KEYWORDS": "キーワードが多すぎます（最大200件）",
+        "FILTER_ACTION_UNSUPPORTED": "対応していないアクションです",
+        "FILTER_CONTEXT_UNSUPPORTED": "対応していない適用範囲です",
+        "FILTER_NOT_FOUND": "フィルターが見つかりません",
+        "FILTER_KEYWORD_NOT_FOUND": "キーワードが変更されています。再読み込みしてからやり直してください",
+        "FILTER_INVALID_REQUEST": "リクエストの形式が正しくありません",
+        "DOMAIN_REQUIRED": "ドメインを入力してください",
+        "DOMAIN_INVALID": "ドメインの形式が正しくありません"
+      }
     }
   },
   "timeline": {

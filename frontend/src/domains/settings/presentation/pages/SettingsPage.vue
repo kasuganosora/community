@@ -10,7 +10,8 @@ import TwoFactorSettings from '../components/TwoFactorSettings.vue'
 import ConnectionsSettings from '../components/ConnectionsSettings.vue'
 import AccountLifecycleSettings from '../components/AccountLifecycleSettings.vue'
 import FilterSettings from '../components/FilterSettings.vue'
-import DomainBlockSettings from '../components/DomainBlockSettings.vue'
+import BlockSettings from '../components/BlockSettings.vue'
+import TabBar from '@/shared/components/common/TabBar.vue'
 import DiscoverySettings from '@/domains/discovery/presentation/components/DiscoverySettings.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import LanguagePicker from '@/shared/components/common/LanguagePicker.vue'
@@ -30,6 +31,12 @@ const sections = [
   { id: 'more', icon: 'more', label: t('settings.SettingsPage.s28') },
 ]
 const activeSection = computed(() => sections.some(item => item.id === route.query.section) ? route.query.section : 'profile')
+type PrivacyTab = 'filters' | 'blocks'
+const privacyTabs: { value: PrivacyTab; label: string; to: string }[] = [
+  { value: 'filters', label: t('settings.SettingsPage.s16'), to: '/settings?section=privacy&tab=filters' },
+  { value: 'blocks', label: t('settings.Blocks.tab'), to: '/settings?section=privacy&tab=blocks' },
+]
+const privacyTab = computed<PrivacyTab>(() => (route.query.tab === 'blocks' ? 'blocks' : 'filters'))
 const authStore = useAuthStore()
 const { preference, setPreference } = useTheme()
 const { mode: mediaMode, setMode: setMediaMode } = useMediaMode()
@@ -137,19 +144,21 @@ async function logout() {
         <ConnectionsSettings />
       </section>
 
-      <section v-if="authStore.currentUser" class="settings__section" v-show="activeSection === 'privacy'" aria-labelledby="settings-filters">
-        <h2 id="settings-filters" class="settings__heading">{{ $t('settings.SettingsPage.s16') }}</h2>
-        <div class="settings__group settings__group--padded">
-          <FilterSettings />
+      <template v-if="authStore.currentUser && activeSection === 'privacy'">
+        <div class="settings__tabs">
+          <TabBar :model-value="privacyTab" :options="privacyTabs" :label="$t('settings.SettingsPage.s27')" />
         </div>
-      </section>
-
-      <section v-if="authStore.currentUser" class="settings__section" v-show="activeSection === 'privacy'" aria-labelledby="settings-domains">
-        <h2 id="settings-domains" class="settings__heading">{{ $t('settings.SettingsPage.s17') }}</h2>
-        <div class="settings__group settings__group--padded">
-          <DomainBlockSettings />
-        </div>
-      </section>
+        <section v-if="privacyTab === 'filters'" class="settings__section" aria-labelledby="settings-filters" data-testid="privacy-filters">
+          <h2 id="settings-filters" class="settings__heading">{{ $t('settings.SettingsPage.s16') }}</h2>
+          <div class="settings__group settings__group--padded">
+            <FilterSettings />
+          </div>
+        </section>
+        <section v-else class="settings__section" aria-labelledby="settings-blocks" data-testid="privacy-blocks">
+          <h2 id="settings-blocks" class="settings__heading">{{ $t('settings.Blocks.tab') }}</h2>
+          <BlockSettings />
+        </section>
+      </template>
 
       <section v-if="authStore.currentUser" v-show="activeSection === 'more'" class="settings__section"><h2 class="settings__heading">{{ $t('settings.SettingsPage.s18') }}</h2><div class="settings__group"><router-link to="/settings/data" class="settings__row">{{ $t('settings.SettingsPage.s19') }} <t-icon name="chevron-right" :size="16" class="settings__chevron" aria-hidden="true" /></router-link></div></section>
 

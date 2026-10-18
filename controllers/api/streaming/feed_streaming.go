@@ -15,6 +15,7 @@ import (
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/feed"
+	"github.com/kasuganosora/community/feed/direct"
 	"github.com/kasuganosora/community/feed/home"
 	"github.com/kasuganosora/community/feed/list"
 	"github.com/kasuganosora/community/feed/notification"
@@ -206,7 +207,7 @@ func runFeedTopic(key string, topic *feedTopic) {
 			}
 		} else {
 			switch wire.Type {
-			case "update", "delete", "status.update", "filters_changed", "notification":
+			case "update", "delete", "status.update", "filters_changed", "notification", "conversation", "announcement":
 			default:
 				continue
 			}
@@ -284,6 +285,11 @@ func FeedStreaming(c *gin.Context) {
 	personal := feed.ChangedChannel(&home.HomeTimeline{Account: account})
 	if personal != channels[0] {
 		channels = append(channels, personal)
+	}
+	if _, isNotification := timeline.(*notification.NotificationTimeline); isNotification && c.Query("unread") == "1" {
+		// The nav badges: new direct messages and announcement changes wake
+		// the same stream, so one connection keeps all three dots current.
+		channels = append(channels, feed.GetRedisChannelName(&direct.DirectTimeline{Account: account}), feed.GetRedisChannelName(feed.AnnouncementsChannel{}))
 	}
 	merged := make(chan feed.ChangeHint, 1)
 	mergeCtx, stopMerge := context.WithCancel(ctx)

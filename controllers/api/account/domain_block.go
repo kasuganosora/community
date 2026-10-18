@@ -10,53 +10,57 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
-	"strconv"
 )
 
 // DomainBlocksList handles GET /api/v1/domain_blocks.
 func DomainBlocksList(c *gin.Context) {
-	limit := 80
-
-	if l := c.Query("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 80 {
-			limit = parsed
-		}
-	}
-
-	// Get current account
+	page := readRelationPage(c, 80)
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
-	// Query domain blocks
 	query := db.GetDB().Model(&models.Block{}).
-		Where("account_id = ? AND type = ?", account.Id, models.BlockTypeDomain).
-		Order("id DESC")
-
-	// Pagination
-	if maxId := c.Query("max_id"); maxId != "" {
-		if id, err := strconv.ParseUint(maxId, 10, 64); err == nil {
-			query = query.Where("id < ?", id)
-		}
-	}
+		Where("account_id = ? AND type = ?", account.Id, models.BlockTypeDomain)
 
 	blocks := make([]*models.Block, 0)
-	err := query.Limit(limit).Find(&blocks).Error
-	if err != nil {
+	if err := page.apply(c, query, "id").Find(&blocks).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "get domain blocks error"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
 
 		return
 	}
 
-	// Extract domains
 	domains := make([]string, 0, len(blocks))
-
+	cursors := make([]uint64, 0, len(blocks))
 	for _, b := range blocks {
+		cursors = append(cursors, b.Id)
 		if b.TargetDomain != "" {
 			domains = append(domains, b.TargetDomain)
 		}
 	}
 
+	page.links(c, cursors)
 	c.JSON(200, domains)
+}
+
+// Stable error codes for domain block requests.
+const (
+	ErrCodeDomainRequired = "DOMAIN_REQUIRED"
+	ErrCodeDomainInvalid  = "DOMAIN_INVALID"
+)
+
+// validBlockDomain accepts a bare host name such as "example.com" or an
+// IDN like "例子.测试": at least one dot, no empty labels and nothing that
+// belongs to a URL or an acct (spaces, slashes, @, ...).
+func validBlockDomain(domain string) bool {
+	if domain == "" || len(domain) > 253 || !strings.Contains(domain, ".") {
+		return false
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if label == "" || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return false
+		}
+	}
+
+	return !strings.ContainsAny(domain, " \t\r\n/@?#\\:*,;")
 }
 
 // DomainBlockRequest represents the request for blocking a domain.
@@ -71,7 +75,7 @@ func BlockDomain(c *gin.Context) {
 		// Also try form binding
 		req.Domain = c.PostForm("domain")
 		if req.Domain == "" {
-			c.AbortWithStatusJSON(400, gin.H{"error": "domain parameter required"})
+			c.AbortWithStatusJSON(400, gin.H{"error": "domain parameter required", "code": ErrCodeDomainRequired})
 
 			return
 		}
@@ -80,7 +84,7 @@ func BlockDomain(c *gin.Context) {
 	// Parse and validate domain
 	domain := strings.ToLower(strings.TrimSpace(req.Domain))
 	if domain == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "domain cannot be empty"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "domain cannot be empty", "code": ErrCodeDomainRequired})
 
 		return
 	}
@@ -89,7 +93,7 @@ func BlockDomain(c *gin.Context) {
 	if strings.HasPrefix(domain, "http://") || strings.HasPrefix(domain, "https://") {
 		parsedURL, err := url.Parse(domain)
 		if err != nil {
-			c.AbortWithStatusJSON(400, gin.H{"error": "invalid domain"}) //nolint:goconst
+			c.AbortWithStatusJSON(400, gin.H{"error": "invalid domain", "code": ErrCodeDomainInvalid}) //nolint:goconst
 
 			return
 		}
@@ -102,8 +106,8 @@ func BlockDomain(c *gin.Context) {
 		domain = domain[:idx]
 	}
 
-	if domain == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "invalid domain"})
+	if !validBlockDomain(domain) {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid domain", "code": ErrCodeDomainInvalid})
 
 		return
 	}
@@ -149,7 +153,7 @@ func UnblockDomain(c *gin.Context) {
 		// Also try form binding
 		req.Domain = c.PostForm("domain")
 		if req.Domain == "" {
-			c.AbortWithStatusJSON(400, gin.H{"error": "domain parameter required"})
+			c.AbortWithStatusJSON(400, gin.H{"error": "domain parameter required", "code": ErrCodeDomainRequired})
 
 			return
 		}
@@ -158,7 +162,7 @@ func UnblockDomain(c *gin.Context) {
 	// Parse and validate domain
 	domain := strings.ToLower(strings.TrimSpace(req.Domain))
 	if domain == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "domain cannot be empty"})
+		c.AbortWithStatusJSON(400, gin.H{"error": "domain cannot be empty", "code": ErrCodeDomainRequired})
 
 		return
 	}
@@ -167,7 +171,7 @@ func UnblockDomain(c *gin.Context) {
 	if strings.HasPrefix(domain, "http://") || strings.HasPrefix(domain, "https://") {
 		parsedURL, err := url.Parse(domain)
 		if err != nil {
-			c.AbortWithStatusJSON(400, gin.H{"error": "invalid domain"})
+			c.AbortWithStatusJSON(400, gin.H{"error": "invalid domain", "code": ErrCodeDomainInvalid})
 
 			return
 		}

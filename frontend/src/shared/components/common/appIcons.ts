@@ -16,11 +16,14 @@ import {
 
 import { SecuredIcon, PaletteIcon, CloudIcon, CodeIcon, ChartIcon, FileIcon, FileAddIcon, HistoryIcon, BulletpointIcon, UserCheckedIcon } from 'tdesign-icons-vue-next'
 
+import { StopCircleIcon } from 'tdesign-icons-vue-next'
+
 import { QuoteIcon, DashboardIcon, UsergroupIcon, FlagIcon, HappyIcon, InternetIcon, ServerIcon, DataIcon, MenuIcon, ArrowRightUpIcon, ArrowRightIcon } from 'tdesign-icons-vue-next'
 
 /** Icons bundled locally (no runtime download). Add names here as needed. */
 export const ICONS: Record<string, Component> = {
   'secured': SecuredIcon,
+  'stop-circle': StopCircleIcon,
   'palette': PaletteIcon,
   'cloud': CloudIcon,
   'code': CodeIcon,

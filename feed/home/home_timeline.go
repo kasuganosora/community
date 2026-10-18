@@ -295,7 +295,20 @@ func Push(status *models.Status, update bool) (err error) {
 			}
 		} else {
 			// 转发：保留单条调用，因为每个用户可能有不同的 aggregatesReblogs 设置
+			// Followers who turned this booster's reblogs off don't get it.
+			hidden := make(map[uint64]bool)
+			hiddenIDs := make([]uint64, 0)
+			conn := db.GetDB()
+			if goroutineErr = conn.Model(&models.Follow{}).Where("follows.follow_id = ? AND follows.account_id IN ?", status.AccountId, accountsId).Where(models.HiddenReblogsCondition(conn)).Pluck("follows.account_id", &hiddenIDs).Error; goroutineErr != nil {
+				log.ErrorV(errors.Wrap(goroutineErr, fmt.Sprintf("load hidden reblog followers failed, status id %d", status.Id)))
+			}
+			for _, id := range hiddenIDs {
+				hidden[id] = true
+			}
 			for _, account := range accounts {
+				if hidden[account.Id] && account.Id != status.AccountId {
+					continue
+				}
 				goroutineErr = PushToHome(account, status, update, true)
 				if goroutineErr != nil {
 					goroutineErr = errors.Wrap(goroutineErr, fmt.Sprintf("Push status to followers failed, status id %d, to account %d", status.Id, account.Id))
@@ -387,7 +400,8 @@ func GetTimeLineContent(account *models.Account, params *feed.ListParam) (status
 func homeCandidates(tx *gorm.DB, accountID uint64) *gorm.DB {
 	following := tx.Session(&gorm.Session{NewDB: true}).Model(&models.Follow{}).Where("account_id = ? AND status = ?", accountID, models.FollowStatusFollowed).Select("follow_id")
 	mentions := tx.Session(&gorm.Session{NewDB: true}).Model(&models.StatusToAccount{}).Where("account_id = ?", accountID).Select("status_id")
-	return feed.EligibleTimelineStatuses(tx.Model(&models.Status{})).Where("(COALESCE("+dialect.JSONText(tx, "statuses.properties", models.StatusPropBackfilled)+", '') <> '1' OR statuses.account_id = ? OR statuses.id IN (?))", accountID, mentions).Where("(statuses.account_id = ? OR statuses.account_id IN (?) OR statuses.id IN (?))", accountID, following, mentions).Where("(statuses.visibility <> ? OR statuses.account_id = ? OR statuses.id IN (?))", models.StatusVisibilityDirect, accountID, mentions)
+	hiddenReblogs := tx.Session(&gorm.Session{NewDB: true}).Model(&models.Follow{}).Where("follows.account_id = ?", accountID).Where(models.HiddenReblogsCondition(tx)).Select("follows.follow_id")
+	return feed.EligibleTimelineStatuses(tx.Model(&models.Status{})).Where("(statuses.reblog_id IS NULL OR statuses.reblog_id = 0 OR statuses.account_id NOT IN (?))", hiddenReblogs).Where("(COALESCE("+dialect.JSONText(tx, "statuses.properties", models.StatusPropBackfilled)+", '') <> '1' OR statuses.account_id = ? OR statuses.id IN (?))", accountID, mentions).Where("(statuses.account_id = ? OR statuses.account_id IN (?) OR statuses.id IN (?))", accountID, following, mentions).Where("(statuses.visibility <> ? OR statuses.account_id = ? OR statuses.id IN (?))", models.StatusVisibilityDirect, accountID, mentions)
 }
 
 func (timeline *HomeTimeline) AggregateReblogs() bool {

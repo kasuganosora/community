@@ -19,8 +19,9 @@ const filter: MastodonFilter = { id: 'f1', title: 'Filtered keyword', context: [
 
 it.each(['domains', 'filters'] as const)('distinguishes a slow or failed %s load from an empty list and retries', async kind => {
   const pending = deferred<never>()
-  const load = kind === 'domains' ? vi.spyOn(moderationApi, 'listDomainBlocks') : vi.spyOn(moderationApi, 'listFilters')
-  load.mockImplementationOnce(() => pending.promise).mockResolvedValueOnce([])
+  if (kind === 'domains') vi.spyOn(moderationApi, 'listDomainBlocks').mockImplementationOnce(() => pending.promise).mockResolvedValueOnce({ items: [] })
+  else vi.spyOn(moderationApi, 'listFilters').mockImplementationOnce(() => pending.promise).mockResolvedValueOnce([])
+  const load = kind === 'domains' ? vi.mocked(moderationApi.listDomainBlocks) : vi.mocked(moderationApi.listFilters)
   const w = mount(kind === 'domains' ? DomainBlockSettings : FilterSettings); wrappers.push(w)
   expect(w.get('[role=status]').text()).toContain('正在加载')
   expect(w.text()).not.toContain('还没有')
@@ -34,12 +35,12 @@ it.each(['domains', 'filters'] as const)('distinguishes a slow or failed %s load
 
 it.each(['domains', 'filters'] as const)('shows pending %s removal and sends a single request', async kind => {
   const pending = deferred<void>()
-  vi.spyOn(moderationApi, 'listDomainBlocks').mockResolvedValue(['example.test'])
+  vi.spyOn(moderationApi, 'listDomainBlocks').mockResolvedValue({ items: ['example.test'] })
   vi.spyOn(moderationApi, 'listFilters').mockResolvedValue([filter])
   const remove = kind === 'domains' ? vi.spyOn(moderationApi, 'unblockDomain') : vi.spyOn(moderationApi, 'deleteFilter')
   remove.mockImplementation(() => pending.promise)
   const w = mount(kind === 'domains' ? DomainBlockSettings : FilterSettings); wrappers.push(w); await flushPromises()
-  const button = w.get('li button')
+  const button = w.get('li button:last-of-type')
   await button.trigger('click'); await button.trigger('click')
   expect(button.attributes('disabled')).toBeDefined()
   expect(button.attributes('aria-busy')).toBe('true')

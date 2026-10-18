@@ -13,7 +13,7 @@ import (
 
 type FollowRequest struct {
 	AccountId uint64 `form:"-"       json:"account_id"`
-	Reblogs   bool   `form:"reblogs" json:"reblogs"`
+	Reblogs   *bool  `form:"reblogs" json:"reblogs"`
 }
 
 // bindOptionalBody binds a JSON or form body if the request has one and is a
@@ -27,8 +27,9 @@ func bindOptionalBody(c *gin.Context, obj any) error {
 }
 
 func Follow(c *gin.Context) {
-	// Mastodon defaults reblogs to true when the parameter is omitted.
-	req := FollowRequest{Reblogs: true}
+	// Mastodon defaults reblogs to true for a new follow and leaves an
+	// existing follow's setting alone when the parameter is omitted.
+	req := FollowRequest{}
 	// Mastodon clients (and the bundled web UI) usually POST without a body;
 	// parameters may also come as form data. Only bind when a body exists.
 	if err := bindOptionalBody(c, &req); err != nil {
@@ -111,11 +112,26 @@ func Follow(c *gin.Context) {
 		follow.Properties = make(map[string]any)
 	}
 
-	follow.Properties["reblogs"] = req.Reblogs
-
 	if follow.Id > 0 {
-		err = db.GetDB().Save(follow).Error
+		// Only the reblogs preference can change on an existing follow. Write
+		// just that column so the follow hooks (notifications, federation)
+		// don't fire again.
+		if req.Reblogs != nil {
+			follow.Properties[models.FollowPropertyKeyReblogs] = *req.Reblogs
+			err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+				if err := tx.Session(&gorm.Session{SkipHooks: true}).Model(follow).Select("properties").Updates(follow).Error; err != nil {
+					return err
+				}
+				// Rebuild the follower's home feed so reblogs appear or vanish.
+				return models.QueueFeedInvalidation(tx, models.FeedEventMetadata{ActorID: follow.AccountId, RecipientIDs: []uint64{follow.AccountId}, TargetAccountID: follow.FollowId, RelationshipID: follow.Id, Reason: "follow_changed"})
+			})
+		}
 	} else {
+		reblogs := true
+		if req.Reblogs != nil {
+			reblogs = *req.Reblogs
+		}
+		follow.Properties[models.FollowPropertyKeyReblogs] = reblogs
 		// 如果目标账户设置了关注保护，那么直接设置为请求状态
 		// Remote accounts have no local User.
 		if targetAccount.Domain != nil || targetAccount.Locked || (targetAccount.User != nil && targetAccount.User.Settings.IsFollowProtect()) {

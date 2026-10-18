@@ -3,7 +3,13 @@ import { API_BASE_URL, tokenService } from '@/shared/api/client'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 
 /** SSE transports invalidations only. Authorization and content always come from HTTP. */
-export function useFeedStream(target: Ref<string>, revalidate: () => Promise<boolean | void>) {
+export interface FeedStreamOptions {
+  /** false: no periodic fallback; revalidate only on connect/reconnect, hints, and window focus. */
+  poll?: boolean
+}
+
+export function useFeedStream(target: Ref<string>, revalidate: () => Promise<boolean | void>, options: FeedStreamOptions = {}) {
+  const poll = options.poll !== false
   let controller: AbortController | undefined
   let reconnect: ReturnType<typeof setTimeout> | undefined
   let debounce: ReturnType<typeof setTimeout> | undefined
@@ -93,11 +99,13 @@ export function useFeedStream(target: Ref<string>, revalidate: () => Promise<boo
   onMounted(() => {
     mounted = true
     document.addEventListener('visibilitychange', restart)
-    fallback = setInterval(schedule, 60_000)
+    if (poll) fallback = setInterval(schedule, 60_000)
+    else window.addEventListener('focus', schedule)
     restart()
   })
   onBeforeUnmount(() => {
     mounted = false; restart(); clearInterval(fallback)
     document.removeEventListener('visibilitychange', restart)
+    window.removeEventListener('focus', schedule)
   })
 }

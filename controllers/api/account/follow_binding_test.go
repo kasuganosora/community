@@ -26,14 +26,17 @@ func TestBindOptionalBody(t *testing.T) {
 	// No body at all (what the web UI and most Mastodon clients send).
 	var req FollowRequest
 	require.NoError(t, bindOptionalBody(newCtx("", ""), &req))
+	assert.Nil(t, req.Reblogs, "an omitted reblogs flag must stay unset so an existing follow keeps its preference")
 
 	req = FollowRequest{}
 	require.NoError(t, bindOptionalBody(newCtx(`{"reblogs":true}`, "application/json"), &req))
-	assert.True(t, req.Reblogs)
+	require.NotNil(t, req.Reblogs)
+	assert.True(t, *req.Reblogs)
 
 	req = FollowRequest{}
 	require.NoError(t, bindOptionalBody(newCtx("reblogs=true", "application/x-www-form-urlencoded"), &req))
-	assert.True(t, req.Reblogs)
+	require.NotNil(t, req.Reblogs)
+	assert.True(t, *req.Reblogs)
 
 	assert.Error(t, bindOptionalBody(newCtx("{bad", "application/json"), &FollowRequest{}))
 }

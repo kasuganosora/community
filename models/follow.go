@@ -28,6 +28,30 @@ type Follow struct { //nolint:recvcheck
 	Account    *Account       `gorm:"foreignKey:AccountId"                      json:"account"`
 }
 
+// ShowsReblogs reports whether the follower wants this account's reblogs in
+// their home feed. A missing flag means yes (Mastodon's default).
+func (f *Follow) ShowsReblogs() bool {
+	if f == nil || f.Properties == nil {
+		return true
+	}
+	v, ok := f.Properties[FollowPropertyKeyReblogs].(bool)
+
+	return !ok || v
+}
+
+// HiddenReblogsCondition is an SQL predicate on the follows table matching
+// follows whose reblogs flag is explicitly false.
+func HiddenReblogsCondition(conn *gorm.DB) string {
+	switch {
+	case dialect.IsPostgres(conn):
+		return "follows.properties->>'" + FollowPropertyKeyReblogs + "' = 'false'"
+	case dialect.IsSQLite(conn):
+		return "json_extract(follows.properties, '$." + FollowPropertyKeyReblogs + "') = 0"
+	default:
+		return "JSON_EXTRACT(follows.properties, '$." + FollowPropertyKeyReblogs + "') = false"
+	}
+}
+
 func (Follow) TableName() string {
 	return "follows"
 }

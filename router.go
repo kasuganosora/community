@@ -305,7 +305,8 @@ func SetRouter(app gin.IRouter) {
 	// 通知（读取）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
 		GET("/notifications", timelines.NotificationTimeline).
-		GET("/notifications/:id", timelines.GetNotification)
+		GET("/notifications/:id", timelines.GetNotification).
+		GET("/unread_counts", conversation.UnreadCounts)
 
 	// 通知策略（读取）——与通知读取相同的 scope
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
@@ -330,6 +331,7 @@ func SetRouter(app gin.IRouter) {
 		GET("/follow_requests", follow_request.List).
 		GET("/blocks", account.BlocksList).
 		GET("/mutes", account.MutesList).
+		GET("/hidden_reblogs", account.HiddenReblogsList).
 		GET("/endorsements", account.ListEndorsements).
 		GET("/followed_tags", account.ListFollowedTags)
 

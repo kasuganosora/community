@@ -406,7 +406,9 @@
       "label": "Language"
     },
     "unread": {
-      "count": "{0} unread"
+      "count": "{0} unread",
+      "navDot": "{0}, unread",
+      "navCount": "{0}, {1} unread"
     },
     "AccountHoverCard": {
       "title": "Account profile",
@@ -2954,6 +2956,57 @@
       "locked": "Too many wrong codes. Try again in 15 minutes.",
       "setupExpired": "Setup expired, please start again",
       "failed": "Something went wrong"
+    },
+    "Blocks": {
+      "tab": "Blocks",
+      "edit": "Edit",
+      "cancel": "Cancel",
+      "newFilter": "New filter",
+      "editingFilter": "Editing: {0}",
+      "saveFilter": "Save changes",
+      "filterSaved": "Filter updated",
+      "keywordsPlaceholder": "One keyword per line",
+      "keywordsHint": "One per line; blank lines and duplicates are dropped. {0} keyword | One per line; blank lines and duplicates are dropped. {0} keywords",
+      "domainsHint": "One domain per line; pasting a URL works too. {0} domain | One domain per line; pasting a URL works too. {0} domains",
+      "invalidDomains": "Not valid domains: {0}",
+      "someDomainsFailed": "Couldn't block: {0} ({1})",
+      "domainsBlocked": "Blocked {0} domain | Blocked {0} domains",
+      "blockedDomains": "Blocked domains",
+      "sort": "Sort",
+      "newest": "Newest",
+      "oldest": "Oldest",
+      "loadMore": "Load more",
+      "loadFailed": "Couldn't load the list",
+      "actionFailed": "Something went wrong, please try again",
+      "hiddenReblogs": "Hidden users (reblogs)",
+      "hiddenReblogsHint": "People you follow whose reblogs you don't want on your home timeline.",
+      "hiddenReblogsEmpty": "No one has their reblogs hidden.",
+      "showReblogs": "Show reblogs",
+      "showReblogsDone": "Reblogs shown again",
+      "mutes": "Muted users",
+      "mutesHint": "Muted users' posts stay out of your timelines. They aren't notified.",
+      "mutesEmpty": "You haven't muted anyone.",
+      "unmute": "Unmute",
+      "unmuteDone": "Unmuted",
+      "blocks": "Blocked users",
+      "blocksHint": "Blocked users can't follow or interact with you, and you won't see their posts.",
+      "blocksEmpty": "You haven't blocked anyone.",
+      "unblock": "Unblock",
+      "unblockDone": "Unblocked",
+      "errors": {
+        "FILTER_TITLE_REQUIRED": "Please enter a title",
+        "FILTER_KEYWORDS_REQUIRED": "Add at least one keyword",
+        "FILTER_KEYWORD_EMPTY": "Keywords can't be empty",
+        "FILTER_KEYWORD_TOO_LONG": "A keyword is too long (200 characters max)",
+        "FILTER_TOO_MANY_KEYWORDS": "Too many keywords (200 max)",
+        "FILTER_ACTION_UNSUPPORTED": "Unsupported filter action",
+        "FILTER_CONTEXT_UNSUPPORTED": "Unsupported filter context",
+        "FILTER_NOT_FOUND": "This filter no longer exists",
+        "FILTER_KEYWORD_NOT_FOUND": "The keywords changed elsewhere. Reload and try again",
+        "FILTER_INVALID_REQUEST": "The request was malformed",
+        "DOMAIN_REQUIRED": "Please enter a domain",
+        "DOMAIN_INVALID": "That doesn't look like a domain"
+      }
     }
   },
   "timeline": {

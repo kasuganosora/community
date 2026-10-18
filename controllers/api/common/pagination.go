@@ -97,3 +97,14 @@ func SetOffsetLinks(c *gin.Context, offset, count, limit int) {
 
 	writeLink(c, next, prev)
 }
+
+// SetAscPageLinks sets the next link for a list served oldest-first
+// (order=asc): the next page continues after lastID via min_id, keeping
+// every other query parameter (including order). No prev link is emitted.
+func SetAscPageLinks(c *gin.Context, lastID uint64, hasNext bool) {
+	if lastID == 0 || !hasNext {
+		return
+	}
+
+	writeLink(c, pageURL(c, map[string]string{"min_id": strconv.FormatUint(lastID, 10)}), "")
+}

@@ -49,7 +49,7 @@ func KeywordDelete(c *gin.Context) {
 	newKeywords := make([]*models.FilterKeyword, 0, len(filter.Keywords)) // never nil: "null" would be stored as "" (invalid JSON)
 
 	for _, k := range filter.Keywords {
-		if k.Keyword == keywordId {
+		if k.KeyID() == keywordId || k.Keyword == keywordId {
 			continue
 		}
 

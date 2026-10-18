@@ -20,6 +20,9 @@ type UpdateFilterRequest struct {
 	Context      *[]string                `json:"context"`
 	FilterAction *string                  `json:"filter_action"`
 	Keywords     *[]*models.FilterKeyword `json:"keywords"`
+	// KeywordsAttributes (Mastodon v2) adds, edits or (_destroy) removes
+	// individual keywords; Keywords replaces the whole list.
+	KeywordsAttributes []KeywordAttribute `json:"keywords_attributes"`
 }
 
 func Update(c *gin.Context) {
@@ -32,7 +35,7 @@ func Update(c *gin.Context) {
 
 	var req UpdateFilterRequest
 	if err = controllers.BindBody(c, &req); err != nil {
-		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+		fail(c, 400, ErrCodeFilterInvalidRequest, err.Error())
 
 		return
 	}
@@ -44,7 +47,7 @@ func Update(c *gin.Context) {
 	err = db.GetDB().Where("id = ? and account_id = ?", id, currentAccount.Id).First(filter).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.AbortWithStatusJSON(404, gin.H{"error": "filter not found"}) //nolint:goconst
+			fail(c, 404, ErrCodeFilterNotFound, "filter not found")
 
 			return
 		}
@@ -57,7 +60,7 @@ func Update(c *gin.Context) {
 	if req.Title != nil {
 		title := strings.TrimSpace(*req.Title)
 		if title == "" {
-			c.AbortWithStatusJSON(422, gin.H{"error": "Title cannot be empty"})
+			fail(c, 422, ErrCodeFilterTitleRequired, "Title cannot be empty")
 
 			return
 		}
@@ -67,7 +70,7 @@ func Update(c *gin.Context) {
 	if req.FilterAction != nil {
 		action, ok := models.ParseFilterAction(*req.FilterAction)
 		if !ok || strings.TrimSpace(*req.FilterAction) == "" {
-			c.AbortWithStatusJSON(422, gin.H{"error": "Unsupported filter action"})
+			fail(c, 422, ErrCodeFilterActionUnsupported, "Unsupported filter action")
 
 			return
 		}
@@ -85,7 +88,7 @@ func Update(c *gin.Context) {
 
 	if req.Context != nil {
 		if !models.ValidFilterContexts(*req.Context) {
-			c.AbortWithStatusJSON(422, gin.H{"error": "Unsupported filter context"})
+			fail(c, 422, ErrCodeFilterContextUnsupported, "Unsupported filter context")
 
 			return
 		}
@@ -94,19 +97,40 @@ func Update(c *gin.Context) {
 
 	if req.Keywords != nil {
 		if len(*req.Keywords) == 0 {
-			c.AbortWithStatusJSON(422, gin.H{"error": "At least one keyword is required"})
+			fail(c, 422, ErrCodeFilterKeywordsRequired, "At least one keyword is required")
 
 			return
 		}
 		for _, keyword := range *req.Keywords {
-			if keyword == nil || strings.TrimSpace(keyword.Keyword) == "" {
-				c.AbortWithStatusJSON(422, gin.H{"error": "Keyword cannot be empty"})
+			if keyword == nil {
+				fail(c, 422, ErrCodeFilterKeywordEmpty, "Keyword cannot be empty")
 
 				return
 			}
-			keyword.Keyword = strings.TrimSpace(keyword.Keyword)
+			text, kerr := validKeyword(keyword.Keyword)
+			if kerr != nil {
+				fail(c, kerr.status, kerr.code, kerr.msg)
+
+				return
+			}
+			keyword.Keyword = text
 		}
 		filter.Keywords = updateKeywordsFields(filter.Keywords, *req.Keywords)
+	}
+
+	if len(req.KeywordsAttributes) > 0 {
+		keywords, kerr := applyKeywordAttributes(strconv.FormatUint(filter.Id, 10), filter.Keywords, req.KeywordsAttributes)
+		if kerr != nil {
+			fail(c, kerr.status, kerr.code, kerr.msg)
+
+			return
+		}
+		if len(keywords) == 0 {
+			fail(c, 422, ErrCodeFilterKeywordsRequired, "At least one keyword is required")
+
+			return
+		}
+		filter.Keywords = keywords
 	}
 
 	if err = db.GetDB().Save(filter).Error; err != nil {

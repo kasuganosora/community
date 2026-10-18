@@ -406,7 +406,9 @@
       "label": "语言"
     },
     "unread": {
-      "count": "{0} 条未读"
+      "count": "{0} 条未读",
+      "navDot": "{0}，有未读",
+      "navCount": "{0}，{1} 条未读"
     },
     "AccountHoverCard": {
       "title": "账号资料",
@@ -2954,6 +2956,57 @@
       "locked": "错误次数过多，请 15 分钟后再试",
       "setupExpired": "设置已过期，请重新开始",
       "failed": "操作失败"
+    },
+    "Blocks": {
+      "tab": "屏蔽",
+      "edit": "编辑",
+      "cancel": "取消",
+      "newFilter": "新建过滤器",
+      "editingFilter": "正在编辑：{0}",
+      "saveFilter": "保存修改",
+      "filterSaved": "过滤器已更新",
+      "keywordsPlaceholder": "每行一个关键词",
+      "keywordsHint": "每行一个，空行和重复会自动去掉。当前 {0} 个。",
+      "domainsHint": "每行一个域名，可以直接粘贴网址。当前 {0} 个。",
+      "invalidDomains": "这些不是有效的域名：{0}",
+      "someDomainsFailed": "没能屏蔽：{0}（{1}）",
+      "domainsBlocked": "已屏蔽 {0} 个域名",
+      "blockedDomains": "已屏蔽的域名",
+      "sort": "排序",
+      "newest": "最新",
+      "oldest": "最早",
+      "loadMore": "加载更多",
+      "loadFailed": "列表加载失败",
+      "actionFailed": "操作失败，请重试",
+      "hiddenReblogs": "已隐藏的用户（转发）",
+      "hiddenReblogsHint": "你关注了这些用户，但不想在首页看到他们的转发。",
+      "hiddenReblogsEmpty": "没有隐藏转发的用户。",
+      "showReblogs": "显示转发",
+      "showReblogsDone": "已恢复显示转发",
+      "mutes": "已隐藏的用户",
+      "mutesHint": "隐藏后，这些用户的帖子不会出现在你的时间线里，对方不会收到提示。",
+      "mutesEmpty": "没有隐藏的用户。",
+      "unmute": "取消隐藏",
+      "unmuteDone": "已取消隐藏",
+      "blocks": "已屏蔽的用户",
+      "blocksHint": "屏蔽后，对方无法关注你或与你互动，你也看不到对方的内容。",
+      "blocksEmpty": "没有屏蔽的用户。",
+      "unblock": "取消屏蔽",
+      "unblockDone": "已取消屏蔽",
+      "errors": {
+        "FILTER_TITLE_REQUIRED": "请填写标题",
+        "FILTER_KEYWORDS_REQUIRED": "至少要有一个关键词",
+        "FILTER_KEYWORD_EMPTY": "关键词不能为空",
+        "FILTER_KEYWORD_TOO_LONG": "关键词太长了（最多 200 个字符）",
+        "FILTER_TOO_MANY_KEYWORDS": "关键词太多了（最多 200 个）",
+        "FILTER_ACTION_UNSUPPORTED": "不支持的命中动作",
+        "FILTER_CONTEXT_UNSUPPORTED": "不支持的生效范围",
+        "FILTER_NOT_FOUND": "过滤器不存在或已删除",
+        "FILTER_KEYWORD_NOT_FOUND": "关键词已被修改，请刷新后再试",
+        "FILTER_INVALID_REQUEST": "请求格式不正确",
+        "DOMAIN_REQUIRED": "请输入域名",
+        "DOMAIN_INVALID": "域名格式不正确"
+      }
     }
   },
   "timeline": {

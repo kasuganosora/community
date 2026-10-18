@@ -272,8 +272,10 @@ func Relationships(c *gin.Context) {
 		return
 	}
 
+	showingReblogsMap := make(map[uint64]bool)
 	for _, f := range followingList {
 		followingMap[f.FollowId] = true
+		showingReblogsMap[f.FollowId] = f.ShowsReblogs()
 	}
 
 	// Follow requested status
@@ -354,7 +356,7 @@ func Relationships(c *gin.Context) {
 			"muting_notifications": false,
 			"requested":            requestedMap[targetId],
 			"domain_blocking":      false,
-			"showing_reblogs":      true,
+			"showing_reblogs":      showingReblogs(followingMap[targetId], showingReblogsMap[targetId]),
 			"endorsed":             false,
 			"note":                 "",
 		})
@@ -362,3 +364,7 @@ func Relationships(c *gin.Context) {
 
 	c.JSON(200, relationships)
 }
+
+// showingReblogs mirrors Mastodon: false when not following, otherwise the
+// follow's reblogs preference.
+func showingReblogs(following, shows bool) bool { return following && shows }
