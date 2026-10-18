@@ -7,6 +7,7 @@ import (
 	"github.com/kasuganosora/community/clientip"
 	"github.com/kasuganosora/community/controllers/api/streaming"
 	"github.com/kasuganosora/community/db/writebuffer"
+	"github.com/kasuganosora/community/secretredact"
 	"github.com/kasuganosora/community/serializer"
 	"net/http"
 	"os"
@@ -253,6 +254,9 @@ func setupServer() *gin.Engine {
 	// Compress API/federation JSON (brotli or gzip); outside the timeout
 	// wrapper so the encoder is closed after the handler finished.
 	app.Use(middleware.APICompression())
+	// Inside compression so it sees plain bytes: error bodies never echo the
+	// request's own token, whatever error text produced them.
+	app.Use(secretredact.Middleware())
 
 	// 超时控制中间件
 	app.Use(middleware.TimeoutMiddleware(30 * time.Second))

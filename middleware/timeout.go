@@ -3,6 +3,8 @@ package middleware
 import (
 	"context"
 	"errors"
+	"fmt"
+	"github.com/kasuganosora/community/secretredact"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -140,6 +142,8 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 
 		finished := make(chan struct{})
 		panicChan := make(chan handlerPanic, 1)
+		// Captured now: after a timeout the gin context may be recycled.
+		secrets := secretredact.Collect(c.Request)
 
 		go func() {
 			defer func() {
@@ -158,7 +162,7 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			c.Writer = original
 		case p := <-panicChan:
 			c.Writer = original
-			log.Error("panic in handler: %v\n%s", p.value, p.stack)
+			log.Error("panic in handler: %s", secretredact.Apply(fmt.Sprintf("%v\n%s", p.value, p.stack), secrets))
 			panic(p.value)
 		case <-ctx.Done():
 			if errors.Is(ctx.Err(), context.Canceled) {
@@ -175,7 +179,7 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 			select {
 			case <-finished:
 			case p := <-panicChan:
-				log.Error("panic in handler after timeout: %v\n%s", p.value, p.stack)
+				log.Error("panic in handler after timeout: %s", secretredact.Apply(fmt.Sprintf("%v\n%s", p.value, p.stack), secrets))
 			case <-grace.C:
 				log.Warn("handler still running %s after its timeout, holding the request until it returns: %s %s", timeoutGrace, c.Request.Method, c.Request.URL.Path)
 				hard := time.NewTimer(timeoutWarningInterval)
@@ -183,13 +187,13 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 				select {
 				case <-finished:
 				case p := <-panicChan:
-					log.Error("panic in handler after timeout: %v\n%s", p.value, p.stack)
+					log.Error("panic in handler after timeout: %s", secretredact.Apply(fmt.Sprintf("%v\n%s", p.value, p.stack), secrets))
 				case <-hard.C:
 					log.Error("handler still running %s after its timeout, waiting for cancellation to finish: %s %s", timeoutGrace+timeoutWarningInterval, c.Request.Method, c.Request.URL.Path)
 					select {
 					case <-finished:
 					case p := <-panicChan:
-						log.Error("panic in handler after timeout: %v\n%s", p.value, p.stack)
+						log.Error("panic in handler after timeout: %s", secretredact.Apply(fmt.Sprintf("%v\n%s", p.value, p.stack), secrets))
 					}
 				}
 			}

@@ -10,6 +10,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/secretredact"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -56,7 +57,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		// 验证token
 		tokenData, err := models.GetAuthTokenData(authToken, config.C.EncryptedKey)
 		if err != nil {
-			log.Error("GetAuthTokenData error: %+v", err)
+			log.Error("GetAuthTokenData error: %s", secretredact.Scrub(c, fmt.Sprintf("%+v", err)))
 			returnUnauthorizedAndRemoveCookie(c)
 
 			return

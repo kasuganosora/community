@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"github.com/kasuganosora/community/secretredact"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -49,7 +50,7 @@ func RequestLogMiddleware() gin.HandlerFunc {
 
 		// 如果有错误，记录错误信息
 		if len(c.Errors) > 0 {
-			fields["errors"] = c.Errors.String()
+			fields["errors"] = secretredact.Scrub(c, c.Errors.String())
 		}
 
 		entry = log.WithFields(fields)

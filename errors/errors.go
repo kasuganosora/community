@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	"github.com/kasuganosora/community/secretredact"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -172,7 +173,7 @@ func ErrorHandler() gin.HandlerFunc {
 			log.WithFields(map[string]any{
 				"path":   c.Request.URL.Path,
 				"method": c.Request.Method,
-			}).Error("Request error (response already written): " + err.Error())
+			}).Error("Request error (response already written): " + secretredact.Scrub(c, err.Error()))
 
 			return
 		}
@@ -195,16 +196,19 @@ func ErrorHandler() gin.HandlerFunc {
 					"path":       c.Request.URL.Path,
 					"method":     c.Request.Method,
 					"request_id": appErr.RequestID,
-				}).Error("Server error: " + appErr.Detail)
+				}).Error("Server error: " + secretredact.Scrub(c, appErr.Detail))
 			}
 
+			if appErr.Detail != "" {
+				appErr = appErr.WithDetail(secretredact.Scrub(c, appErr.Detail))
+			}
 			c.JSON(appErr.Status, appErr.JSON())
 
 			return
 		}
 
 		// 处理其他类型的错误
-		response := ErrInternal.WithDetail(err.Error())
+		response := ErrInternal.WithDetail(secretredact.Scrub(c, err.Error()))
 		if config.C.DevMode != "true" {
 			response.Detail = "" // 生产环境不暴露内部错误
 		}
@@ -218,11 +222,11 @@ func ErrorHandler() gin.HandlerFunc {
 
 		// 记录错误
 		log.WithFields(map[string]any{
-			"error":      err.Error(),
+			"error":      secretredact.Scrub(c, err.Error()),
 			"path":       c.Request.URL.Path,
 			"method":     c.Request.Method,
 			"request_id": response.RequestID,
-		}).Error("Unhandled error: " + err.Error())
+		}).Error("Unhandled error: " + secretredact.Scrub(c, err.Error()))
 
 		c.JSON(http.StatusInternalServerError, response.JSON())
 	}

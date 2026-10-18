@@ -5,6 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/secretredact"
 )
 
 func HandleErrorsMiddleware() gin.HandlerFunc {
@@ -21,12 +22,12 @@ func HandleErrorsMiddleware() gin.HandlerFunc {
 		}
 
 		if config.C.DevMode == "true" {
-			ret["error"] = lastError.Error()
-			ret["stack"] = fmt.Sprintf("%+v", lastError.Err)
+			ret["error"] = secretredact.Scrub(c, lastError.Error())
+			ret["stack"] = secretredact.Scrub(c, fmt.Sprintf("%+v", lastError.Err))
 		}
 
 		// 使用结构化日志记录错误，而非 fmt.Printf
-		log.Error("Request error: %+v", lastError.Err)
+		log.Error("Request error: %s", secretredact.Scrub(c, fmt.Sprintf("%+v", lastError.Err)))
 
 		if c.Writer.Written() {
 			return
