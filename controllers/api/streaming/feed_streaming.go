@@ -114,7 +114,7 @@ func subscribeFeedHint(ctx context.Context, channel string) (<-chan feed.ChangeH
 				cancel()
 				return nil, nil, context.Canceled
 			}
-			_, err := pub.Receive(initCtx)
+			err := confirmSubscribed(initCtx, pub, channel)
 			cancel()
 			feedTopics.Lock()
 			if feedTopics.entries[key] != topic {
@@ -338,7 +338,12 @@ func FeedStreaming(c *gin.Context) {
 		return controller.Flush()
 	}
 	defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
-	if write([]byte("event: feed.changed\ndata: {\"epoch\":\"\",\"revision\":\"\"}\n\n")) != nil {
+	// Every SUBSCRIBE above is confirmed by Redis now, so anything published
+	// from here on reaches this stream. A change committed before that (or
+	// while the client's own on-connect refetch was in flight) would be lost,
+	// so send one hint with a unique revision: the client recounts unread
+	// state and reconciles its window after the subscriptions are live.
+	if write(subscribedHintFrame()) != nil {
 		return
 	}
 	_ = feed.RecordActivity(ctx, account)
@@ -382,4 +387,26 @@ func FeedStreaming(c *gin.Context) {
 			_ = feed.RecordActivity(ctx, account)
 		}
 	}
+}
+
+// confirmSubscribed waits for Redis to acknowledge SUBSCRIBE for channel.
+func confirmSubscribed(ctx context.Context, pub *redis.PubSub, channel string) error {
+	reply, err := pub.Receive(ctx)
+	if err != nil {
+		return err
+	}
+	sub, ok := reply.(*redis.Subscription)
+	if !ok || sub.Kind != "subscribe" || sub.Channel != channel {
+		return fmt.Errorf("feed stream: unexpected subscribe reply %T", reply)
+	}
+	return nil
+}
+
+var subscribedHintSeq atomic.Uint64
+
+// subscribedHintFrame is the first frame of every feed stream; its revision is
+// never repeated, so clients that de-duplicate hints always act on it.
+func subscribedHintFrame() []byte {
+	data, _ := json.Marshal(feed.ChangeHint{Epoch: "subscribed", Revision: strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatUint(subscribedHintSeq.Add(1), 10)})
+	return append(append([]byte("event: feed.changed\ndata: "), data...), '\n', '\n')
 }

@@ -78,7 +78,7 @@ func TestFeedStreamingAuthenticatedHTTPAndTimeoutExemption(t *testing.T) {
 	require.True(t, scanner.Scan())
 	require.Equal(t, "event: feed.changed", scanner.Text())
 	require.True(t, scanner.Scan())
-	require.Contains(t, scanner.Text(), `"epoch":""`)
+	require.Contains(t, scanner.Text(), `"epoch":"subscribed"`)
 	require.True(t, scanner.Scan())
 	timer := time.NewTimer(25 * time.Millisecond)
 	select {

@@ -42,7 +42,7 @@ func TestFeedStreamingNotificationStreamWakesOnNotification(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	timeline := &notification.NotificationTimeline{Account: viewer}
 	// What the fan-out worker publishes for a new notification row.
-	require.NoError(t, db.GetUniversalRedis().Publish(ctx, feed.GetRedisChannelName(timeline), `{"type":"notification","payload":{"id":"7"}}`).Err())
+	require.NoError(t, db.GetUniversalRedis().Publish(ctx, feed.GetRedisChannelName(timeline), `{"type":"notification","payload":{"id":"notification-id-7"}}`).Err())
 	got := ""
 	for scanner.Scan() {
 		if strings.HasPrefix(scanner.Text(), "data: ") {
@@ -51,5 +51,5 @@ func TestFeedStreamingNotificationStreamWakesOnNotification(t *testing.T) {
 		}
 	}
 	require.Contains(t, got, `"revision"`)
-	require.NotContains(t, got, `"7"`, "hints never carry notification ids")
+	require.NotContains(t, got, `notification-id-7`, "hints never carry notification ids")
 }
