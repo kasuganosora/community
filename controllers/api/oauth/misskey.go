@@ -520,7 +520,7 @@ func misskeyUser(account *models.Account) gin.H {
 		"avatarUrl":   account.Avatar,
 		"isBot":       account.Bot,
 		"isLocked":    account.Locked,
-		"isCat":       false,
+		"isCat":       account.IsCat,
 		"isAdmin":     false,
 		"isModerator": false,
 	}

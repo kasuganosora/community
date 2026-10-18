@@ -2822,6 +2822,55 @@
       "unresolvedAlias": "Could not find the old account. Check its full address and try again.",
       "unresolvedTarget": "Could not find the destination account. Check its full address and try again.",
       "failed": "The operation failed. Check the connection and try again."
+    },
+    "ProfileExtras": {
+      "location": "Location",
+      "birthday": "Birthday",
+      "publicInfoHint": "Location and birthday appear on your public profile. Both are optional.",
+      "language": "Default posting language",
+      "languageHint": "The default language for new posts, independent of the interface language. Automatic detection uses the post content.",
+      "extraFields": "Additional information",
+      "fieldsHint": "Add up to 16 public profile fields. Drag the handle or use the arrow buttons to reorder them.",
+      "fieldName": "Label",
+      "fieldValue": "Content",
+      "addField": "Add a field",
+      "removeField": "Remove field {0}",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "reorderField": "Reorder field {0}",
+      "reorderHint": "Drag to reorder, or press Alt + ↑ / ↓",
+      "fieldMoved": "Moved to position {0}",
+      "verificationHint": "Links support rel=me verification and are checked after saving.",
+      "fieldsLoading": "Loading original profile fields…",
+      "fieldsUnavailable": "Profile fields could not be loaded. Existing values will be preserved.",
+      "retry": "Retry",
+      "followedMessage": "Message after following",
+      "followedMessageHint": "Shown after someone successfully follows you. Up to 200 characters.",
+      "reactionAcceptance": "Allowed reactions",
+      "reaction": {
+        "all": "All reactions",
+        "likeOnlyForRemote": "Likes only from other servers",
+        "nonSensitiveOnly": "Non-sensitive emoji only",
+        "nonSensitiveOnlyForLocalLikeOnlyForRemote": "Local non-sensitive emoji; remote likes only",
+        "likeOnly": "Likes only"
+      },
+      "isCat": "I am a cat",
+      "isCatHint": "Show cat ears on your avatar.",
+      "isBot": "Bot account",
+      "isBotHint": "Identify this account as a bot that posts automatically.",
+      "autoLanguage": "Detect automatically"
+    },
+    "ProfileQRCode": {
+      "open": "QR code",
+      "title": "Profile QR code",
+      "close": "Close",
+      "creating": "Generating QR code…",
+      "error": "Could not generate the QR code. Try again.",
+      "retry": "Retry",
+      "download": "Download QR code"
+    },
+    "ProfileProof": {
+      "verified": "Verified link"
     }
   },
   "timeline": {

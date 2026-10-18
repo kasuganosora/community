@@ -257,10 +257,17 @@ watch(activeTab, () => {
 
       <RichText v-if="account.note" class="profile-bio" :html="account.note" :emojis="account.emojis" />
 
+      <div v-if="account.location || account.birthday || account.bot" class="profile-metadata">
+        <span v-if="account.location" :aria-label="$t('settings.ProfileExtras.location')"><t-icon name="location" size="17" aria-hidden="true" /><span dir="auto">{{ account.location }}</span></span>
+        <span v-if="account.birthday" :aria-label="$t('settings.ProfileExtras.birthday')"><t-icon name="cake" size="17" aria-hidden="true" />{{ account.birthday }}</span>
+        <span v-if="account.bot"><t-icon name="robot" size="17" aria-hidden="true" />{{ $t('settings.ProfileExtras.isBot') }}</span>
+      </div>
+      <p v-if="!isOwnProfile && followState === 'following' && relationship?.followed_message" class="profile-follow-message" role="status" dir="auto">{{ relationship.followed_message }}</p>
+
       <dl v-if="account.fields?.length" class="profile-fields">
         <div v-for="(field, i) in account.fields" :key="i" class="profile-field" :class="{ 'profile-field--verified': field.verified_at }">
           <dt dir="auto"><EmojiText :text="field.name" :emojis="account.emojis" /></dt>
-          <dd><RichText :html="field.value" :emojis="account.emojis" /></dd>
+          <dd><t-icon v-if="field.verified_at" name="check-circle-filled" size="16" :aria-label="$t('settings.ProfileProof.verified')" class="profile-field__proof" /><RichText :html="field.value" :emojis="account.emojis" /></dd>
         </div>
       </dl>
 
@@ -355,6 +362,11 @@ watch(activeTab, () => {
 </template>
 
 <style scoped>
+.profile-metadata { display: flex; flex-wrap: wrap; gap: .5rem 1rem; margin: .75rem 0; color: var(--color-label-secondary); font-size: .875rem; }
+.profile-metadata > span { display: inline-flex; align-items: center; gap: .35rem; }
+.profile-follow-message { padding: .75rem 1rem; border-radius: 12px; background: var(--color-bg-grouped); white-space: pre-wrap; overflow-wrap: anywhere; }
+.profile-field__proof { flex: none; color: var(--color-success, #2c9b70); margin-right: .35rem; vertical-align: middle; }
+
 .profile-backfill {
   display: flex;
   align-items: center;

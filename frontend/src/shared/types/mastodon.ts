@@ -53,6 +53,8 @@ export interface AvatarDecorationPlacement {
   offset_y?: number
 }
 
+export type ReactionAcceptance = 'all' | 'likeOnlyForRemote' | 'nonSensitiveOnly' | 'nonSensitiveOnlyForLocalLikeOnlyForRemote' | 'likeOnly'
+
 export interface MastodonAccount {
   avatar_decorations?: AvatarDecorationPlacement[]
   avatar_decoration_id?: string
@@ -66,6 +68,12 @@ export interface MastodonAccount {
   display_name: string
   locked: boolean
   bot: boolean
+  is_cat?: boolean
+  location?: string
+  birthday?: string
+  language?: string
+  followed_message?: string
+  reaction_acceptance?: ReactionAcceptance
   discoverable: boolean
   indexable: boolean
   group: boolean
@@ -283,6 +291,8 @@ export interface MastodonList {
 }
 
 export interface MastodonRelationship {
+  /** Available after the follow has been accepted. */
+  followed_message?: string
   id: string
   following: boolean
   showing_reblogs: boolean

@@ -54,6 +54,9 @@ func Create(c *gin.Context) {
 	}
 
 	currentAccount := controllers.MustGetAccount(c)
+	if req.Language == "" {
+		req.Language = currentAccount.Language
+	}
 
 	status := &models.Status{
 		AccountId: currentAccount.Id,

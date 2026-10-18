@@ -7,6 +7,7 @@ type Actor struct {
 	Discoverable    *bool `json:"discoverable,omitempty"`
 	Indexable       *bool `json:"indexable,omitempty"`
 	HideCollections *bool `json:"hideCollections,omitempty"`
+	IsCat           *bool `json:"isCat,omitempty"`
 	// Presence and validity are retained separately for partial actor Updates.
 	discoveryPresent          map[string]bool
 	discoveryInvalid          bool

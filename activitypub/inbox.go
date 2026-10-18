@@ -542,6 +542,9 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 			c.JSON(400, gin.H{"error": "invalid actor image"})
 			return
 		}
+		if profile.IsCat != nil {
+			updates["is_cat"] = *profile.IsCat
+		}
 		if hasName && (validName || nameValue == nil) {
 			updates["display_name"] = name
 		}

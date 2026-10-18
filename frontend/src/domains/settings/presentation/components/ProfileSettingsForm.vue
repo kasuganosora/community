@@ -9,10 +9,13 @@ import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import ImageCropDialog from '@/shared/components/common/ImageCropDialog.vue'
 import AvatarDecorationPicker from './AvatarDecorationPicker.vue'
+import ProfileFieldsEditor from './ProfileFieldsEditor.vue'
+import ProfileQRCode from './ProfileQRCode.vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { validateProfile, validateImageFile, MAX_DISPLAY_NAME_LENGTH, MAX_NOTE_LENGTH } from '../../domain/validation'
 
 import { t } from '@/shared/i18n'
+import type { ReactionAcceptance } from '@/shared/types/mastodon'
 const authStore = useAuthStore()
 const imageInputId = useId()
 const decorationOpen = ref(false)
@@ -33,7 +36,23 @@ function decorationsSaved() {
   MessagePlugin.success(t('settings.AvatarDecorationPicker.s24'))
 }
 
-const profile = reactive({ display_name: '', note: '', locked: false, discoverable: false, indexable: false, avatar: '', header: '' })
+const emptyProfile = () => ({ display_name: '', note: '', locked: false, discoverable: false, indexable: false, avatar: '', header: '', location: '', birthday: '', language: '', followed_message: '', reaction_acceptance: 'all' as ReactionAcceptance, is_cat: false, bot: false, fields: Array.from({ length: 4 }, () => ({ name: '', value: '' })) })
+const profile = reactive(emptyProfile())
+const fieldsReady = ref(false)
+const refreshingSource = ref(false)
+const languageChoices = ['ar', 'bg', 'bn', 'ca', 'cs', 'da', 'de', 'el', 'en', 'eo', 'es', 'et', 'eu', 'fa', 'fi', 'fr', 'ga', 'gl', 'he', 'hi', 'hr', 'hu', 'hy', 'id', 'is', 'it', 'ja', 'ka', 'ko', 'ku', 'lo', 'lt', 'lv', 'mk', 'ml', 'mn', 'ms', 'my', 'nb', 'nl', 'nn', 'pl', 'pt', 'pt-BR', 'ro', 'ru', 'sk', 'sl', 'sq', 'sr', 'sv', 'ta', 'te', 'th', 'tl', 'tr', 'uk', 'ur', 'uz', 'vi', 'zh-CN', 'zh-TW'].map(code => {
+  let label = code
+  try { label = new Intl.DisplayNames([code], { type: 'language' }).of(code) || code } catch { /* Keep the stored language selectable. */ }
+  return [code, label] as const
+})
+const unlistedLanguage = computed(() => profile.language && !languageChoices.some(([code]) => code === profile.language))
+const unlistedLanguageName = computed(() => {
+  try { return new Intl.DisplayNames([document.documentElement.lang || 'en'], { type: 'language' }).of(profile.language) || profile.language }
+  catch { return profile.language }
+})
+const reactionChoices = ['all', 'likeOnlyForRemote', 'nonSensitiveOnly', 'nonSensitiveOnlyForLocalLikeOnlyForRemote', 'likeOnly'] as const
+const today = new Date()
+const latestBirthday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 const profileError = ref<string | null>(null)
 const savingProfile = ref(false)
 const uploading = reactive({ avatar: false, header: false })
@@ -54,12 +73,13 @@ watch([() => authStore.currentUser?.id, sessionEpoch], () => {
   savingProfile.value = false
   profileError.value = null
   if (authStore.currentUser) resetProfile()
-  else Object.assign(profile, { display_name: '', note: '', locked: false, discoverable: false, indexable: false, avatar: '', header: '' })
+  else { Object.assign(profile, emptyProfile()); fieldsReady.value = false }
+  refreshingSource.value = false
 }, { flush: 'sync' })
 onBeforeUnmount(() => { alive = false; imageEpoch++; decorationDialog.value?.close() })
 
 const previewAccount = computed(() => authStore.currentUser
-  ? { ...authStore.currentUser, avatar: profile.avatar, avatar_static: profile.avatar }
+  ? { ...authStore.currentUser, avatar: profile.avatar, avatar_static: profile.avatar, is_cat: profile.is_cat }
   : null)
 
 function resetProfile() {
@@ -73,6 +93,43 @@ function resetProfile() {
   profile.indexable = !!me.indexable
   profile.avatar = me.avatar ?? ''
   profile.header = me.header ?? ''
+  profile.location = me.location ?? ''
+  profile.birthday = me.birthday ?? ''
+  profile.language = me.language ?? me.source?.language ?? ''
+  profile.followed_message = me.followed_message ?? ''
+  profile.reaction_acceptance = me.reaction_acceptance ?? 'all'
+  profile.is_cat = !!me.is_cat
+  profile.bot = !!me.bot
+  resetFields()
+}
+
+function resetFields() {
+  // Rendered fields contain HTML and must never be resubmitted as raw content.
+  const raw = authStore.currentUser?.source?.fields
+  fieldsReady.value = Array.isArray(raw)
+  const fields = (raw ?? []).map(({ name, value }) => ({ name, value }))
+  while (fields.length < 4) fields.push({ name: '', value: '' })
+  profile.fields = fields
+}
+
+async function refreshProfileSource() {
+  if (refreshingSource.value) return
+  const initial = JSON.stringify(profile)
+  const session = sessionEpoch.value
+  const accountId = authStore.currentUser?.id
+  const isCurrent = () => alive && session === sessionEpoch.value && accountId === authStore.currentUser?.id
+  refreshingSource.value = true
+  try {
+    await authStore.fetchCurrentUser()
+    if (!isCurrent()) return
+    // Preserve drafts, including fields reordered while this request was pending.
+    if (JSON.stringify(profile) === initial) resetProfile()
+    else if (!fieldsReady.value) resetFields()
+  } catch {
+    // The auth store reports refresh errors; never replace a draft with HTML.
+  } finally {
+    if (isCurrent()) refreshingSource.value = false
+  }
 }
 
 function onPickImage(kind: ImageKind, e: Event) {
@@ -132,6 +189,14 @@ async function saveProfile() {
       locked: profile.locked,
       discoverable: profile.discoverable,
       indexable: profile.indexable,
+      location: profile.location,
+      birthday: profile.birthday,
+      language: profile.language.trim(),
+      followed_message: profile.followed_message,
+      reaction_acceptance: profile.reaction_acceptance,
+      is_cat: profile.is_cat,
+      bot: profile.bot,
+      ...(fieldsReady.value ? { fields_attributes: profile.fields.filter(field => field.name.trim() || field.value.trim()).map(({ name, value }) => ({ name, value })) } : {}),
       ...(profile.avatar && profile.avatar !== me?.avatar ? { avatar: profile.avatar } : {}),
       ...(profile.header && profile.header !== me?.header ? { header: profile.header } : {}),
     })
@@ -149,15 +214,8 @@ async function saveProfile() {
   }
 }
 
-onMounted(async () => {
-  resetProfile()
-  const initial = JSON.stringify(profile)
-  const session = sessionEpoch.value
-  // Make sure we have the latest `source` (plain-text bio) before editing.
-  await authStore.fetchCurrentUser()
-  // Do not overwrite edits made while the refresh was in flight.
-  if (alive && session === sessionEpoch.value && JSON.stringify(profile) === initial) resetProfile()
-})
+onMounted(() => { resetProfile(); void refreshProfileSource() })
+
 </script>
 
 <template>
@@ -189,24 +247,61 @@ onMounted(async () => {
 
     <div class="settings-field">
       <label for="set-display-name" class="settings-field__label">{{ $t('settings.ProfileSettingsForm.s4') }}</label>
-      <input id="set-display-name" v-model="profile.display_name" class="settings-input" type="text" :maxlength="MAX_DISPLAY_NAME_LENGTH * 2" autocomplete="nickname" />
+      <input id="set-display-name" v-model="profile.display_name" class="settings-input" type="text" :maxlength="MAX_DISPLAY_NAME_LENGTH * 2" autocomplete="nickname" :disabled="savingProfile" />
     </div>
     <div class="settings-field">
       <label for="set-note" class="settings-field__label">{{ $t('settings.ProfileSettingsForm.s5') }}</label>
-      <textarea id="set-note" v-model="profile.note" class="settings-input" rows="4" aria-describedby="set-note-hint" />
+      <textarea id="set-note" v-model="profile.note" class="settings-input" rows="4" aria-describedby="set-note-hint" :disabled="savingProfile" />
       <span id="set-note-hint" class="settings-field__hint">{{ Array.from(profile.note).length }} / {{ MAX_NOTE_LENGTH }}</span>
+    </div>
+    <div class="settings-profile-grid">
+      <div class="settings-field">
+        <label for="set-location" class="settings-field__label">{{ $t('settings.ProfileExtras.location') }}</label>
+        <input id="set-location" v-model="profile.location" class="settings-input" type="text" maxlength="128" autocomplete="off" aria-describedby="set-public-info-hint" :disabled="savingProfile" />
+      </div>
+      <div class="settings-field">
+        <label for="set-birthday" class="settings-field__label">{{ $t('settings.ProfileExtras.birthday') }}</label>
+        <input id="set-birthday" v-model="profile.birthday" class="settings-input" type="date" :max="latestBirthday" aria-describedby="set-public-info-hint" :disabled="savingProfile" />
+      </div>
+      <p id="set-public-info-hint" class="settings-field__hint settings-profile-grid__hint">{{ $t('settings.ProfileExtras.publicInfoHint') }}</p>
+    </div>
+    <div class="settings-field">
+      <label for="set-profile-language" class="settings-field__label">{{ $t('settings.ProfileExtras.language') }}</label>
+      <select id="set-profile-language" v-model="profile.language" class="settings-input" aria-describedby="set-language-hint" :disabled="savingProfile">
+        <option value="">{{ $t('settings.ProfileExtras.autoLanguage') }}</option>
+        <option v-if="unlistedLanguage" :value="profile.language">{{ unlistedLanguageName }}</option>
+        <option v-for="[code, name] in languageChoices" :key="code" :value="code">{{ name }}</option>
+      </select>
+      <span id="set-language-hint" class="settings-field__hint">{{ $t('settings.ProfileExtras.languageHint') }}</span>
+    </div>
+    <div>
+      <ProfileFieldsEditor v-model="profile.fields" :disabled="savingProfile || !fieldsReady" />
+      <p v-if="!fieldsReady" class="settings-field__hint settings-fields-unavailable">{{ $t(refreshingSource ? 'settings.ProfileExtras.fieldsLoading' : 'settings.ProfileExtras.fieldsUnavailable') }} <button v-if="!refreshingSource" type="button" class="btn btn--ghost btn--sm" @click="refreshProfileSource">{{ $t('settings.ProfileExtras.retry') }}</button></p>
+    </div>
+    <div class="settings-field">
+      <label for="set-followed-message" class="settings-field__label">{{ $t('settings.ProfileExtras.followedMessage') }}</label>
+      <textarea id="set-followed-message" v-model="profile.followed_message" class="settings-input" rows="2" maxlength="200" aria-describedby="set-followed-message-hint" :disabled="savingProfile" />
+      <span id="set-followed-message-hint" class="settings-field__hint">{{ $t('settings.ProfileExtras.followedMessageHint') }}</span>
+    </div>
+    <div class="settings-field">
+      <label for="set-reaction-acceptance" class="settings-field__label">{{ $t('settings.ProfileExtras.reactionAcceptance') }}</label>
+      <select id="set-reaction-acceptance" v-model="profile.reaction_acceptance" class="settings-input" :disabled="savingProfile"><option v-for="choice in reactionChoices" :key="choice" :value="choice">{{ $t(`settings.ProfileExtras.reaction.${choice}`) }}</option></select>
+    </div>
+    <div class="settings-profile-flags">
+      <label class="settings-profile-flag" for="set-is-cat"><span><strong>{{ $t('settings.ProfileExtras.isCat') }}</strong><small>{{ $t('settings.ProfileExtras.isCatHint') }}</small></span><input id="set-is-cat" v-model="profile.is_cat" type="checkbox" role="switch" :disabled="savingProfile" /></label>
+      <label class="settings-profile-flag" for="set-is-bot"><span><strong>{{ $t('settings.ProfileExtras.isBot') }}</strong><small>{{ $t('settings.ProfileExtras.isBotHint') }}</small></span><input id="set-is-bot" v-model="profile.bot" type="checkbox" role="switch" :disabled="savingProfile" /></label>
     </div>
     <div class="settings-profile-options">
     <label class="settings-check">
-      <input v-model="profile.locked" type="checkbox" />
+      <input v-model="profile.locked" type="checkbox" :disabled="savingProfile" />
       <span>{{ $t('settings.ProfileSettingsForm.s6') }}</span>
     </label>
     <label class="settings-check">
-      <input v-model="profile.discoverable" type="checkbox" />
+      <input v-model="profile.discoverable" type="checkbox" :disabled="savingProfile" />
       <span>{{ $t('settings.ProfileSettingsForm.s7') }}</span>
     </label>
     <label class="settings-check">
-      <input v-model="profile.indexable" type="checkbox" />
+      <input v-model="profile.indexable" type="checkbox" :disabled="savingProfile" />
       <span>{{ $t('settings.ProfileSettingsForm.s8') }}</span>
     </label>
     <p class="settings-field__hint">{{ $t('settings.ProfileSettingsForm.s9') }}</p>
@@ -220,6 +315,7 @@ onMounted(async () => {
       </button>
     </div>
   </form>
+  <ProfileQRCode v-if="authStore.currentUser" :account="authStore.currentUser" />
   <Teleport to="body">
     <dialog v-if="decorationOpen" ref="decorationDialog" class="settings-decoration-dialog" :aria-labelledby="`${imageInputId}-decoration-title`" @cancel.prevent="closeDecorations" @click.self="closeDecorations">
       <header class="settings-decoration-dialog__header">
@@ -233,6 +329,23 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.settings-profile-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .625rem 1rem; }
+.settings-profile-grid__hint { grid-column: 1 / -1; margin: 0; }
+.settings-fields-unavailable { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin: .5rem 0 0; }
+.settings-profile-flags { display: flex; flex-direction: column; border: 1px solid var(--color-separator); border-radius: .875rem; background: var(--color-bg-grouped); }
+.settings-profile-flag { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem; cursor: pointer; }
+.settings-profile-flag + .settings-profile-flag { border-top: 1px solid var(--color-separator); }
+.settings-profile-flag span { display: flex; flex-direction: column; gap: .25rem; }
+.settings-profile-flag strong { font-size: .875rem; font-weight: 600; }
+.settings-profile-flag small { color: var(--color-label-secondary); line-height: 1.5; }
+.settings-page .settings-profile-flag input { appearance: none; position: relative; width: 38px; height: 22px; flex: none; margin: 0; border: 1px solid var(--color-separator); border-radius: 999px; background: var(--color-fill); cursor: pointer; }
+.settings-page .settings-profile-flag input::after { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--color-label-secondary); transition: transform .15s ease; }
+.settings-page .settings-profile-flag input:checked { background: var(--color-accent); border-color: var(--color-accent); }
+.settings-page .settings-profile-flag input:checked::after { transform: translateX(16px); background: white; }
+.settings-form :is(input, textarea, select):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.settings-form :is(input, textarea, select):disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 499px) { .settings-profile-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .settings-page .settings-profile-flag input::after { transition: none; } }
 .settings-decoration-dialog { width: min(640px, 94vw); max-width: none; max-height: calc(100dvh - 32px); margin: auto; padding: 0; border: 1px solid var(--color-separator); border-radius: 1rem; background: var(--color-bg-elevated); color: var(--color-label); box-shadow: var(--shadow-popover); }
 .settings-decoration-dialog[open] { display: flex; flex-direction: column; }
 .settings-decoration-dialog::backdrop { background: rgb(0 0 0 / 60%); }

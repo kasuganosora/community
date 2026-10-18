@@ -37,6 +37,12 @@ type Account struct {
 	DisplayName         string             `json:"display_name"`
 	Locked              bool               `json:"locked"`
 	Bot                 bool               `json:"bot"`
+	IsCat               bool               `json:"is_cat"`
+	Location            string             `json:"location"`
+	Birthday            string             `json:"birthday"`
+	Language            string             `json:"language"`
+	ReactionAcceptance  string             `json:"reaction_acceptance"`
+	FollowedMessage     string             `json:"followed_message,omitempty"`
 	Discoverable        bool               `json:"discoverable"`
 	Indexable           bool               `json:"indexable"`
 	Group               bool               `json:"group"`
@@ -137,6 +143,11 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 		DisplayName:         account.DisplayName,
 		Locked:              account.Locked,
 		Bot:                 account.Bot,
+		IsCat:               account.IsCat,
+		Location:            account.Location,
+		Birthday:            account.Birthday,
+		Language:            account.Language,
+		ReactionAcceptance:  account.ReactionAcceptance,
 		Discoverable:        account.Discoverable,
 		Indexable:           !account.NoIndex,
 		Group:               account.Group,

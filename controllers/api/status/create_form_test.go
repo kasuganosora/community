@@ -93,3 +93,14 @@ func TestCreateWithoutVisibilityDefaultsToPublic(t *testing.T) {
 	code, _ = postRaw(t, ts, "application/json", []byte(`{"status":"x","visibility":"bogus"}`))
 	require.Equal(t, http.StatusBadRequest, code)
 }
+
+func TestNewPostsUseThePreferredLanguageUnlessExplicitlyOverridden(t *testing.T) {
+	ts := newTestSetup(t)
+	ts.acct.Language = "ja"
+	code, resp := postRaw(t, ts, "application/json", []byte(`{"status":"This is a new post without a language parameter"}`))
+	require.Equal(t, 200, code, resp)
+	require.Equal(t, "ja", resp["language"])
+	code, resp = postRaw(t, ts, "application/json", []byte(`{"status":"Une autre publication","language":"fr"}`))
+	require.Equal(t, 200, code, resp)
+	require.Equal(t, "fr", resp["language"])
+}

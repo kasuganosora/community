@@ -86,6 +86,10 @@ function imageFailed(event: Event) {
 
 <template>
   <span class="avatar-frame" :style="{ width: `${avatarSize}px`, height: `${avatarSize}px` }">
+    <svg v-if="account.is_cat" class="avatar-cat-ears" viewBox="0 0 100 60" aria-hidden="true" focusable="false">
+      <path class="avatar-cat-ears__fur" d="M7 54 C4 35 3 10 10 3 C21 6 34 22 39 37 Z M61 37 C66 22 79 6 90 3 C97 10 96 35 93 54 Z" />
+      <path class="avatar-cat-ears__inner" d="M13 40 Q9 20 12 13 Q24 22 29 34 Z M71 34 Q76 22 88 13 Q91 20 87 40 Z" />
+    </svg>
     <span
       class="user-avatar t-avatar"
       :style="{ fontSize: `${avatarSize / 2}px` }"
@@ -114,9 +118,14 @@ function imageFailed(event: Event) {
 
 <style scoped>
 .avatar-frame { display: inline-flex; position: relative; flex-shrink: 0; vertical-align: middle; }
+/* Original vector artwork for Community cat avatars. */
+.avatar-cat-ears { position: absolute; top: -17%; left: 0; width: 100%; height: 60%; overflow: visible; pointer-events: none; }
+.avatar-cat-ears__fur { fill: #f0e9e3; stroke: #938c91; stroke-width: 2; stroke-linejoin: round; }
+.avatar-cat-ears__inner { fill: #e8a2b7; }
 /* Misskey MkAvatar geometry: 200% of the avatar, centred on it. */
 .avatar-decoration { position: absolute; z-index: 1; top: -50%; left: -50%; width: 200%; max-width: none; pointer-events: none; user-select: none; }
 .user-avatar {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;

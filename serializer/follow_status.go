@@ -29,6 +29,7 @@ import (
 */
 
 type FollowStatus struct {
+	FollowedMessage     string   `json:"followed_message,omitempty"`
 	Id                  string   `json:"id"`
 	Following           bool     `json:"following"`
 	ShowingReblogs      bool     `json:"showing_reblogs"`
@@ -66,6 +67,9 @@ func ToFollowStatus(account *models.Account, follow *models.Follow) (ret *Follow
 	if follow != nil {
 		ret.Following = follow.Status == models.FollowStatusFollowed
 		ret.Requested = follow.Status == models.FollowStatusRequested
+		if ret.Following {
+			ret.FollowedMessage = account.FollowedMessage
+		}
 
 		var isReblog bool
 		if follow.Properties["reblogs"] != nil {

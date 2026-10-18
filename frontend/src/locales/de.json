@@ -2822,6 +2822,55 @@
       "unresolvedAlias": "Das bisherige Konto wurde nicht gefunden. Prüfe die vollständige Adresse.",
       "unresolvedTarget": "Das Zielkonto wurde nicht gefunden. Prüfe die vollständige Adresse.",
       "failed": "Der Vorgang ist fehlgeschlagen. Prüfe die Verbindung und versuche es erneut."
+    },
+    "ProfileExtras": {
+      "location": "Ort",
+      "birthday": "Geburtstag",
+      "publicInfoHint": "Ort und Geburtstag werden im öffentlichen Profil angezeigt. Beide Angaben sind optional.",
+      "language": "Standardsprache für Beiträge",
+      "languageHint": "Standardsprache für neue Beiträge, unabhängig von der Oberflächensprache. Die automatische Erkennung verwendet den Beitragsinhalt.",
+      "extraFields": "Zusätzliche Informationen",
+      "fieldsHint": "Füge bis zu 16 öffentliche Profilfelder hinzu. Ziehe den Griff oder nutze die Pfeiltasten zum Sortieren.",
+      "fieldName": "Bezeichnung",
+      "fieldValue": "Inhalt",
+      "addField": "Feld hinzufügen",
+      "removeField": "Feld {0} entfernen",
+      "moveUp": "Nach oben",
+      "moveDown": "Nach unten",
+      "reorderField": "Feld {0} verschieben",
+      "reorderHint": "Ziehen oder Alt + ↑ / ↓ drücken",
+      "fieldMoved": "An Position {0} verschoben",
+      "verificationHint": "Links unterstützen die Verifizierung mit rel=me und werden nach dem Speichern geprüft.",
+      "fieldsLoading": "Profilfelder werden geladen…",
+      "fieldsUnavailable": "Die Profilfelder konnten nicht geladen werden. Vorhandene Werte bleiben erhalten.",
+      "retry": "Erneut versuchen",
+      "followedMessage": "Nachricht nach dem Folgen",
+      "followedMessageHint": "Wird angezeigt, nachdem dir jemand erfolgreich folgt. Bis zu 200 Zeichen.",
+      "reactionAcceptance": "Erlaubte Reaktionen",
+      "reaction": {
+        "all": "Alle Reaktionen",
+        "likeOnlyForRemote": "Von anderen Servern nur Likes",
+        "nonSensitiveOnly": "Nur nicht sensible Emoji",
+        "nonSensitiveOnlyForLocalLikeOnlyForRemote": "Lokal nicht sensible Emoji, von anderen Servern nur Likes",
+        "likeOnly": "Nur Likes"
+      },
+      "isCat": "Ich bin eine Katze",
+      "isCatHint": "Zeigt Katzenohren an deinem Avatar.",
+      "isBot": "Bot-Konto",
+      "isBotHint": "Kennzeichnet dieses Konto als Bot, der automatisch Beiträge veröffentlicht.",
+      "autoLanguage": "Automatisch erkennen"
+    },
+    "ProfileQRCode": {
+      "open": "QR-Code",
+      "title": "Profil-QR-Code",
+      "close": "Schließen",
+      "creating": "QR-Code wird erstellt…",
+      "error": "Der QR-Code konnte nicht erstellt werden. Bitte erneut versuchen.",
+      "retry": "Erneut versuchen",
+      "download": "QR-Code herunterladen"
+    },
+    "ProfileProof": {
+      "verified": "Verifizierter Link"
     }
   },
   "timeline": {

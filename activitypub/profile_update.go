@@ -39,6 +39,7 @@ func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
 		Discoverable:              discoveryBool(account.Discoverable),
 		Indexable:                 discoveryBool(!account.NoIndex),
 		HideCollections:           discoveryBool(account.HideCollections),
+		IsCat:                     discoveryBool(account.IsCat),
 		Name:                      account.DisplayName,
 		Summary:                   account.NoteHTML(htmlsafe.OptionsForBaseURL(baseURL)),
 		URL:                       baseURL + "/@" + username,
@@ -61,6 +62,8 @@ func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
 		"discoverable":    "toot:discoverable",
 		"indexable":       "toot:indexable",
 		"hideCollections": "toot:hideCollections",
+		"misskey":         "https://misskey-hub.net/ns#",
+		"isCat":           "misskey:isCat",
 	})
 
 	avatar := account.Avatar
@@ -113,7 +116,7 @@ func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
 
 	// Add profile fields
 	if account.Extra != nil {
-		for _, field := range serializer.ToFields(account.Extra.Fields) {
+		for _, field := range serializer.ToActivityPubFields(account.Extra.Fields, account.IsLocal()) {
 			actor.Attachments = append(actor.Attachments, Attachment{
 				Type:  "PropertyValue",
 				Name:  field.Name,

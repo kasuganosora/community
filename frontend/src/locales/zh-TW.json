@@ -2822,6 +2822,55 @@
       "unresolvedAlias": "找不到舊帳號，請確認完整位址後重試。",
       "unresolvedTarget": "找不到目標帳號，請確認完整位址後重試。",
       "failed": "操作失敗，請檢查網路後重試。"
+    },
+    "ProfileExtras": {
+      "location": "位置",
+      "birthday": "生日",
+      "publicInfoHint": "位置和生日會顯示在公開個人資料中，可留空。",
+      "language": "預設發文語言",
+      "languageHint": "用於新貼文的預設語言，不影響介面語言。選擇自動辨識時，會依貼文內容判斷語言。",
+      "extraFields": "附加資訊",
+      "fieldsHint": "最多新增 16 項公開資料。拖曳左側把手或使用上下按鈕調整順序。",
+      "fieldName": "標籤",
+      "fieldValue": "內容",
+      "addField": "新增一項",
+      "removeField": "移除第 {0} 項",
+      "moveUp": "上移",
+      "moveDown": "下移",
+      "reorderField": "調整第 {0} 項的順序",
+      "reorderHint": "拖曳排序，也可按 Alt + ↑ / ↓",
+      "fieldMoved": "已移至第 {0} 項",
+      "verificationHint": "連結支援 rel=me 驗證；儲存後進行驗證。",
+      "fieldsLoading": "正在載入附加資訊原文…",
+      "fieldsUnavailable": "暫時無法載入附加資訊，現有內容會保留。",
+      "retry": "重試",
+      "followedMessage": "追蹤後訊息",
+      "followedMessageHint": "對方成功追蹤你後顯示，最多 200 個字元。",
+      "reactionAcceptance": "允許的反應",
+      "reaction": {
+        "all": "所有反應",
+        "likeOnlyForRemote": "外站僅允許按讚",
+        "nonSensitiveOnly": "僅非敏感表情",
+        "nonSensitiveOnlyForLocalLikeOnlyForRemote": "本站僅非敏感表情，外站僅按讚",
+        "likeOnly": "僅按讚"
+      },
+      "isCat": "我是貓",
+      "isCatHint": "在頭像上顯示貓耳。",
+      "isBot": "機器人帳號",
+      "isBotHint": "將帳號標記為自動發布內容的機器人。",
+      "autoLanguage": "自動辨識"
+    },
+    "ProfileQRCode": {
+      "open": "QR Code",
+      "title": "個人頁面 QR Code",
+      "close": "關閉",
+      "creating": "正在產生 QR Code…",
+      "error": "QR Code 產生失敗，請重試。",
+      "retry": "重試",
+      "download": "下載 QR Code"
+    },
+    "ProfileProof": {
+      "verified": "已驗證連結"
     }
   },
   "timeline": {

@@ -92,6 +92,9 @@ func applyActorProfile(tx *gorm.DB, account *models.Account, actor *Actor) error
 		"locked":       actor.ManuallyApprovesFollowers,
 		"bot":          actor.Type == "Service", //nolint:goconst
 	}
+	if actor.IsCat != nil {
+		updates["is_cat"] = *actor.IsCat
+	}
 	// Timestamps always differ, so they are not compared: an unchanged
 	// profile costs no row write, except that the stamps are renewed once
 	// they are older than profileStampRefresh (discovery freshness and

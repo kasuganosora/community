@@ -256,7 +256,7 @@ func EraseBatch(ctx context.Context, conn *gorm.DB, job models.AccountDeletion) 
 		if err := erasePrivateRows(tx, a.Id, job.UserID); err != nil {
 			return err
 		}
-		if err := tx.Model(&models.Account{}).Where("id = ?", a.Id).Updates(map[string]any{"display_name": "", "note": "", "imported_note_html": "", "website": "", "avatar": "", "avatar_static": "", "header": "", "header_static": "", "also_known_as": "[]", "avatar_decorations": "[]", "avatar_decoration_id": 0}).Error; err != nil {
+		if err := tx.Model(&models.Account{}).Where("id = ?", a.Id).Updates(map[string]any{"display_name": "", "note": "", "imported_note_html": "", "website": "", "avatar": "", "avatar_static": "", "header": "", "header_static": "", "also_known_as": "[]", "avatar_decorations": "[]", "avatar_decoration_id": 0, "location": "", "birthday": "", "language": "", "followed_message": "", "reaction_acceptance": "all", "is_cat": false}).Error; err != nil {
 			return err
 		}
 		if tx.Migrator().HasTable(&models.AccountExtra{}) {
@@ -297,7 +297,7 @@ func erasePrivateRows(tx *gorm.DB, accountID, userID uint64) error {
 			return err
 		}
 	}
-	for _, table := range []string{"user_webhooks", "status_histories", "notifications", "account_emojis", "account_conversations", "bookmark_statuses", "favorite_statuses", "pin_statuses", "mute_statuses", "mute_accounts", "list_accounts", "list_follow_accounts", "status_to_accounts", "status_reactions", "poll_option_votes", "followed_tags", "markers", "group_members", "contacts", "account_languages"} {
+	for _, table := range []string{"profile_field_verifications", "user_webhooks", "status_histories", "notifications", "account_emojis", "account_conversations", "bookmark_statuses", "favorite_statuses", "pin_statuses", "mute_statuses", "mute_accounts", "list_accounts", "list_follow_accounts", "status_to_accounts", "status_reactions", "poll_option_votes", "followed_tags", "markers", "group_members", "contacts", "account_languages"} {
 		if tx.Migrator().HasTable(table) && tx.Migrator().HasColumn(table, "account_id") {
 			if err := tx.Exec("DELETE FROM "+table+" WHERE account_id = ?", accountID).Error; err != nil {
 				return err

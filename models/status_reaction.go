@@ -117,6 +117,9 @@ func SetStatusReaction(conn *gorm.DB, statusID uint64, actor *Account, name stri
 		if emoji != nil && emoji.LocalOnly && (actor.Domain != nil || !status.IsLocal()) {
 			return ErrInvalidReaction
 		}
+		if !remove && !status.Account.AllowsEmojiReaction(actor, name, emoji) {
+			return ErrReactionForbidden
+		}
 		apply, err := recordRemoteReactionActivity(tx, actor, statusID, name, activityURI, remove)
 		if err != nil {
 			return err

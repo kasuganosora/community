@@ -164,19 +164,9 @@ export const userApi = {
     return cursorPage(data, headers.link)
   },
 
-  /**
-   * PATCH /api/v1/accounts/update_credentials. The backend binds form fields
-   * (not JSON), so send application/x-www-form-urlencoded like Mastodon clients.
-   */
+  /** JSON retains ordered profile-field objects, including an empty array. */
   async updateCredentials(fields: UpdateCredentialsParams): Promise<MastodonAccount> {
-    const body = new URLSearchParams()
-    for (const [k, v] of Object.entries(fields)) {
-      if (v === undefined || v === null) continue
-      body.append(k, typeof v === 'boolean' ? String(v) : v)
-    }
-    const { data } = await client.patch<MastodonAccount>('/api/v1/accounts/update_credentials', body, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    })
+    const { data } = await client.patch<MastodonAccount>('/api/v1/accounts/update_credentials', fields)
     return data
   },
 
@@ -196,6 +186,13 @@ export interface UpdateCredentialsParams {
   header?: string
   locked?: boolean
   bot?: boolean
+  is_cat?: boolean
+  location?: string
+  birthday?: string
+  language?: string
+  followed_message?: string
+  reaction_acceptance?: import('@/shared/types/mastodon').ReactionAcceptance
+  fields_attributes?: { name: string; value: string }[]
   discoverable?: boolean
   indexable?: boolean
 }

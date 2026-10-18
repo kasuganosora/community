@@ -1,6 +1,8 @@
 package serializer
 
 import (
+	"html"
+	"net/url"
 	"strings"
 	"time"
 
@@ -30,6 +32,11 @@ func ToFields(fields []models.AccountField) []Field {
 	return ret
 }
 
+// Federation uses the rendered field values, while source.fields stays raw.
+func ToActivityPubFields(fields []models.AccountField, local bool) []Field {
+	return toAPIFields(fields, local, contentRenderOptions())
+}
+
 // toAPIFields renders fields for the client API: local values are linkified
 // plain text, remote values are re-sanitized HTML.
 func toAPIFields(fields []models.AccountField, local bool, opts htmlsafe.RenderOptions) []Field {
@@ -44,6 +51,9 @@ func toAPIFields(fields []models.AccountField, local bool, opts htmlsafe.RenderO
 			// Mastodon field values are inline HTML without a paragraph.
 			if inner, ok := strings.CutPrefix(value, "<p>"); ok && strings.Count(value, "<p>") == 1 {
 				value = strings.TrimSuffix(inner, "</p>")
+			}
+			if link, err := url.Parse(v.Val); err == nil && (link.Scheme == "https" || link.Scheme == "http") && link.Host != "" && link.User == nil {
+				value = `<a href="` + html.EscapeString(link.String()) + `" rel="me nofollow noopener noreferrer" target="_blank">` + html.EscapeString(v.Val) + `</a>`
 			}
 		}
 		ret = append(ret, Field{Name: name, Value: value, VerifiedAt: v.VerifiedAt})

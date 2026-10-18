@@ -2822,6 +2822,55 @@
       "unresolvedAlias": "Ancien compte introuvable. Vérifiez son adresse complète.",
       "unresolvedTarget": "Compte de destination introuvable. Vérifiez son adresse complète.",
       "failed": "L’opération a échoué. Vérifiez la connexion et réessayez."
+    },
+    "ProfileExtras": {
+      "location": "Lieu",
+      "birthday": "Date de naissance",
+      "publicInfoHint": "Le lieu et la date de naissance apparaissent sur votre profil public. Ces champs sont facultatifs.",
+      "language": "Langue de publication par défaut",
+      "languageHint": "Langue par défaut des nouvelles publications, indépendante de la langue de l’interface. La détection automatique se base sur leur contenu.",
+      "extraFields": "Informations supplémentaires",
+      "fieldsHint": "Ajoutez jusqu’à 16 champs publics. Faites glisser la poignée ou utilisez les flèches pour les réorganiser.",
+      "fieldName": "Libellé",
+      "fieldValue": "Contenu",
+      "addField": "Ajouter un champ",
+      "removeField": "Supprimer le champ {0}",
+      "moveUp": "Monter",
+      "moveDown": "Descendre",
+      "reorderField": "Déplacer le champ {0}",
+      "reorderHint": "Glissez pour réorganiser, ou appuyez sur Alt + ↑ / ↓",
+      "fieldMoved": "Déplacé à la position {0}",
+      "verificationHint": "Les liens prennent en charge la vérification rel=me et sont vérifiés après l’enregistrement.",
+      "fieldsLoading": "Chargement des champs d’origine…",
+      "fieldsUnavailable": "Impossible de charger les champs du profil. Les valeurs actuelles seront conservées.",
+      "retry": "Réessayer",
+      "followedMessage": "Message après abonnement",
+      "followedMessageHint": "Affiché après qu’une personne s’est abonnée à votre compte. Jusqu’à 200 caractères.",
+      "reactionAcceptance": "Réactions autorisées",
+      "reaction": {
+        "all": "Toutes les réactions",
+        "likeOnlyForRemote": "Uniquement des mentions J’aime depuis les autres serveurs",
+        "nonSensitiveOnly": "Émojis non sensibles uniquement",
+        "nonSensitiveOnlyForLocalLikeOnlyForRemote": "Émojis locaux non sensibles, J’aime depuis les autres serveurs",
+        "likeOnly": "Mentions J’aime uniquement"
+      },
+      "isCat": "Je suis un chat",
+      "isCatHint": "Affiche des oreilles de chat sur votre avatar.",
+      "isBot": "Compte automatisé",
+      "isBotHint": "Indique que ce compte est un bot qui publie automatiquement.",
+      "autoLanguage": "Détection automatique"
+    },
+    "ProfileQRCode": {
+      "open": "Code QR",
+      "title": "Code QR du profil",
+      "close": "Fermer",
+      "creating": "Création du code QR…",
+      "error": "Impossible de créer le code QR. Réessayez.",
+      "retry": "Réessayer",
+      "download": "Télécharger le code QR"
+    },
+    "ProfileProof": {
+      "verified": "Lien vérifié"
     }
   },
   "timeline": {

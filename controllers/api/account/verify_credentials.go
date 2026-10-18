@@ -38,8 +38,10 @@ func VerifyCredentials(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "permission lookup failed"})
 		return
 	}
+	result := serializer.ToAccount(account)
+	result.FollowedMessage = account.FollowedMessage
 	c.JSON(200, AccountWithSource{
-		Account:          serializer.ToAccount(account),
+		Account:          result,
 		IsAdmin:          currentUser != nil && currentUser.IsAdmin,
 		AdminPermissions: models.AdminCapabilities(permissions),
 		Source: AccountSource{
@@ -47,7 +49,7 @@ func VerifyCredentials(c *gin.Context) {
 			Sensitive:           false,
 			Note:                account.Note,
 			Fields:              sourceFields(account),
-			Language:            "",
+			Language:            account.Language,
 			FollowRequestsCount: 0,
 			HideCollections:     account.HideCollections,
 			Discoverable:        account.Discoverable,

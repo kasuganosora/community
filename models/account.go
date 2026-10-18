@@ -53,6 +53,12 @@ type Account struct { //nolint:recvcheck
 	HeaderStatic               string                     `gorm:"type:varchar(1024)"                        json:"header_static"`
 	Locked                     bool                       `gorm:"default:false"                             json:"locked"`
 	Bot                        bool                       `gorm:"default:false"                             json:"bot"`
+	IsCat                      bool                       `gorm:"not null;default:false" json:"is_cat"`
+	Location                   string                     `gorm:"size:128;not null;default:''" json:"location"`
+	Birthday                   string                     `gorm:"size:10;not null;default:''" json:"birthday"`
+	Language                   string                     `gorm:"size:35;not null;default:''" json:"language"`
+	FollowedMessage            string                     `gorm:"size:200;not null;default:''" json:"-"`
+	ReactionAcceptance         string                     `gorm:"size:64;not null;default:'all'" json:"reaction_acceptance"`
 	Discoverable               bool                       `gorm:"default:false"                             json:"discoverable"`
 	Group                      bool                       `gorm:"default:false"                             json:"group"`
 	NoIndex                    bool                       `gorm:"default:false"                             json:"noindex"`

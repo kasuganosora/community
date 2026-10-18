@@ -41,6 +41,7 @@ func (a *Actor) UnmarshalJSON(data []byte) error {
 		Discoverable    json.RawMessage `json:"discoverable"`
 		Indexable       json.RawMessage `json:"indexable"`
 		HideCollections json.RawMessage `json:"hideCollections"`
+		IsCat           json.RawMessage `json:"isCat"`
 		PublicKey       json.RawMessage `json:"publicKey"`
 		URL             json.RawMessage `json:"url"`
 		AlsoKnownAs     json.RawMessage `json:"alsoKnownAs"`
@@ -56,6 +57,14 @@ func (a *Actor) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	a.discoveryPresent = make(map[string]bool)
+	if len(raw.IsCat) > 0 {
+		var value any
+		if json.Unmarshal(raw.IsCat, &value) == nil {
+			if cat, valid := value.(bool); valid {
+				a.IsCat = &cat
+			}
+		}
+	}
 	for _, field := range []struct {
 		key    string
 		raw    json.RawMessage

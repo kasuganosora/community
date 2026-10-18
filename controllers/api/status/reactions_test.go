@@ -116,3 +116,32 @@ func TestReactionReplacementCleansRowsAndRollsBackTogether(t *testing.T) {
 	require.NoError(t, conn.Model(&models.FederationOutbox{}).Where("kind = ?", "ReactionUndo").Count(&count).Error)
 	require.Zero(t, count, "the parent Delete already revokes the remote reactions")
 }
+
+func TestAuthorReactionPreferencesAreEnforcedAndUndoRemainsAvailable(t *testing.T) {
+	conn, fix, owner := replacementDB(t)
+	require.NoError(t, conn.AutoMigrate(&models.StatusReaction{}, &models.RemoteReactionActivity{}))
+	local := fix.CreateAccount(fix.CreateUser(func(u *models.User) { u.UserName = "policy_local" }))
+	remote := fix.CreateAccount(fix.CreateUser(func(u *models.User) { u.UserName = "policy_remote" }))
+	domain := "remote.example"
+	remote.Domain = &domain
+	remote.OriginId = "https://remote.example/users/policy_remote"
+	require.NoError(t, conn.Save(remote).Error)
+	post := fix.CreateStatus(owner)
+	sensitive := &models.Emoji{Shortcode: "sensitive", Url: "https://local.example/sensitive.png", StaticUrl: "https://local.example/sensitive.png", IsSensitive: true}
+	require.NoError(t, conn.Create(sensitive).Error)
+	require.NoError(t, models.SetStatusReaction(conn, post.Id, local, ":sensitive:", sensitive, "", false))
+	require.NoError(t, conn.Model(owner).UpdateColumn("reaction_acceptance", "nonSensitiveOnly").Error)
+	require.ErrorIs(t, models.SetStatusReaction(conn, post.Id, local, ":sensitive:", sensitive, "", false), models.ErrReactionForbidden)
+	require.NoError(t, models.SetStatusReaction(conn, post.Id, local, ":sensitive:", nil, "", true))
+	require.NoError(t, models.SetStatusReaction(conn, post.Id, local, "😀", nil, "", false))
+	require.NoError(t, conn.Model(owner).UpdateColumn("reaction_acceptance", "likeOnlyForRemote").Error)
+	require.ErrorIs(t, models.SetStatusReaction(conn, post.Id, remote, "😀", nil, "", false), models.ErrReactionForbidden)
+	require.NoError(t, models.SetStatusReaction(conn, post.Id, remote, "❤️", nil, "https://remote.example/likes/1", false))
+	require.NoError(t, models.SetStatusReaction(conn, post.Id, local, ":sensitive:", sensitive, "", false))
+	require.NoError(t, conn.Model(owner).UpdateColumn("reaction_acceptance", "likeOnly").Error)
+	require.ErrorIs(t, models.SetStatusReaction(conn, post.Id, local, "😀", nil, "", false), models.ErrReactionForbidden)
+	require.NoError(t, models.SetStatusReaction(conn, post.Id, local, ":sensitive:", nil, "", true))
+	var count int64
+	require.NoError(t, conn.Model(&models.StatusReaction{}).Where("account_id = ? AND status_id = ?", local.Id, post.Id).Count(&count).Error)
+	require.Zero(t, count)
+}

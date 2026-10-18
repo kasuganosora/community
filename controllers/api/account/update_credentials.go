@@ -2,8 +2,10 @@ package account
 
 import (
 	"github.com/kasuganosora/community/controllers"
+	"github.com/kasuganosora/community/profileverify"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,16 +20,22 @@ import (
 
 // UpdateCredentialsRequest represents the request for updating account credentials.
 type UpdateCredentialsRequest struct {
-	DisplayName      *string `form:"display_name" json:"display_name"`
-	Note             *string `form:"note" json:"note"`
-	Avatar           string  `form:"avatar" json:"avatar"`
-	Header           string  `form:"header" json:"header"`
-	Locked           *bool   `form:"locked" json:"locked"`
-	Bot              *bool   `form:"bot" json:"bot"`
-	Discoverable     *bool   `form:"discoverable" json:"discoverable"`
-	HideCollections  *bool   `form:"hide_collections" json:"hide_collections"`
-	Indexable        *bool   `form:"indexable" json:"indexable"`
-	FieldsAttributes []struct {
+	DisplayName        *string `form:"display_name" json:"display_name"`
+	Note               *string `form:"note" json:"note"`
+	Avatar             string  `form:"avatar" json:"avatar"`
+	Header             string  `form:"header" json:"header"`
+	Locked             *bool   `form:"locked" json:"locked"`
+	Bot                *bool   `form:"bot" json:"bot"`
+	Discoverable       *bool   `form:"discoverable" json:"discoverable"`
+	HideCollections    *bool   `form:"hide_collections" json:"hide_collections"`
+	Indexable          *bool   `form:"indexable" json:"indexable"`
+	IsCat              *bool   `form:"is_cat" json:"is_cat"`
+	Location           *string `form:"location" json:"location"`
+	Birthday           *string `form:"birthday" json:"birthday"`
+	Language           *string `form:"language" json:"language"`
+	FollowedMessage    *string `form:"followed_message" json:"followed_message"`
+	ReactionAcceptance *string `form:"reaction_acceptance" json:"reaction_acceptance"`
+	FieldsAttributes   []struct {
 		Name  string `form:"name" json:"name"`
 		Value string `form:"value" json:"value"`
 	} `form:"fields_attributes" json:"fields_attributes"`
@@ -35,10 +43,15 @@ type UpdateCredentialsRequest struct {
 
 // UpdateCredentials handles PATCH /api/v1/accounts/update_credentials.
 func UpdateCredentials(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 512*1024)
 	var req UpdateCredentialsRequest
 
 	if err := controllers.BindBody(c, &req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": "invalid profile update"})
+		return
+	}
+	if err := validateProfileUpdate(&req); err != nil {
+		c.AbortWithStatusJSON(422, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -47,6 +60,17 @@ func UpdateCredentials(c *gin.Context) {
 
 	// Update fields if provided
 	updates := make(map[string]any)
+	for column, value := range map[string]*string{
+		"location": req.Location, "birthday": req.Birthday, "language": req.Language,
+		"followed_message": req.FollowedMessage, "reaction_acceptance": req.ReactionAcceptance,
+	} {
+		if value != nil {
+			updates[column] = *value
+		}
+	}
+	if req.IsCat != nil {
+		updates["is_cat"] = *req.IsCat
+	}
 
 	if req.DisplayName != nil {
 		if *req.DisplayName != account.DisplayName && moderation.Current().IsProhibitedName(*req.DisplayName) {
@@ -92,10 +116,13 @@ func UpdateCredentials(c *gin.Context) {
 	updates["updated_at"] = &now
 
 	// Commit the profile, fields, and durable follower delivery together.
-	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
+	err := db.GetDB().WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
 		var locked models.Account
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&locked, account.Id).Error; err != nil {
 			return err
+		}
+		if locked.DeletionRequestedAt != nil || locked.IsBan {
+			return gorm.ErrRecordNotFound
 		}
 		if req.Indexable != nil {
 			updates["no_index"] = !*req.Indexable
@@ -108,13 +135,24 @@ func UpdateCredentials(c *gin.Context) {
 			if err := tx.FirstOrCreate(&extra, models.AccountExtra{AccountId: account.Id}).Error; err != nil {
 				return err
 			}
+			previous := extra.Fields
 			extra.Fields = make([]models.AccountField, 0, len(req.FieldsAttributes))
 			for _, field := range req.FieldsAttributes {
 				if field.Name != "" || field.Value != "" {
-					extra.Fields = append(extra.Fields, models.AccountField{Name: field.Name, Val: field.Value})
+					updated := models.AccountField{Name: field.Name, Val: field.Value}
+					for _, old := range previous {
+						if old.Name == field.Name && old.Val == field.Value {
+							updated.VerifiedAt = old.VerifiedAt
+							break
+						}
+					}
+					extra.Fields = append(extra.Fields, updated)
 				}
 			}
 			if err := tx.Model(&extra).Select("Fields").Updates(&extra).Error; err != nil {
+				return err
+			}
+			if err := profileverify.Enqueue(tx, account.Id); err != nil {
 				return err
 			}
 		}
@@ -124,6 +162,10 @@ func UpdateCredentials(c *gin.Context) {
 		return tx.Preload("Emojis").Preload("Extra").First(account, account.Id).Error
 	})
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.AbortWithStatusJSON(403, gin.H{"error": "account is unavailable"})
+			return
+		}
 		_ = c.Error(errors.Wrap(err, "update account"))
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 		return
@@ -133,7 +175,9 @@ func UpdateCredentials(c *gin.Context) {
 	_ = cache.InvalidateAccount(c.Request.Context(), account.Id)
 	search.QueueAccountIndex(account.Id)
 
-	c.JSON(200, serializer.ToAccount(account))
+	result := serializer.ToAccount(account)
+	result.FollowedMessage = account.FollowedMessage
+	c.JSON(200, result)
 }
 
 // GetAccountSettings handles GET /api/v1/accounts/settings (extension).

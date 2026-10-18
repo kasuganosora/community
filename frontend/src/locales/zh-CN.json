@@ -2822,6 +2822,55 @@
       "unresolvedAlias": "未找到旧账号，请检查完整地址后重试。",
       "unresolvedTarget": "未找到目标账号，请检查完整地址后重试。",
       "failed": "操作失败，请检查网络后重试。"
+    },
+    "ProfileExtras": {
+      "location": "位置",
+      "birthday": "生日",
+      "publicInfoHint": "位置和生日会显示在公开个人资料中，可留空。",
+      "language": "默认发布语言",
+      "languageHint": "用于新帖子的默认语言，不影响界面语言。选择自动识别时，根据帖子内容判断语言。",
+      "extraFields": "附加信息",
+      "fieldsHint": "最多添加 16 项公开资料。拖动左侧手柄或使用上下按钮调整顺序。",
+      "fieldName": "标签",
+      "fieldValue": "内容",
+      "addField": "添加一项",
+      "removeField": "移除第 {0} 项",
+      "moveUp": "上移",
+      "moveDown": "下移",
+      "reorderField": "调整第 {0} 项的顺序",
+      "reorderHint": "拖动排序，也可按 Alt + ↑ / ↓",
+      "fieldMoved": "已移至第 {0} 项",
+      "verificationHint": "链接支持验证 rel=me；保存后验证。",
+      "fieldsLoading": "正在加载附加信息原文…",
+      "fieldsUnavailable": "暂时无法加载附加信息，现有内容会保留。",
+      "retry": "重试",
+      "followedMessage": "关注后消息",
+      "followedMessageHint": "对方成功关注你后显示，最多 200 个字符。",
+      "reactionAcceptance": "允许的回应",
+      "reaction": {
+        "all": "所有回应",
+        "likeOnlyForRemote": "外站仅允许点赞",
+        "nonSensitiveOnly": "仅非敏感表情",
+        "nonSensitiveOnlyForLocalLikeOnlyForRemote": "本站仅非敏感表情，外站仅点赞",
+        "likeOnly": "仅点赞"
+      },
+      "isCat": "我是猫",
+      "isCatHint": "在头像上显示猫耳。",
+      "isBot": "机器人账号",
+      "isBotHint": "将账号标记为自动发布内容的机器人。",
+      "autoLanguage": "自动识别"
+    },
+    "ProfileQRCode": {
+      "open": "二维码",
+      "title": "个人主页二维码",
+      "close": "关闭",
+      "creating": "正在生成二维码…",
+      "error": "二维码生成失败，请重试。",
+      "retry": "重试",
+      "download": "下载二维码"
+    },
+    "ProfileProof": {
+      "verified": "已验证链接"
     }
   },
   "timeline": {

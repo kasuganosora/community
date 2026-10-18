@@ -2822,6 +2822,55 @@
       "unresolvedAlias": "元のアカウントが見つかりません。完全なアドレスを確認してください。",
       "unresolvedTarget": "引っ越し先が見つかりません。完全なアドレスを確認してください。",
       "failed": "操作に失敗しました。接続を確認して再試行してください。"
+    },
+    "ProfileExtras": {
+      "location": "場所",
+      "birthday": "誕生日",
+      "publicInfoHint": "場所と誕生日は公開プロフィールに表示されます。空欄でも構いません。",
+      "language": "投稿の既定の言語",
+      "languageHint": "新しい投稿の既定の言語です。表示言語は変わりません。自動判定では投稿内容から言語を判定します。",
+      "extraFields": "追加情報",
+      "fieldsHint": "公開プロフィールに最大16項目を追加できます。左のハンドルをドラッグするか、上下のボタンで並べ替えられます。",
+      "fieldName": "ラベル",
+      "fieldValue": "内容",
+      "addField": "項目を追加",
+      "removeField": "{0}番目の項目を削除",
+      "moveUp": "上へ移動",
+      "moveDown": "下へ移動",
+      "reorderField": "{0}番目の項目を並べ替え",
+      "reorderHint": "ドラッグ、または Alt + ↑ / ↓ で並べ替え",
+      "fieldMoved": "{0}番目に移動しました",
+      "verificationHint": "リンクは rel=me による検証に対応しており、保存後に確認されます。",
+      "fieldsLoading": "追加情報の原文を読み込み中…",
+      "fieldsUnavailable": "追加情報を読み込めませんでした。現在の内容は保持されます。",
+      "retry": "再試行",
+      "followedMessage": "フォロー後のメッセージ",
+      "followedMessageHint": "相手があなたをフォローした後に表示されます。最大200文字。",
+      "reactionAcceptance": "許可するリアクション",
+      "reaction": {
+        "all": "すべてのリアクション",
+        "likeOnlyForRemote": "他サーバーからは「いいね」のみ",
+        "nonSensitiveOnly": "センシティブでない絵文字のみ",
+        "nonSensitiveOnlyForLocalLikeOnlyForRemote": "ローカルは非センシティブ絵文字、リモートは「いいね」のみ",
+        "likeOnly": "「いいね」のみ"
+      },
+      "isCat": "猫です",
+      "isCatHint": "アバターに猫耳を表示します。",
+      "isBot": "Botアカウント",
+      "isBotHint": "自動投稿するBotのアカウントとして表示します。",
+      "autoLanguage": "自動判定"
+    },
+    "ProfileQRCode": {
+      "open": "QRコード",
+      "title": "プロフィールのQRコード",
+      "close": "閉じる",
+      "creating": "QRコードを作成中…",
+      "error": "QRコードを作成できませんでした。もう一度お試しください。",
+      "retry": "再試行",
+      "download": "QRコードをダウンロード"
+    },
+    "ProfileProof": {
+      "verified": "確認済みリンク"
     }
   },
   "timeline": {
