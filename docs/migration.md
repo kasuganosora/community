@@ -107,6 +107,23 @@ progress stage=import/posts done=187340 total=412880 pct=45.4 speed=1312/s eta=2
 
 `community-transfer --scope site --input <export-dir>` 现在默认流式读取 `bundle.json`（`--stream`），不再受 `--max-json-bytes` 限制。zip 包、个人备份和 `--stream=false` 仍走旧的内存路径。
 
+### 环境变量与 Redis
+
+`community-transfer` 读取与实例相同的配置（`ENV_FILE` 指向的 `.env`，进程环境变量优先）：
+
+| 变量 | 是否必需 | 说明 |
+|---|---|---|
+| `DB_CONNECTION` / `DB_DSN` | 必需 | 目标数据库 |
+| `APP_BASE_URL` | 必需 | 必须与源站域名一致 |
+| `ENCRYPTED_KEY` | 必需 | 与目标实例相同的 32 字节密钥（导入的私钥等用它加密）；导入后不能再换 |
+| `REDIS_0_HOST` / `REDIS_0_PORT`（默认 6379）/ `REDIS_0_PASSWORD` / `REDIS_0_DB`（默认 0） | 可选 | 目标实例的 Redis。只用于导入后清除过期的时间线缓存 |
+| `REDIS_1_HOST` … | 可选 | 额外的 Redis 实例，导入不使用 |
+| `REDIS_FEED_CLUSTER_ADDRS` | 可选 | 若实例的 feed 使用 Redis Cluster，填相同的值，缓存清理会走集群 |
+| `COMMUNITY_DEFAULT_REDIS_HOST` | 可选 | `REDIS_0_HOST` 为空时的后备值（Docker 镜像使用） |
+| `TRANSFER_DEBUG=1` | 可选 | 打印完整错误链和崩溃堆栈 |
+
+**Redis 不是必需的。** 没有配置时，`--apply` 会打印一行提示并继续导入，只是跳过缓存清理；导入后重启实例或运行 `tootctl feeds build --all` 即可。演练用的空库不需要 Redis。如果某个代码路径仍然意外地需要 Redis，程序会给出明确错误（而不是 `panic: no redis config`），并提示设置上面的变量；请附上 `TRANSFER_DEBUG=1` 的输出报告。
+
 ## maid.lat 演练得到的教训
 
 1. **默认只迁本地数据。** maid.lat 有 4.57M 条笔记，绝大多数是远端缓存。默认只导出本地用户的数据和它们引用的远端实体；被裁掉的引用记为 `remote_reference_trimmed`（info）。只有确实需要远端缓存时才加 `--include-remote-cache`，内存和时间都会大很多。
@@ -119,6 +136,7 @@ progress stage=import/posts done=187340 total=412880 pct=45.4 speed=1312/s eta=2
    - 通行密钥（passkeys / WebAuthn）：不在主导入里，单独运行  
      `tootctl passkeys import-misskey --dsn "$MISSKEY_DSN" --dry-run`，确认后去掉 `--dry-run`（按用户名匹配，可重复执行）。安装向导里是独立的 `passkeys` 阶段。
    - **引用（quote）笔记**（maid.lat：317 条）和**频道笔记**（5 条）只进入私有归档（archive-only），不作为公开帖子发布。回复它们的笔记照常发布，但不带回复链（帖子属性 `import_reply_parent_archived` 记录原父帖 ID）；转发它们的笔记同样只归档。
+   - **账号级可见性策略**：Misskey 的 `requireSigninToViewContents`（需要登录才能查看）、`makeNotesFollowersOnlyBefore` / `makeNotesHiddenBefore`（把某个时间点之前的笔记自动改为仅关注者可见 / 隐藏；正数是 Unix 秒，负数是"距今 N 秒"）在 Community 里没有对应功能。设置了其中任何一个的本地账号会在预检中报 `unsupported_privacy_policy`（阻断），报告会写明字段和值，例如 `makeNotesHiddenBefore=-2592000`。映射策略待定。
    - 使用目标站不存在的自定义表情（例如本地迁移范围之外的远端表情）的回应会归档，而不是让整个事务失败。
 6. **核对脚本以前会误报通过。** `verify_misskey_import.py` 现在：空目标库直接 FAIL；逐个检查每个本地用户是否存在；实例 Actor 的公钥必须等于 Misskey `instance.actor` 的公钥；连接失败显示真实错误（不再是 `HTTP 0`）。
 7. **旧导出器的隐藏错误。** 失败时会打印阶段、异常类型和 psql 的原始错误（密码已脱敏），`--verbose` 打印 traceback；psql 警告（例如 PGPASSFILE 权限不安全）也会显示。
