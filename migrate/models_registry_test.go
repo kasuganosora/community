@@ -22,6 +22,7 @@ var appModels = []any{
 	&activitypub.Delivery{},
 	&activitypub.ProcessedActivity{},
 	&activitypub.AnnounceRetry{},
+	&activitypub.InboxJob{},
 	&adminwebhook.Delivery{},
 	&adminwebhook.Subscription{},
 	&models.EmailDomainBlock{},

@@ -158,8 +158,22 @@ func Inbox(c *gin.Context) {
 			return
 		}
 	}
+	// Verified: hand the activity to the inbox queue and answer at once.
+	// The workers run the same processing below, off the request path.
+	if enqueueInboxActivity(c, body, activityID, actor, targetAccount, relay) {
+		return
+	}
+	processVerifiedActivity(c.Request.Context(), c, activity, actor, relay, targetAccount)
+}
+
+// processVerifiedActivity applies an activity whose HTTP signature, actor
+// and domain checks already passed. It answers through c (directly from the
+// inbox, or a recorder in an inbox queue worker).
+func processVerifiedActivity(parent context.Context, c *gin.Context, activity map[string]any, actor string, relay *models.Relay, targetAccount *models.Account) {
+	activityType, _ := activity["type"].(string)
+	activityID, _ := activity["id"].(string)
 	// Create context with verified actor info
-	ctx := context.WithValue(c.Request.Context(), actorKey, actor)
+	ctx := context.WithValue(parent, actorKey, actor)
 	if relay != nil {
 		handleRelayedActivity(ctx, c, activity, activityID, relay)
 		return

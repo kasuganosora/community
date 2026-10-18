@@ -72,7 +72,7 @@ func relayDB(t *testing.T) *gorm.DB {
 		&models.Emoji{}, &models.AccountEmoji{}, &models.Status{}, &models.StatusContent{}, &models.StatusToAccount{}, &models.Tag{}, &models.StatusTag{},
 		&models.MediaAttachment{}, &models.Follow{}, &models.Block{}, &models.SystemSetting{}, &models.Poll{}, &models.PollOption{}, &models.StatusEmoji{},
 		&models.Application{}, &models.Conversation{}, &models.AccountConversation{}, &models.Notification{}, &models.FederationOutbox{}, &Delivery{},
-		&ProcessedActivity{}, &AnnounceRetry{}, &models.Relay{}, &models.DomainBlock{}}
+		&ProcessedActivity{}, &AnnounceRetry{}, &InboxJob{}, &models.Relay{}, &models.DomainBlock{}}
 	if conn.Dialector.Name() == "sqlite" {
 		for _, m := range all {
 			stmt := &gorm.Statement{DB: conn}
