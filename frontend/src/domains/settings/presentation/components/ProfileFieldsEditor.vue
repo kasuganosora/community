@@ -90,7 +90,7 @@ function drop(event: DragEvent, index: number) {
           </div>
         </li>
       </ol>
-      <button :id="`${editorId}-add`" type="button" class="btn btn--secondary btn--sm profile-fields__add" :disabled="disabled || rows.length >= 16" @click="add"><t-icon name="add" :size="18" aria-hidden="true" />{{ $t('settings.ProfileExtras.addField') }}</button>
+      <button :id="`${editorId}-add`" type="button" class="profile-fields__add" data-testid="profile-fields-add" :disabled="disabled || rows.length >= 16" :title="rows.length >= 16 ? $t('settings.ProfileExtras.fieldsFull') : undefined" @click="add"><t-icon name="add" :size="18" aria-hidden="true" />{{ $t('settings.ProfileExtras.addField') }}</button>
       <p class="profile-fields__hint">{{ $t('settings.ProfileExtras.verificationHint') }}</p>
       <p class="sr-only" role="status" aria-live="polite">{{ announcement }}</p>
     </div>
@@ -117,7 +117,12 @@ function drop(event: DragEvent, index: number) {
 .profile-fields__remove:hover:enabled { color: var(--color-danger); }
 .profile-fields__handle { height: 42px; cursor: grab; touch-action: pan-y; }
 .profile-fields__handle:active { cursor: grabbing; }
-.profile-fields__add { align-self: flex-start; display: inline-flex; align-items: center; gap: .375rem; }
+/* Full-width bar under the rows, spanning the name + value inputs (between
+   the drag handle column and the row controls). */
+.profile-fields__add { display: flex; align-items: center; justify-content: center; gap: .375rem; min-height: 42px; margin: 0 calc(90px + .5rem) 0 calc(30px + .5rem); padding: .5rem .75rem; border: 1px dashed var(--color-separator); border-radius: .5rem; background: transparent; color: var(--color-accent); font: inherit; font-size: .875rem; font-weight: 600; cursor: pointer; transition: background-color .15s, border-color .15s; }
+.profile-fields__add:hover:enabled { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 8%, transparent); }
+.profile-fields__add:active:enabled { background: color-mix(in srgb, var(--color-accent) 14%, transparent); }
+.profile-fields__add:disabled { color: var(--color-label-secondary); border-style: solid; background: var(--color-fill); }
 .profile-fields :is(button, input):disabled { opacity: .45; cursor: not-allowed; }
 .profile-fields :is(button, input, summary):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 @media (max-width: 599px) {
@@ -126,5 +131,6 @@ function drop(event: DragEvent, index: number) {
   .profile-fields__handle { display: none; }
   .profile-fields__controls { grid-column: 1 / -1; justify-content: flex-end; }
   .profile-fields__icon { width: 40px; height: 40px; }
+  .profile-fields__add { margin: 0; min-height: 44px; }
 }
 </style>

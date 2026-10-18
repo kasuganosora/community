@@ -2904,7 +2904,8 @@
       "isBotHint": "将账号标记为自动发布内容的机器人。",
       "autoLanguage": "自动识别",
       "requireSignin": "需要登录才能查看我的帖子",
-      "requireSigninHint": "未登录的访客只能看到你的个人资料，看不到帖子。其他服务器仍可通过签名请求获取帖子，关注者照常收到。"
+      "requireSigninHint": "未登录的访客只能看到你的个人资料，看不到帖子。其他服务器仍可通过签名请求获取帖子，关注者照常收到。",
+      "fieldsFull": "已达到 16 项上限"
     },
     "ProfileQRCode": {
       "open": "二维码",

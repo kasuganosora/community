@@ -2904,7 +2904,8 @@
       "isBotHint": "Kennzeichnet dieses Konto als Bot, der automatisch Beiträge veröffentlicht.",
       "autoLanguage": "Automatisch erkennen",
       "requireSignin": "Anmeldung zum Ansehen meiner Beiträge verlangen",
-      "requireSigninHint": "Nicht angemeldete Besucher sehen dein Profil, aber nicht deine Beiträge. Andere Server können deine Beiträge weiterhin mit signierten Anfragen abrufen, und deine Follower erhalten sie wie gewohnt."
+      "requireSigninHint": "Nicht angemeldete Besucher sehen dein Profil, aber nicht deine Beiträge. Andere Server können deine Beiträge weiterhin mit signierten Anfragen abrufen, und deine Follower erhalten sie wie gewohnt.",
+      "fieldsFull": "Alle 16 Felder sind belegt"
     },
     "ProfileQRCode": {
       "open": "QR-Code",

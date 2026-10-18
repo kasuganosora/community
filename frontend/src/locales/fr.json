@@ -2904,7 +2904,8 @@
       "isBotHint": "Indique que ce compte est un bot qui publie automatiquement.",
       "autoLanguage": "Détection automatique",
       "requireSignin": "Exiger une connexion pour voir mes publications",
-      "requireSigninHint": "Les visiteurs non connectés voient votre profil mais pas vos publications. Les autres serveurs peuvent toujours les récupérer via des requêtes signées, et vos abonnés continuent de les recevoir."
+      "requireSigninHint": "Les visiteurs non connectés voient votre profil mais pas vos publications. Les autres serveurs peuvent toujours les récupérer via des requêtes signées, et vos abonnés continuent de les recevoir.",
+      "fieldsFull": "Les 16 champs sont utilisés"
     },
     "ProfileQRCode": {
       "open": "Code QR",

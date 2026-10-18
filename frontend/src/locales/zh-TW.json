@@ -2904,7 +2904,8 @@
       "isBotHint": "將帳號標記為自動發布內容的機器人。",
       "autoLanguage": "自動辨識",
       "requireSignin": "需要登入才能查看我的貼文",
-      "requireSigninHint": "未登入的訪客只能看到你的個人資料，看不到貼文。其他伺服器仍可透過簽章請求取得貼文，追蹤者照常收到。"
+      "requireSigninHint": "未登入的訪客只能看到你的個人資料，看不到貼文。其他伺服器仍可透過簽章請求取得貼文，追蹤者照常收到。",
+      "fieldsFull": "已達 16 項上限"
     },
     "ProfileQRCode": {
       "open": "QR Code",

@@ -2904,7 +2904,8 @@
       "isBotHint": "Identify this account as a bot that posts automatically.",
       "autoLanguage": "Detect automatically",
       "requireSignin": "Require sign-in to view my posts",
-      "requireSigninHint": "Visitors who aren't signed in see your profile but not your posts. Other servers can still fetch your posts with signed requests, and your followers keep receiving them."
+      "requireSigninHint": "Visitors who aren't signed in see your profile but not your posts. Other servers can still fetch your posts with signed requests, and your followers keep receiving them.",
+      "fieldsFull": "All 16 fields are in use"
     },
     "ProfileQRCode": {
       "open": "QR code",
