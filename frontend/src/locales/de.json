@@ -532,7 +532,7 @@
     },
     "AvatarDecorationLimitCard": {
       "s1": "Dekorationen pro Person",
-      "s2": "Entspricht avatarDecorationLimit von Misskey. Standard 1, höchstens {0}. Eine Senkung ändert bestehende Auswahl nicht; sie gilt beim nächsten Speichern.",
+      "s2": "Wähle 1–{0}. Ein niedrigeres Limit gilt beim nächsten Speichern der Auswahl.",
       "s3": "Obergrenze",
       "s4": "Speichern",
       "s5": "Dekorationslimit konnte nicht gelesen werden",
@@ -540,7 +540,7 @@
       "s7": "Speichern fehlgeschlagen – bitte 1–{0} eingeben"
     },
     "QueueSparkline": {
-      "s1": "Wird gemessen…"
+      "s1": "Noch keine Verlaufsdaten"
     },
     "AdminLayout": {
       "s1": "Zum Hauptinhalt springen",
@@ -1195,7 +1195,9 @@
       "s84": "Achtung: wartende, verzögerte und fehlgeschlagene Jobs{0} leeren? Sie werden abgebrochen und nie zugestellt. Nicht umkehrbar; der externe Zustand kann abweichen.",
       "s85": "{0} Job zur sofortigen Wiederholung geplant. | {0} Jobs zur sofortigen Wiederholung geplant.",
       "s86": "{0} Job geleert. | {0} Jobs geleert.",
-      "s87": "Sammelaktion fehlgeschlagen; bitte neu laden."
+      "s87": "Sammelaktion fehlgeschlagen; bitte neu laden.",
+      "currentMinute": "Diese Minute",
+      "refresh": "Aktualisieren"
     },
     "ModerationSettingsAdminPage": {
       "s1": "Verwaltung",
@@ -1569,6 +1571,20 @@
       "s45": "Diese noch nicht gesendete Zustellung abbrechen?",
       "s46": "Erneut zustellen? Der Empfänger sollte nach Delivery-ID deduplizieren.",
       "s47": "Der Job wurde bereits ausgeführt oder sein Status hat sich geändert; bitte neu laden."
+    },
+    "AvatarDecorationsAdminPage": {
+      "title": "Avatar-Dekorationen",
+      "settings": "Einstellungen",
+      "create": "Dekoration hinzufügen",
+      "edit": "Dekoration bearbeiten",
+      "editName": "{0} bearbeiten",
+      "empty": "Lade über „Hinzufügen“ deine erste Dekoration hoch.",
+      "close": "Schließen",
+      "cancel": "Abbrechen",
+      "preview": "Dekorationsvorschau",
+      "invalidImage": "Wähle ein PNG-, JPEG-, GIF- oder WebP-Bild mit höchstens 2 MiB.",
+      "saveFailed": "Speichern fehlgeschlagen. Bitte erneut versuchen.",
+      "confirmDelete": "Diese Dekoration löschen? Sie wird auch von allen Avataren entfernt."
     }
   },
   "auth": {

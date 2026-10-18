@@ -532,7 +532,7 @@
     },
     "AvatarDecorationLimitCard": {
       "s1": "Décorations par utilisateur",
-      "s2": "Équivaut à avatarDecorationLimit de Misskey. Par défaut 1, maximum {0}. Réduire la limite ne modifie pas les choix existants ; elle s’applique au prochain enregistrement.",
+      "s2": "Choisissez entre 1 et {0}. Une limite réduite s’applique au prochain enregistrement.",
       "s3": "Limite",
       "s4": "Enregistrer",
       "s5": "Impossible de lire la limite de décorations",
@@ -540,7 +540,7 @@
       "s7": "Échec de l’enregistrement — saisissez 1 à {0}"
     },
     "QueueSparkline": {
-      "s1": "Échantillonnage…"
+      "s1": "Aucune donnée de tendance"
     },
     "AdminLayout": {
       "s1": "Aller au contenu principal",
@@ -1195,7 +1195,9 @@
       "s84": "Action dangereuse : vider les tâches en attente, différées et échouées{0} ? Elles seront annulées et jamais diffusées. Action irréversible, l’état distant peut se désynchroniser.",
       "s85": "{0} tâche programmée pour une nouvelle tentative. | {0} tâches programmées pour une nouvelle tentative.",
       "s86": "{0} tâche supprimée. | {0} tâches supprimées.",
-      "s87": "Échec de l’action groupée ; actualisez pour vérifier."
+      "s87": "Échec de l’action groupée ; actualisez pour vérifier.",
+      "currentMinute": "Cette minute",
+      "refresh": "Actualiser"
     },
     "ModerationSettingsAdminPage": {
       "s1": "Administration",
@@ -1569,6 +1571,20 @@
       "s45": "Annuler cette diffusion non envoyée ?",
       "s46": "Relivrer ? Le destinataire doit dédupliquer par Delivery ID.",
       "s47": "La tâche a déjà été exécutée ou son état a changé ; actualisez."
+    },
+    "AvatarDecorationsAdminPage": {
+      "title": "Décorations d’avatar",
+      "settings": "Paramètres",
+      "create": "Ajouter une décoration",
+      "edit": "Modifier la décoration",
+      "editName": "Modifier {0}",
+      "empty": "Utilisez « Ajouter » ci-dessus pour importer votre première décoration.",
+      "close": "Fermer",
+      "cancel": "Annuler",
+      "preview": "Aperçu de la décoration",
+      "invalidImage": "Choisissez une image PNG, JPEG, GIF ou WebP de 2 MiB maximum.",
+      "saveFailed": "Échec de l’enregistrement. Veuillez réessayer.",
+      "confirmDelete": "Supprimer cette décoration ? Elle sera aussi retirée des avatars qui la portent."
     }
   },
   "auth": {

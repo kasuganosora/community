@@ -94,6 +94,7 @@ const queueSeriesLen = 60
 type queueSampler struct {
 	mu     sync.Mutex
 	last   map[string]queueCounts
+	lastAt map[string]time.Time
 	series map[string][]queuePoint
 }
 
@@ -111,14 +112,31 @@ func positive(v int64) int64 {
 func (s *queueSampler) record(kind string, c queueCounts, at time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	prev, seen := s.last[kind]
-	s.last[kind] = c
-	if !seen {
+	if s.lastAt == nil {
+		s.lastAt = map[string]time.Time{}
+	}
+	// A request and the background collector may finish out of order.
+	if !at.After(s.lastAt[kind]) {
 		return
 	}
-	p := queuePoint{At: at.Truncate(time.Minute), Processed: positive(c.Completed - prev.Completed), Failed: positive(c.Failed - prev.Failed), Active: c.Active, Waiting: c.Waiting, Delayed: c.Delayed}
+	prev, seen := s.last[kind]
+	previousAt := s.lastAt[kind]
+	s.last[kind], s.lastAt[kind] = c, at
+	p := queuePoint{At: at.Truncate(time.Minute), Active: c.Active, Waiting: c.Waiting, Delayed: c.Delayed}
+	if seen && !previousAt.Before(p.At.Add(-time.Duration(queueSeriesLen-1)*time.Minute)) {
+		p.Processed = positive(c.Completed - prev.Completed)
+		p.Failed = positive(c.Failed - prev.Failed)
+	}
 	list := s.series[kind]
+	// Do not present old samples as the last hour after a collection gap.
+	cutoff := p.At.Add(-time.Duration(queueSeriesLen-1) * time.Minute)
+	for len(list) > 0 && list[0].At.Before(cutoff) {
+		list = list[1:]
+	}
 	if n := len(list); n > 0 && list[n-1].At.Equal(p.At) {
+		// Polls within a minute add to the bucket instead of erasing its delta.
+		p.Processed += list[n-1].Processed
+		p.Failed += list[n-1].Failed
 		list[n-1] = p
 	} else {
 		list = append(list, p)
@@ -174,8 +192,12 @@ func FederationQueueStats(c *gin.Context) {
 		if operationError(c, err) {
 			return
 		}
+		// Seed and advance history from successful reads too: charts never depend
+		// on a separate collector successfully completing its first two ticks.
+		sampler.record(q.Kind, counts, now)
 		out = append(out, gin.H{"kind": q.Kind, "label": q.Label, "counts": counts, "series": sampler.snapshot(q.Kind), "bulk_actions": q.bulk, "hosts": q.Kind == "delivery"})
 	}
+	c.Header("Cache-Control", "no-store")
 	c.JSON(200, gin.H{"queues": out, "generated_at": now, "interval_seconds": 60, "inbox_queue": false})
 }
 

@@ -84,3 +84,42 @@ it('shows queue overview cards and runs confirmed bulk actions on errored hosts'
  expect(api.jobs).toHaveBeenLastCalledWith(1,'delivery','delayed','')
  w.unmount()
 })
+
+it('keeps queue statistics fresh when job loading increments its request generation', async () => {
+ stubStats(); vi.spyOn(api, 'jobs').mockResolvedValue({ total: 0, items: [] })
+ const w = mount(JobsAdminPage); await flushPromises()
+ vi.mocked(api.queueStats).mockResolvedValue({ interval_seconds: 60, queues: [stat('delivery', { failed: 9 })] })
+ await openQueue(w, 'ActivityPub 投递')
+ expect(w.get('.jobs-detail-head').text()).toContain('失败9')
+ w.unmount()
+})
+
+it('does not call empty or single-point history sampling and clears recovered errors', async () => {
+ vi.useFakeTimers(); stubStats()
+ const w = mount(JobsAdminPage); await flushPromises()
+ expect(w.text()).toContain('暂无趋势数据'); expect(w.text()).not.toContain('近 0 分钟'); expect(w.text()).not.toContain('采样中')
+ vi.mocked(api.queueStats).mockRejectedValueOnce(new Error('offline'))
+ await vi.advanceTimersByTimeAsync(15000); await flushPromises()
+ expect(w.get('[role=alert]').text()).toContain('队列统计')
+ const sample = { ...stat('delivery'), series: [{ at: '2026-10-18T00:00:00Z', processed: 0, failed: 0, active: 0, waiting: 0, delayed: 0 }] }
+ vi.mocked(api.queueStats).mockResolvedValue({ interval_seconds: 60, queues: [sample] })
+ await vi.advanceTimersByTimeAsync(15000); await flushPromises()
+ expect(w.find('[role=alert]').exists()).toBe(false)
+ expect(w.text()).toContain('本分钟'); expect(w.find('circle').exists()).toBe(true)
+ expect(w.find('.queue-spark__empty').exists()).toBe(false)
+ w.unmount(); vi.useRealTimers()
+})
+
+it('deduplicates slow statistics polls and ignores responses from an ended session', async () => {
+ const { invalidateSessionData } = await import('@/shared/api/sessionScope')
+ vi.useFakeTimers(); stubStats()
+ let resolve!: (value: Awaited<ReturnType<typeof api.queueStats>>) => void
+ vi.mocked(api.queueStats).mockImplementationOnce(() => new Promise(done => { resolve = done }))
+ const w = mount(JobsAdminPage)
+ await vi.advanceTimersByTimeAsync(45000)
+ expect(api.queueStats).toHaveBeenCalledTimes(1)
+ invalidateSessionData()
+ resolve({ interval_seconds: 60, queues: [stat('delivery', { failed: 88 })] }); await flushPromises()
+ expect(w.find('.jobs-counts').exists()).toBe(false)
+ w.unmount(); vi.useRealTimers()
+})

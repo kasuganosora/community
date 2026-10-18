@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { AdminAlert, AdminBadge, AdminButton, AdminCheck, AdminEmpty, AdminField, AdminPageHeader } from '../components/ui'
-import AvatarDecorationLimitCard from '../components/AvatarDecorationLimitCard.vue'
+import AvatarDecorationsAdminPage from './AvatarDecorationsAdminPage.vue'
 import { communityAssetsApi, type Advertisement, type AvatarDecoration } from '../../infrastructure/communityAssetsApi'
 import { t } from '@/shared/i18n'
 const props = defineProps<{ kind: 'avatar_decorations' | 'advertisements' }>()
@@ -49,12 +49,13 @@ function remove(item: AvatarDecoration & Advertisement) {
   if (busy.value || loading.value || !window.confirm(ads.value ? t('admin.BrandAssetsAdminPage.s35') : t('admin.BrandAssetsAdminPage.s36'))) return
   return mutate(() => communityAssetsApi.remove(props.kind, item.id), t('admin.BrandAssetsAdminPage.s37'))
 }
-watch(() => props.kind, () => { items.value = []; busy.value = false; notice.value = ''; reset(); void load() }, { immediate: true })
+watch(() => props.kind, () => { items.value = []; busy.value = false; notice.value = ''; reset(); if (ads.value) void load(); else { generation++; loading.value = false } }, { immediate: true })
 watch(sessionEpoch, () => { generation++; items.value = []; busy.value = false; loading.value = false; error.value = ''; notice.value = ''; reset() }, { flush: 'sync' })
 onBeforeUnmount(() => { generation++ })
 </script>
 <template>
-  <section class="admin-page">
+  <AvatarDecorationsAdminPage v-if="!ads" />
+  <section v-else class="admin-page">
     <AdminPageHeader :title="$t('admin.BrandAssetsAdminPage.s1', [heading])" :description="ads?$t('admin.BrandAssetsAdminPage.s2'):$t('admin.BrandAssetsAdminPage.s3')" />
     <AdminAlert v-if="error" tone="danger">{{ error }}<template #action><AdminButton size="sm" :disabled="busy || loading" @click="load">{{ $t('admin.BrandAssetsAdminPage.s4') }}</AdminButton></template></AdminAlert>
     <AdminAlert v-if="notice" tone="success">{{ notice }}</AdminAlert>
@@ -89,7 +90,6 @@ onBeforeUnmount(() => { generation++ })
       </article>
     </div>
     <AdminEmpty v-if="!loading && !error && !items.length">{{ $t('admin.BrandAssetsAdminPage.s27', [heading]) }}</AdminEmpty>
-    <AvatarDecorationLimitCard v-if="!ads" />
   </section>
 </template>
 <style scoped>

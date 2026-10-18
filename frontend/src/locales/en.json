@@ -532,7 +532,7 @@
     },
     "AvatarDecorationLimitCard": {
       "s1": "Decorations per user",
-      "s2": "Matches Misskey’s avatarDecorationLimit. Default 1, up to {0}. Lowering it won’t change existing choices; it applies the next time a user saves.",
+      "s2": "Choose 1–{0}. A lower limit applies when members next save their selection.",
       "s3": "Limit",
       "s4": "Save",
       "s5": "Couldn’t read the decoration limit",
@@ -540,7 +540,7 @@
       "s7": "Save failed — enter 1–{0}"
     },
     "QueueSparkline": {
-      "s1": "Sampling…"
+      "s1": "No trend data yet"
     },
     "AdminLayout": {
       "s1": "Skip to main content",
@@ -1195,7 +1195,9 @@
       "s84": "Danger: clear the waiting, delayed and failed jobs{0}? They’ll be marked cancelled and never delivered. This can’t be undone and may leave remote state out of sync.",
       "s85": "Scheduled {0} job to retry now. | Scheduled {0} jobs to retry now.",
       "s86": "Cleared {0} job. | Cleared {0} jobs.",
-      "s87": "Bulk action failed; refresh to check."
+      "s87": "Bulk action failed; refresh to check.",
+      "currentMinute": "This minute",
+      "refresh": "Refresh"
     },
     "ModerationSettingsAdminPage": {
       "s1": "Admin",
@@ -1569,6 +1571,20 @@
       "s45": "Cancel this unsent delivery?",
       "s46": "Redeliver? The receiver should de-duplicate by Delivery ID.",
       "s47": "The job already ran or its state changed; please refresh."
+    },
+    "AvatarDecorationsAdminPage": {
+      "title": "Avatar decorations",
+      "settings": "Settings",
+      "create": "Add decoration",
+      "edit": "Edit decoration",
+      "editName": "Edit {0}",
+      "empty": "Use Add above to upload your first decoration.",
+      "close": "Close",
+      "cancel": "Cancel",
+      "preview": "Decoration preview",
+      "invalidImage": "Choose a PNG, JPEG, GIF or WebP image up to 2 MiB.",
+      "saveFailed": "Could not save. Please try again.",
+      "confirmDelete": "Delete this decoration? It will also be removed from everyone wearing it."
     }
   },
   "auth": {

@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { federationJobsApi as api, type ErroredHost, type Job, type QueueStat } from '../../infrastructure/federationJobsApi'
+import { AdminAlert, AdminButton, AdminPageHeader } from '../components/ui'
 import QueueSparkline from '../components/QueueSparkline.vue'
 
 import { t as i18nT, currentLocale } from '@/shared/i18n'
@@ -23,7 +24,8 @@ const tab = ref('overview'), status = ref('all'), search = ref('')
 const stats = ref<QueueStat[]>([]), hosts = ref<ErroredHost[]>([])
 const items = ref<Job[]>([]), page = ref(1), total = ref(0), expanded = ref<Record<string, boolean>>({})
 const busy = ref(false), error = ref(''), notice = ref('')
-let version = 0, timer: ReturnType<typeof setInterval> | undefined
+const statsLoading = ref(false), statsError = ref('')
+let version = 0, statsVersion = 0, timer: ReturnType<typeof setInterval> | undefined
 
 const queueLabel = (kind: string) => QUEUES.find(q => q.kind === kind)?.label ?? kind
 const stat = computed(() => stats.value.find(s => s.kind === tab.value))
@@ -59,13 +61,25 @@ function relative(value?: string | null) {
 const series = (s: QueueStat | undefined, key: 'processed' | 'failed' | 'active' | 'waiting' | 'delayed') => (s?.series ?? []).map(p => p[key])
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0)
 
-watch(sessionEpoch, () => { ++version; items.value = []; stats.value = []; hosts.value = []; total.value = 0; notice.value = ''; busy.value = false }, { flush: 'sync' })
-onBeforeUnmount(() => { ++version; if (timer) clearInterval(timer) })
+watch(sessionEpoch, () => { ++version; ++statsVersion; statsLoading.value = false; statsError.value = ''; if (timer) clearInterval(timer); items.value = []; stats.value = []; hosts.value = []; total.value = 0; notice.value = ''; busy.value = false }, { flush: 'sync' })
+onBeforeUnmount(() => { ++version; ++statsVersion; if (timer) clearInterval(timer) })
 
 async function loadStats() {
-  const mine = version
-  try { const data = await api.queueStats(); if (mine === version) stats.value = data.queues }
-  catch { if (mine === version && tab.value === 'overview') error.value = i18nT('admin.JobsAdminPage.s70') }
+  if (statsLoading.value) return
+  const mine = ++statsVersion
+  statsLoading.value = true
+  try {
+    const data = await api.queueStats()
+    if (mine === statsVersion) { stats.value = data.queues; statsError.value = '' }
+  } catch { if (mine === statsVersion) statsError.value = i18nT('admin.JobsAdminPage.s70') }
+  finally { if (mine === statsVersion) statsLoading.value = false }
+}
+function historyWindow(s: QueueStat) {
+  if (!s.series.length) return ''
+  if (s.series.length === 1) return i18nT('admin.JobsAdminPage.currentMinute')
+  const first = Date.parse(s.series[0]!.at), last = Date.parse(s.series[s.series.length - 1]!.at)
+  const minutes = Math.max(1, Math.round((last - first) / 60000) + 1)
+  return i18nT('admin.JobsAdminPage.s13', [minutes])
 }
 async function loadHosts() {
   if (tab.value !== 'delivery') { hosts.value = []; return }
@@ -84,7 +98,7 @@ async function load(reset = false) {
   } catch { if (mine === version) error.value = i18nT('admin.JobsAdminPage.s71') }
   finally { if (mine === version) busy.value = false }
 }
-async function refresh(reset = false) { error.value = ''; await Promise.all([loadStats(), load(reset), loadHosts()]) }
+async function refresh(reset = false) { error.value = ''; await Promise.all([load(reset), loadStats(), loadHosts()]) }
 function openTab(kind: string) { tab.value = kind; status.value = 'all'; search.value = ''; notice.value = ''; items.value = []; refresh(true) }
 function setStatus(key: string) { status.value = key; load(true) }
 
@@ -136,13 +150,14 @@ onMounted(() => {
 
 <template>
   <div class="admin-page jobs-page">
-    <header><h1>{{ $t('admin.JobsAdminPage.s1') }}</h1><p>{{ $t('admin.JobsAdminPage.s2') }}</p></header>
+    <AdminPageHeader :title="$t('admin.JobsAdminPage.s1')" :description="$t('admin.JobsAdminPage.s2')"><AdminButton :loading="statsLoading" :disabled="busy" @click="refresh()"><t-icon name="refresh" aria-hidden="true" />{{ $t('admin.JobsAdminPage.refresh') }}</AdminButton></AdminPageHeader>
 
     <nav class="jobs-tabs" role="tablist" :aria-label="$t('admin.JobsAdminPage.s3')">
       <button role="tab" :aria-selected="tab === 'overview'" :class="{ active: tab === 'overview' }" @click="openTab('overview')">{{ $t('admin.JobsAdminPage.s4') }}</button>
       <button v-for="q in QUEUES" :key="q.kind" role="tab" :aria-selected="tab === q.kind" :class="{ active: tab === q.kind }" @click="openTab(q.kind)">{{ q.label }}</button>
     </nav>
 
+    <AdminAlert v-if="statsError" tone="danger">{{ statsError }}</AdminAlert>
     <p v-if="error" role="alert" class="admin-error">{{ error }}</p>
     <p v-if="notice" class="admin-alert admin-alert--success" role="status">{{ notice }}</p>
 
@@ -156,13 +171,13 @@ onMounted(() => {
           <div><dt>{{ $t('admin.JobsAdminPage.s9') }}</dt><dd :class="{ bad: s.counts.failed }">{{ s.counts.failed }}</dd></div>
         </dl>
         <QueueSparkline :label="$t('admin.JobsAdminPage.s10', [queueLabel(s.kind)])" :series="[{ values: series(s, 'processed'), tone: 'accent' }, { values: series(s, 'failed'), tone: 'danger' }]" />
-        <div class="jobs-legend"><span class="dot accent" />{{ $t('admin.JobsAdminPage.s11', [sum(series(s, 'processed'))]) }}<span class="dot danger" />{{ $t('admin.JobsAdminPage.s12', [sum(series(s, 'failed'))]) }}<span class="jobs-muted">{{ $t('admin.JobsAdminPage.s13', [s.series.length]) }}</span></div>
+        <div v-if="s.series.length" class="jobs-legend"><span class="dot accent" />{{ $t('admin.JobsAdminPage.s11', [sum(series(s, 'processed'))]) }}<span class="dot danger" />{{ $t('admin.JobsAdminPage.s12', [sum(series(s, 'failed'))]) }}<span class="jobs-muted">{{ historyWindow(s) }}</span></div>
       </button>
       <article class="admin-card jobs-qcard jobs-qcard--static">
         <div class="jobs-qcard__head"><strong>{{ $t('admin.JobsAdminPage.s14') }}</strong><span class="jobs-muted">inbox</span></div>
         <p class="jobs-muted">{{ $t('admin.JobsAdminPage.s15') }}</p>
       </article>
-      <p v-if="!stats.length && !error" class="admin-empty">{{ $t('admin.JobsAdminPage.s16') }}</p>
+      <p v-if="statsLoading && !stats.length" class="admin-empty" role="status">{{ $t('admin.JobsAdminPage.s16') }}</p>
     </section>
 
     <template v-else>
