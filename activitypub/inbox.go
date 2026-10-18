@@ -1415,7 +1415,13 @@ func getOrCreateRemoteAccountContext(ctx context.Context, actorURI string) (*mod
 		return nil, &actorFetchError{actorURI: actorURI, err: err}
 	}
 	if actor.ID != actorURI {
-		return nil, &actorFetchError{actorURI: actorURI, err: errors.New("actor ID does not match requested URI")}
+		// Threads advertises ".../ap/users/<id>/" but servers differ on the
+		// trailing slash; that is still the same document. Keep the URI we
+		// were given so later lookups by it match the stored row.
+		if strings.TrimSuffix(actor.ID, "/") != strings.TrimSuffix(actorURI, "/") {
+			return nil, &actorFetchError{actorURI: actorURI, err: errors.New("actor ID does not match requested URI")}
+		}
+		actor.ID = actorURI
 	}
 	account, err = createRemoteAccount(activityDB(ctx), actor)
 	return &account, err

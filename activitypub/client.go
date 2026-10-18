@@ -81,12 +81,17 @@ func (c *Client) getWithStatus(ctx context.Context, uri string) ([]byte, int, er
 // answers 401, some servers 403, and others (Threads, GoToSocial for
 // non-public objects) hide the object with 404/410 unless the request is
 // signed, so those are retried once with the instance actor's signature too.
+//
+// 5xx is retried signed too: Threads answers unsigned actor GETs with 404 or
+// 500 depending on the edge, and only serves actors to signed requests.
+// The retry happens once per fetch, so a server that is really down costs
+// one extra request.
 func requiresSignedFetch(status int) bool {
 	switch status {
 	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusGone:
 		return true
 	}
-	return false
+	return status >= 500 && status <= 599
 }
 
 // FetchError is a non-200 answer to a federation GET.

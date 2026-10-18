@@ -2,9 +2,12 @@ package activitypub
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -184,4 +187,88 @@ func TestAnnounceEmbeddedObjectFromSameOrigin(t *testing.T) {
 	}))
 	require.Equal(t, int64(1), f.reblogs(t))
 	require.Empty(t, f.retries(t))
+}
+
+// threadsActorOrigin serves a Threads-like note whose author is unknown
+// locally. Unsigned GETs of anything get `unsignedStatus`; signed actor
+// GETs get `actorStatus` (200 = the actor, advertised without the trailing
+// slash the note uses).
+type threadsActorOrigin struct {
+	mu             sync.Mutex
+	unsignedStatus int
+	actorStatus    int
+	signedActor    int
+}
+
+const threadsActorURI = "https://threads.test/ap/users/178414/"
+
+func (o *threadsActorOrigin) serve(r *http.Request) *http.Response {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if r.Header.Get("Signature") == "" {
+		return outboundResponse(o.unsignedStatus, "")
+	}
+	if strings.HasPrefix(r.URL.Path, "/ap/users/") {
+		o.signedActor++
+		if o.actorStatus != 200 {
+			return outboundResponse(o.actorStatus, "")
+		}
+		key, _ := rsa.GenerateKey(rand.Reader, 1024)
+		data, _ := json.Marshal(map[string]any{
+			"id": strings.TrimSuffix(threadsActorURI, "/"), "type": "Person", "preferredUsername": "gihyojp",
+			"inbox":     threadsActorURI + "inbox",
+			"publicKey": map[string]any{"id": threadsActorURI + "#main-key", "owner": threadsActorURI, "publicKeyPem": pemPKIX(key)},
+		})
+		return outboundResponse(200, string(data))
+	}
+	doc := threadsNoteDoc()
+	doc["attributedTo"] = threadsActorURI
+	data, _ := json.Marshal(doc)
+	return outboundResponse(200, string(data))
+}
+
+func newThreadsActorFixture(t *testing.T, actorStatus int) (*announceFixture, *threadsActorOrigin) {
+	w := newRelayWorld(t)
+	maid := "maid.test"
+	booster := &models.Account{Username: "luna", Domain: &maid, OriginId: "https://maid.test/users/luna"}
+	require.NoError(t, w.conn.Create(booster).Error)
+	o := &threadsActorOrigin{unsignedStatus: http.StatusInternalServerError, actorStatus: actorStatus}
+	withFetchTransport(t, func(r *http.Request) (*http.Response, error) { return o.serve(r), nil }, testSigner(t))
+	return &announceFixture{w: w, booster: booster}, o
+}
+
+// Threads answers unsigned actor GETs with 500: the author is fetched signed
+// and stored under the URI the note names.
+func TestAnnounceOfThreadsPostResolvesAuthorSigned(t *testing.T) {
+	f, o := newThreadsActorFixture(t, 200)
+	require.Equal(t, 200, f.announce(t, threadsNote))
+	require.Equal(t, int64(1), f.reblogs(t))
+	require.Equal(t, 1, o.signedActor)
+	var author models.Account
+	require.NoError(t, f.w.conn.Where("origin_id = ?", threadsActorURI).First(&author).Error)
+}
+
+// An author that still fails (5xx even signed) leaves the boost queued.
+func TestAnnounceAuthorServerErrorIsRetried(t *testing.T) {
+	f, o := newThreadsActorFixture(t, http.StatusInternalServerError)
+	require.Equal(t, 200, f.announce(t, threadsNote))
+	require.Zero(t, f.reblogs(t))
+	require.Len(t, f.retries(t), 1)
+
+	o.mu.Lock()
+	o.actorStatus = 200
+	o.mu.Unlock()
+	require.NoError(t, ProcessAnnounceRetries(context.Background(), time.Now().Add(time.Hour), 10))
+	require.Equal(t, int64(1), f.reblogs(t))
+	require.Empty(t, f.retries(t))
+}
+
+func TestActorIDMustMatchBeyondTrailingSlash(t *testing.T) {
+	newRelayWorld(t)
+	withFetchTransport(t, func(r *http.Request) (*http.Response, error) {
+		data, _ := json.Marshal(map[string]any{"id": "https://threads.test/ap/users/other", "type": "Person", "inbox": "https://threads.test/inbox"})
+		return outboundResponse(200, string(data)), nil
+	}, testSigner(t))
+	_, err := getOrCreateRemoteAccountContext(context.Background(), threadsActorURI)
+	require.ErrorContains(t, err, "does not match")
 }
