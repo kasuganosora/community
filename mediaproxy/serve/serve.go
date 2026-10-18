@@ -32,11 +32,12 @@ import (
 )
 
 const (
-	headerTimeout  = 10 * time.Second
+	connectTimeout = 5 * time.Second
+	headerTimeout  = 10 * time.Second // connect + TLS + response headers
 	maxRedirects   = 3
 	maxConcurrent  = 32
 	acquireWait    = 3 * time.Second
-	failureTTL     = 2 * time.Minute
+	failureTTL     = 5 * time.Minute
 	hostRate       = rate.Limit(20)
 	hostBurst      = 40
 	maxAge         = 86400 // seconds, capped by the token's remaining life
@@ -50,9 +51,17 @@ const (
 
 // Overridable in tests.
 var (
+	fetchTimeout = 15 * time.Second // whole download of a cached avatar
+	stallTimeout = 15 * time.Second // relay: no upstream bytes for this long
+
 	// NewClient builds the outbound client; it must pin dialing to public
 	// addresses, bound redirects and check every redirect target.
-	NewClient = func() *http.Client { return activitypub.NewSafeHTTPClient(0, maxRedirects) }
+	NewClient = func() *http.Client {
+		return activitypub.NewSafeHTTPClientWithConnectTimeout(0, maxRedirects, connectTimeout)
+	}
+	// sharedFailures is the cross-process failure memo (Redis), nil when
+	// unavailable. Overridable in tests.
+	sharedFailures = redisFailures
 	// Validate is the SSRF pre-check of a source URL.
 	Validate = activitypub.ValidateURI
 	now      = time.Now
@@ -73,6 +82,13 @@ func hostAllowed(host string) bool {
 }
 
 func markFailed(key string) {
+	if f := sharedFailures(); f != nil {
+		f.mark(key)
+	}
+	markFailedLocal(key)
+}
+
+func markFailedLocal(key string) {
 	failMu.Lock()
 	defer failMu.Unlock()
 	if failN >= maxFailureKeys {
@@ -93,6 +109,17 @@ func markFailed(key string) {
 }
 
 func recentlyFailed(key string) bool {
+	if recentlyFailedLocal(key) {
+		return true
+	}
+	if f := sharedFailures(); f != nil && f.failed(key) {
+		markFailedLocal(key)
+		return true
+	}
+	return false
+}
+
+func recentlyFailedLocal(key string) bool {
 	v, ok := failures.Load(key)
 	if !ok {
 		return false
@@ -409,7 +436,9 @@ func relay(c *gin.Context, key, rawURL, kind string, claims mediaproxy.Claims) {
 	if c.Request.Method == http.MethodHead {
 		return
 	}
-	n, err := io.Copy(c.Writer, io.LimitReader(body, limit))
+	stall := time.AfterFunc(stallTimeout, cancel)
+	defer stall.Stop()
+	n, err := io.Copy(c.Writer, &stallReader{r: io.LimitReader(body, limit), timer: stall})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.Debug("media proxy: stream aborted after %d bytes: %v", n, err)
 	}
@@ -494,6 +523,8 @@ func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediapro
 // fetchImage downloads a raster image source in full, bounded by
 // MEDIA_PROXY_MAX_BYTES and the avatar cache's own limit.
 func fetchImage(ctx context.Context, rawURL string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err

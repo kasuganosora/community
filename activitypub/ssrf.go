@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 )
 
@@ -247,9 +248,35 @@ func containsSubstr(s, sub string) bool {
 // are followed, only http(s) is allowed and the whole request is bounded
 // by timeout.
 func NewSafeHTTPClient(timeout time.Duration, maxRedirects int) *http.Client {
+	return newSafeHTTPClient(timeout, maxRedirects, ssrfSafeHTTPClient.Transport)
+}
+
+// connectBoundTransports caches one transport per connect timeout so
+// connection pooling still works across clients.
+var connectBoundTransports sync.Map // time.Duration -> http.RoundTripper
+
+// NewSafeHTTPClientWithConnectTimeout is NewSafeHTTPClient whose TCP connect
+// (DNS + dial) gives up after connect, for user-facing fetches that must not
+// hang on unreachable hosts.
+func NewSafeHTTPClientWithConnectTimeout(timeout time.Duration, maxRedirects int, connect time.Duration) *http.Client {
+	rt, ok := connectBoundTransports.Load(connect)
+	if !ok {
+		transport := ssrfSafeTransport.Clone()
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			ctx, cancel := context.WithTimeout(ctx, connect)
+			defer cancel()
+			return ssrfSafeDialContext(ctx, network, addr)
+		}
+		transport.TLSHandshakeTimeout = connect
+		rt, _ = connectBoundTransports.LoadOrStore(connect, http.RoundTripper(labCheckedTransport{next: transport}))
+	}
+	return newSafeHTTPClient(timeout, maxRedirects, rt.(http.RoundTripper))
+}
+
+func newSafeHTTPClient(timeout time.Duration, maxRedirects int, transport http.RoundTripper) *http.Client {
 	return &http.Client{
 		Timeout:   timeout,
-		Transport: ssrfSafeHTTPClient.Transport,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > maxRedirects {
 				return fmt.Errorf("ssrf: stopped after %d redirects", maxRedirects)
