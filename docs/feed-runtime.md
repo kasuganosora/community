@@ -33,7 +33,7 @@ COMMUNITY_ROLE=feed-worker FEED_MODE=durable ./community
 | `FEED_MAX_PENDING_BATCHES` | `1000000` | 同类批次的软容量预算 |
 | `REDIS_FEED_CLUSTER_ADDRS` | 空 | 可选 Cluster 节点地址，逗号分隔 |
 
-以上 Feed 设置支持配置文件及环境变量，环境变量优先。数据库连接池使用既有 `DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS`；给 API 留出连接，并按实例数计算数据库总连接预算。先测量队列年龄与依赖负载，再增加 Worker 副本或槽数。
+以上 Feed 设置支持配置文件及环境变量，环境变量优先。数据库连接池使用 `DB_MAX_OPEN_CONNS`（默认 30，进程总预算）/ `DB_MAX_IDLE_CONNS`（见 docs/setup.md）；给 API 留出连接，并按实例数计算数据库总连接预算。先测量队列年龄与依赖负载，再增加 Worker 副本或槽数。
 
 写 API 在队列达到预算或预算查询不可用时返回 `503` 与 `Retry-After: 5`。每个 API 进程最多每秒检查一次，这是背压而非全局硬配额；并发副本可能在观察间隔内超出预算。事务内任务保存失败仍必须回滚业务写入。收件联邦队列保留其原有独立重试语义。
 

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	mysqldriver "github.com/go-sql-driver/mysql"
@@ -188,6 +189,7 @@ func openDatabase(p DatabaseParams) (*gorm.DB, error) {
 		_ = sqlDB.Close()
 		return nil, fail("database_connect_failed", safeConnectHint(err))
 	}
+	limitAuxPool(conn, "setup wizard database probe", 1)
 	return conn, nil
 }
 
@@ -233,7 +235,25 @@ func closeDB(conn *gorm.DB) {
 	}
 	if s, err := conn.DB(); err == nil {
 		_ = s.Close()
+		if release, ok := auxReleases.LoadAndDelete(s); ok {
+			release.(func())()
+		}
 	}
+}
+
+// auxReleases maps wizard pools to their connection-budget release funcs.
+var auxReleases sync.Map
+
+// limitAuxPool sizes a wizard pool from the process connection budget; the
+// reservation is returned by closeDB.
+func limitAuxPool(conn *gorm.DB, purpose string, want int) {
+	s, err := conn.DB()
+	if err != nil {
+		return
+	}
+	n, release := database.ReserveAuxConnections(purpose, want)
+	database.ConfigureAuxPool(s, n)
+	auxReleases.Store(s, release)
 }
 
 func (p *RedisParams) normalize() *Error {

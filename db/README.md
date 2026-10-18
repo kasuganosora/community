@@ -107,12 +107,19 @@ DB_DATABASE=community
 ### 连接池（环境变量覆盖）
 
 ```bash
-# 对 MySQL 与 PostgreSQL 生效；非法或 ≤0 的值会被忽略并回退默认值
-DB_MAX_OPEN_CONNS=100
-DB_MAX_IDLE_CONNS=10
-DB_CONN_MAX_LIFETIME_MINUTES=30
-DB_CONN_MAX_IDLE_TIME_MINUTES=10
+# 对 MySQL 与 PostgreSQL 生效；非法或 ≤0 的值会被忽略（带警告）并回退默认值
+DB_MAX_OPEN_CONNS=30        # 每个进程的连接上限（默认 30）
+DB_MAX_IDLE_CONNS=10        # 空闲连接数（默认 10，不超过上限）
+DB_CONN_MAX_LIFETIME=30m    # Go duration 或纯分钟数；旧名 DB_CONN_MAX_LIFETIME_MINUTES 仍可用
+DB_CONN_MAX_IDLE_TIME=10m   # 旧名 DB_CONN_MAX_IDLE_TIME_MINUTES 仍可用
 ```
+
+`DB_MAX_OPEN_CONNS` 是**进程总预算**：主连接池（HTTP、写缓冲、inbox worker 等都共用 `GetDB()`）
+拿到全部上限；进程若再连同一 PostgreSQL 服务器（`tootctl passkeys import-misskey` 读 Misskey 库、
+设置向导的连接探测），这些辅助池的连接会从主池里扣除，结束后归还，进程总数始终不超过上限。
+启动日志会打印实际生效值，例如
+`PostgreSQL connection pool: process cap=30 (DB_MAX_OPEN_CONNS), main max_open=30, max_idle=10, aux reserved=0, ...`。
+SQLite 固定为 1 个连接，不受这些变量影响。容量规划见 docs/setup.md「Database connection pool」。
 
 ### Redis 配置
 

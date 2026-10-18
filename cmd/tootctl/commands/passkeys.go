@@ -5,6 +5,7 @@ import (
 
 	passkeyapi "github.com/kasuganosora/community/controllers/api/passkey"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/db/dialect"
 	"github.com/urfave/cli/v2"
 	"gorm.io/gorm"
@@ -18,10 +19,18 @@ var misskeySource = func(dsn string) (*gorm.DB, func(), error) {
 		return nil, nil, err
 	}
 
+	sqlDB, err := conn.DB()
+	if err != nil {
+		return nil, nil, err
+	}
+	// The Misskey DB usually lives on the same PostgreSQL server, so its pool
+	// is carved out of this process's DB_MAX_OPEN_CONNS budget.
+	n, release := database.ReserveAuxConnections("Misskey source database", 2)
+	database.ConfigureAuxPool(sqlDB, n)
+
 	return conn, func() {
-		if sqlDB, derr := conn.DB(); derr == nil {
-			_ = sqlDB.Close()
-		}
+		_ = sqlDB.Close()
+		release()
 	}, nil
 }
 

@@ -17,7 +17,7 @@ import (
 func TestDefaultDBConfig(t *testing.T) {
 	cfg := database.DefaultDBConfig()
 
-	assert.Equal(t, 100, cfg.MaxOpenConns, "MaxOpenConns should be 100")
+	assert.Equal(t, 30, cfg.MaxOpenConns, "MaxOpenConns should be 30")
 	assert.Equal(t, 10, cfg.MaxIdleConns, "MaxIdleConns should be 10")
 	assert.Equal(t, 30*time.Minute, cfg.ConnMaxLifetime, "ConnMaxLifetime should be 30m")
 	assert.Equal(t, 10*time.Minute, cfg.ConnMaxIdleTime, "ConnMaxIdleTime should be 10m")
@@ -63,7 +63,7 @@ func TestLoadDBConfig_MaxIdleConns(t *testing.T) {
 
 	cfg := database.LoadDBConfig()
 	assert.Equal(t, 5, cfg.MaxIdleConns)
-	assert.Equal(t, 100, cfg.MaxOpenConns, "other fields should keep defaults")
+	assert.Equal(t, 30, cfg.MaxOpenConns, "other fields should keep defaults")
 }
 
 func TestLoadDBConfig_ConnMaxLifetime(t *testing.T) {

@@ -128,6 +128,7 @@ func openMisskey(m MisskeyParams, password string) (*gorm.DB, error) {
 		_ = sqlDB.Close()
 		return nil, fail("misskey_connect_failed", safeConnectHint(err))
 	}
+	limitAuxPool(conn, "source database (setup wizard)", 2)
 	return conn, nil
 }
 

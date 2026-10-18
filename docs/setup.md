@@ -150,6 +150,44 @@ any imported variable that is still in its own environment. After startup the
 server also logs a warning that names every admin-editable setting stored in
 the database but still set in the process environment.
 
+## Database connection pool
+
+Every process (the server, each `tootctl` run, `community-transfer`) opens
+one main pool. HTTP handlers, the write buffer, the inbox workers and the
+schedulers all share it. `DB_MAX_OPEN_CONNS` caps the connections of the
+whole process: when the process also opens a pool to the same database
+server, the main pool shrinks by that amount until it is closed. Examples are
+the Misskey source database in `tootctl passkeys import-misskey` (2
+connections) and the setup wizard's probes (1–2). SQLite always uses one
+connection.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DB_MAX_OPEN_CONNS` | 30 | per-process cap on open connections |
+| `DB_MAX_IDLE_CONNS` | 10 | idle connections kept (clamped to the cap) |
+| `DB_CONN_MAX_LIFETIME` | 30m | Go duration or minutes; `DB_CONN_MAX_LIFETIME_MINUTES` still works |
+| `DB_CONN_MAX_IDLE_TIME` | 10m | Go duration or minutes; `DB_CONN_MAX_IDLE_TIME_MINUTES` still works |
+
+The effective values are logged at startup (`... connection pool: process
+cap=30 (DB_MAX_OPEN_CONNS), main max_open=30, max_idle=10, aux reserved=0`).
+
+**Sizing on a shared PostgreSQL.** Add the caps of every process that can run
+at the same time and keep the sum well below the server's
+`max_connections` minus `superuser_reserved_connections` minus what other
+applications (e.g. Misskey) use. Example with `max_connections=100`: the server
+at 30, plus one `tootctl`/`community-transfer` run at 30, leaves about 37 for
+Misskey and admin sessions. Lower the cap of one-off tools with
+`DB_MAX_OPEN_CONNS=10 tootctl ...` if Misskey needs more.
+
+**Does 30 fit the workers?** Each inbox worker (`INBOX_WORKERS`, default 4)
+uses at most one connection at a time. A job's transactions do not open a
+second connection while they are held, and the test suite runs the inbox
+queue on a 1-connection pool to prove it. The write buffer flushes in one
+transaction on one connection. So 4 workers + 1 flush leave about 25
+connections for HTTP requests and schedulers. When the pool is full, callers
+wait for a free connection instead of deadlocking. If you raise
+`INBOX_WORKERS`, keep `DB_MAX_OPEN_CONNS` at least `INBOX_WORKERS + 10`.
+
 ## docker-compose changes
 
 * New volumes: `./var/config:/app/config` (configuration and marker) and

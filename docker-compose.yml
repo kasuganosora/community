@@ -49,6 +49,11 @@ services:
     env_file:
       - path: .env
         required: false
+    # Database pool: DB_MAX_OPEN_CONNS (default 30 per process), DB_MAX_IDLE_CONNS
+    # (10), DB_CONN_MAX_LIFETIME (30m), DB_CONN_MAX_IDLE_TIME (10m). Set them in
+    # .env or the config file; on a PostgreSQL shared with Misskey keep the caps
+    # of the server and any tootctl/community-transfer runs below max_connections
+    # (docs/setup.md "Database connection pool").
     # Client addresses: forwarding headers are only trusted from TRUSTED_PROXIES
     # (default: loopback and private ranges, which covers the nginx hop on a
     # Docker bridge). nginx must set X-Real-IP $remote_addr; if the proxy is on

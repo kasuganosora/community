@@ -194,42 +194,72 @@ type DBConfig struct {
 // DefaultDBConfig 默认数据库配置.
 func DefaultDBConfig() DBConfig {
 	return DBConfig{
-		MaxOpenConns:    100,
+		MaxOpenConns:    30,
 		MaxIdleConns:    10,
 		ConnMaxLifetime: 30 * time.Minute,
 		ConnMaxIdleTime: 10 * time.Minute,
 	}
 }
 
-// LoadDBConfig 从环境变量加载配置.
+// LoadDBConfig reads the pool settings from the environment.
+//
+//	DB_MAX_OPEN_CONNS        per-process cap on open connections (default 30)
+//	DB_MAX_IDLE_CONNS        idle connections kept (default 10, at most the cap)
+//	DB_CONN_MAX_LIFETIME     e.g. 30m; DB_CONN_MAX_LIFETIME_MINUTES also works
+//	DB_CONN_MAX_IDLE_TIME    e.g. 10m; DB_CONN_MAX_IDLE_TIME_MINUTES also works
 func LoadDBConfig() DBConfig {
 	cfg := DefaultDBConfig()
 
-	if v := os.Getenv("DB_MAX_OPEN_CONNS"); v != "" {
-		if i, err := strconv.Atoi(v); err == nil && i > 0 {
-			cfg.MaxOpenConns = i
-		}
+	if i, ok := positiveIntEnv("DB_MAX_OPEN_CONNS"); ok {
+		cfg.MaxOpenConns = i
 	}
-
-	if v := os.Getenv("DB_MAX_IDLE_CONNS"); v != "" {
-		if i, err := strconv.Atoi(v); err == nil && i > 0 {
-			cfg.MaxIdleConns = i
-		}
+	if i, ok := positiveIntEnv("DB_MAX_IDLE_CONNS"); ok {
+		cfg.MaxIdleConns = i
 	}
-
-	if v := os.Getenv("DB_CONN_MAX_LIFETIME_MINUTES"); v != "" {
-		if i, err := strconv.Atoi(v); err == nil && i > 0 {
-			cfg.ConnMaxLifetime = time.Duration(i) * time.Minute
-		}
+	if d, ok := durationEnv("DB_CONN_MAX_LIFETIME", "DB_CONN_MAX_LIFETIME_MINUTES"); ok {
+		cfg.ConnMaxLifetime = d
 	}
-
-	if v := os.Getenv("DB_CONN_MAX_IDLE_TIME_MINUTES"); v != "" {
-		if i, err := strconv.Atoi(v); err == nil && i > 0 {
-			cfg.ConnMaxIdleTime = time.Duration(i) * time.Minute
-		}
+	if d, ok := durationEnv("DB_CONN_MAX_IDLE_TIME", "DB_CONN_MAX_IDLE_TIME_MINUTES"); ok {
+		cfg.ConnMaxIdleTime = d
+	}
+	if cfg.MaxIdleConns > cfg.MaxOpenConns {
+		cfg.MaxIdleConns = cfg.MaxOpenConns
 	}
 
 	return cfg
+}
+
+func positiveIntEnv(name string) (int, bool) {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return 0, false
+	}
+	i, err := strconv.Atoi(v)
+	if err != nil || i <= 0 {
+		log.Warn("Ignoring %s=%q: expected a positive integer", name, v)
+		return 0, false
+	}
+
+	return i, true
+}
+
+// durationEnv accepts a Go duration ("30m", "1h") or a bare number of
+// minutes in name, then falls back to the legacy *_MINUTES variable.
+func durationEnv(name, minutesName string) (time.Duration, bool) {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d, true
+		}
+		if i, err := strconv.Atoi(v); err == nil && i > 0 {
+			return time.Duration(i) * time.Minute, true
+		}
+		log.Warn("Ignoring %s=%q: expected a duration such as 30m", name, v)
+	}
+	if i, ok := positiveIntEnv(minutesName); ok {
+		return time.Duration(i) * time.Minute, true
+	}
+
+	return 0, false
 }
 
 func initMysqlConnection() (err error) {
@@ -244,24 +274,9 @@ func initMysqlConnection() (err error) {
 		return
 	}
 
-	// 配置连接池
-	sqlDB, err := DB.DB()
-	if err != nil {
-		// gorm.Open succeeded but we can't get *sql.DB — close the DB to avoid leak
-		_ = closeGormSilently(DB)
-		DB = nil
-
+	if err = configureConnectionPool(DB, "MySQL"); err != nil {
 		return err
 	}
-
-	cfg := LoadDBConfig()
-	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
-	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
-	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
-	sqlDB.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
-
-	log.Info("MySQL connection pool configured: max_open=%d, max_idle=%d, max_lifetime=%v, max_idle_time=%v",
-		cfg.MaxOpenConns, cfg.MaxIdleConns, cfg.ConnMaxLifetime, cfg.ConnMaxIdleTime)
 
 	if config.C.DevMode == "true" { //nolint:goconst
 		DB = DB.Debug()
@@ -368,14 +383,7 @@ func configureConnectionPool(gdb *gorm.DB, name string) error {
 		return err
 	}
 
-	cfg := LoadDBConfig()
-	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
-	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
-	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
-	sqlDB.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
-
-	log.Info("%s connection pool configured: max_open=%d, max_idle=%d, max_lifetime=%v, max_idle_time=%v",
-		name, cfg.MaxOpenConns, cfg.MaxIdleConns, cfg.ConnMaxLifetime, cfg.ConnMaxIdleTime)
+	registerMainPool(sqlDB, name, LoadDBConfig())
 
 	return nil
 }
@@ -414,6 +422,7 @@ func initSqliteConnection() (err error) {
 		sqlDB.SetMaxOpenConns(1)
 		sqlDB.SetMaxIdleConns(1)
 		sqlDB.SetConnMaxLifetime(time.Hour)
+		log.Info("SQLite connection pool: max_open=1 (DB_MAX_OPEN_CONNS does not apply to SQLite)")
 	} else {
 		// Can't obtain *sql.DB — clean up to avoid leaking the opened GORM handle
 		_ = closeGormSilently(DB)
