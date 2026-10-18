@@ -156,7 +156,7 @@ Issues and pull requests are welcome at [GitHub Issues](https://github.com/kasug
 
 ## License
 
-No license has been chosen yet. Until a `LICENSE` file is added, all rights are reserved.
+Community is released under the [MIT License](LICENSE). The vendored copy of gomatrixserverlib in `third_party/gomatrixserverlib` remains under the Apache License 2.0 (see its [LICENSE](third_party/gomatrixserverlib/LICENSE) and [NOTICE](NOTICE)).
 
 ## Acknowledgements
 

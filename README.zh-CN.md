@@ -156,7 +156,7 @@ docker compose logs community | grep -A3 "install token"
 
 ## 许可证
 
-目前还没有选定许可证。在添加 `LICENSE` 文件之前，保留所有权利。
+Community 以 [MIT 许可证](LICENSE)发布。`third_party/gomatrixserverlib` 中内置的 gomatrixserverlib 副本仍使用 Apache License 2.0（见其 [LICENSE](third_party/gomatrixserverlib/LICENSE) 与 [NOTICE](NOTICE)）。
 
 ## 致谢
 

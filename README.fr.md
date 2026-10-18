@@ -156,7 +156,7 @@ Les tickets et pull requests sont les bienvenus sur [GitHub Issues](https://gith
 
 ## Licence
 
-Aucune licence n'a encore été choisie. Tant qu'aucun fichier `LICENSE` n'est ajouté, tous droits réservés.
+Community est distribué sous [licence MIT](LICENSE). La copie intégrée de gomatrixserverlib dans `third_party/gomatrixserverlib` reste sous licence Apache 2.0 (voir son [LICENSE](third_party/gomatrixserverlib/LICENSE) et [NOTICE](NOTICE)).
 
 ## Remerciements
 

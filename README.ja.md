@@ -156,7 +156,7 @@ Issue と Pull Request は [GitHub Issues](https://github.com/kasuganosora/commu
 
 ## ライセンス
 
-ライセンスはまだ決まっていません。`LICENSE` ファイルが追加されるまでは、すべての権利を留保します。
+Community は [MIT ライセンス](LICENSE)で公開されています。`third_party/gomatrixserverlib` に同梱している gomatrixserverlib は引き続き Apache License 2.0 です（[LICENSE](third_party/gomatrixserverlib/LICENSE) と [NOTICE](NOTICE) を参照）。
 
 ## 謝辞
 

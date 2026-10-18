@@ -156,7 +156,7 @@ docker compose logs community | grep -A3 "install token"
 
 ## 授權條款
 
-目前還沒有選定授權條款。在新增 `LICENSE` 檔案之前，保留所有權利。
+Community 以 [MIT 授權條款](LICENSE)發布。`third_party/gomatrixserverlib` 中內附的 gomatrixserverlib 副本仍採用 Apache License 2.0（見其 [LICENSE](third_party/gomatrixserverlib/LICENSE) 與 [NOTICE](NOTICE)）。
 
 ## 致謝
 

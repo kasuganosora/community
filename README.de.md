@@ -156,7 +156,7 @@ Issues und Pull Requests sind willkommen unter [GitHub Issues](https://github.co
 
 ## Lizenz
 
-Es wurde noch keine Lizenz gewählt. Solange keine `LICENSE`-Datei hinzugefügt ist, sind alle Rechte vorbehalten.
+Community steht unter der [MIT-Lizenz](LICENSE). Die mitgelieferte Kopie von gomatrixserverlib in `third_party/gomatrixserverlib` bleibt unter der Apache License 2.0 (siehe deren [LICENSE](third_party/gomatrixserverlib/LICENSE) und [NOTICE](NOTICE)).
 
 ## Danksagung
 

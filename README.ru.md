@@ -156,7 +156,7 @@ Issues и pull request'ы приветствуются в [GitHub Issues](https:
 
 ## Лицензия
 
-Лицензия пока не выбрана. Пока не добавлен файл `LICENSE`, все права защищены.
+Community распространяется по [лицензии MIT](LICENSE). Встроенная копия gomatrixserverlib в `third_party/gomatrixserverlib` остаётся под лицензией Apache 2.0 (см. её [LICENSE](third_party/gomatrixserverlib/LICENSE) и [NOTICE](NOTICE)).
 
 ## Благодарности
 
