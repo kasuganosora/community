@@ -376,3 +376,21 @@ func TestImportLifecycleAndAliasPreflight(t *testing.T) {
 	require.True(t, found["unsupported_account_domain"])
 	require.True(t, found["media_alias"])
 }
+
+func TestPrivacyPolicyIssueNamesFieldAndValue(t *testing.T) {
+	conn, b, o := personalFixture(t)
+	o.Scope = "site"
+	b.Scope = "site"
+	o.TargetBaseURL = b.Source.BaseURL
+	b.Accounts[0].Settings = map[string]any{"requireSigninToViewContents": false, "makeNotesFollowersOnlyBefore": nil, "makeNotesHiddenBefore": float64(-2592000)}
+	r, err := Preview(context.Background(), conn, b, o)
+	require.NoError(t, err)
+	var messages []string
+	for _, issue := range r.Issues {
+		if issue.Code == "unsupported_privacy_policy" {
+			messages = append(messages, issue.Message)
+		}
+	}
+	require.Len(t, messages, 1)
+	require.Contains(t, messages[0], "makeNotesHiddenBefore=-2592000")
+}

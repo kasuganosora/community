@@ -3,6 +3,7 @@ package datatransfer
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"reflect"
@@ -141,7 +142,7 @@ func Preview(ctx context.Context, conn *gorm.DB, b *Bundle, o Options) (*Report,
 		if o.Scope == "site" && a.Local {
 			for _, key := range []string{"requireSigninToViewContents", "makeNotesFollowersOnlyBefore", "makeNotesHiddenBefore"} {
 				if policyEnabled(a.Settings[key]) {
-					issue(r, "unsupported_privacy_policy", "account", a.ID, "source account visibility policy requires explicit target support")
+					issue(r, "unsupported_privacy_policy", "account", a.ID, privacyPolicyMessage(a, key))
 				}
 			}
 		}
@@ -402,4 +403,15 @@ func safeSourceIssue(code string) (string, string) {
 	default:
 		return "source_issue", "source backup reports an issue; inspect its private export records"
 	}
+}
+
+// privacyPolicyMessage names the source field and value so operators can
+// decide on a mapping without querying the source database again.
+func privacyPolicyMessage(a Account, key string) string {
+	raw, _ := json.Marshal(a.Settings[key])
+	who := a.ID
+	if a.Username != "" {
+		who = "@" + a.Username + " (" + a.ID + ")"
+	}
+	return fmt.Sprintf("source account %s has %s=%s; the target has no equivalent visibility policy", who, key, raw)
 }
