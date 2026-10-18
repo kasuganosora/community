@@ -2209,6 +2209,24 @@
       "s98": "Aktuellen Entwurf ersetzen?",
       "s99": "Beim Bearbeiten wird der Entwurf im Eingabefeld durch die ursprüngliche Nachricht ersetzt.",
       "s100": "Entwurf ersetzen"
+    },
+    "ExploreGroups": {
+      "join": "Beitreten",
+      "open": "Öffnen",
+      "accept": "Einladung annehmen",
+      "requested": "Angefragt",
+      "joining": "Trete bei…",
+      "members": "{0} Mitglieder",
+      "remote": "Extern",
+      "empty": "Noch keine öffentlichen Gruppen.",
+      "loading": "Wird geladen…",
+      "retry": "Erneut versuchen",
+      "errLoad": "Gruppen konnten nicht geladen werden. Bitte erneut versuchen.",
+      "errCursor": "Diese Seite ist abgelaufen. Bitte neu laden.",
+      "errSignin": "Melde dich an, um Gruppen auf diesem Server zu sehen.",
+      "errJoin": "Beitritt fehlgeschlagen. Bitte erneut versuchen.",
+      "errJoinRules": "Diese Gruppe schränkt den Beitritt ein.",
+      "errJoinForbidden": "Du darfst dieser Gruppe nicht beitreten."
     }
   },
   "instance": {
@@ -2962,7 +2980,8 @@
       "s8": "Timeline",
       "s9": "Noch keine öffentlichen Beiträge.",
       "s10": "Lokal",
-      "s11": "Serverübergreifend"
+      "s11": "Serverübergreifend",
+      "s12": "Gruppen"
     },
     "HomePage": {
       "s1": "Startseite",

@@ -72,7 +72,7 @@ func UGCVisitorGuard() gin.HandlerFunc {
 			c.Next() // stream events are filtered per event
 			return
 		}
-		if mode == moderation.UGCLocal && (trimmed == "/timelines/public" || trimmed == "/timelines/tag/:tag" || trimmed == "/directory") {
+		if mode == moderation.UGCLocal && (trimmed == "/timelines/public" || trimmed == "/timelines/tag/:tag" || trimmed == "/directory" || trimmed == "/explore/groups") {
 			q := c.Request.URL.Query()
 			q.Set("local", "true")
 			q.Del("remote")

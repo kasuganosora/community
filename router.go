@@ -202,6 +202,8 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroupV1.GET("/streaming/public", streaming.PublicStreamingAll)
 	maybeAuthGroupV1.GET("/tags/:id", account.GetTag)
 	maybeAuthGroupV1.GET("/directory", account.GetDirectory)
+	maybeAuthGroupV1.GET("/explore/groups", homeserver.HandleExploreGroups)
+	maybeAuthGroupV1.GET("/explore/groups/:id/avatar", homeserver.HandleExploreGroupAvatar)
 	maybeAuthGroupV1.GET("/custom_emojis", account.GetCustomEmojis)
 	maybeAuthGroupV1.GET("/accounts/:id/featured_tags", account.AccountFeaturedTags)
 	maybeAuthGroupV1.GET("/instance/peers", instance.Peers)

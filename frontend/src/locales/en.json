@@ -2209,6 +2209,24 @@
       "s98": "Replace current draft?",
       "s99": "Editing a message replaces the draft in the input box with the original message.",
       "s100": "Replace draft"
+    },
+    "ExploreGroups": {
+      "join": "Join",
+      "open": "Open",
+      "accept": "Accept invite",
+      "requested": "Requested",
+      "joining": "Joining…",
+      "members": "{0} members",
+      "remote": "Remote",
+      "empty": "No public groups yet.",
+      "loading": "Loading…",
+      "retry": "Retry",
+      "errLoad": "Could not load groups. Please try again.",
+      "errCursor": "This page has expired. Please reload.",
+      "errSignin": "Sign in to browse groups on this server.",
+      "errJoin": "Could not join this group. Please try again.",
+      "errJoinRules": "This group restricts who can join.",
+      "errJoinForbidden": "You are not allowed to join this group."
     }
   },
   "instance": {
@@ -2962,7 +2980,8 @@
       "s8": "Timeline",
       "s9": "No public posts yet.",
       "s10": "Local",
-      "s11": "Cross-server"
+      "s11": "Cross-server",
+      "s12": "Groups"
     },
     "HomePage": {
       "s1": "Home",

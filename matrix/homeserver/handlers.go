@@ -30,6 +30,7 @@ func RegisterRoutes(r gin.IRouter) {
 	}
 
 	startMatrixMediaMaintenance()
+	startGroupHotScores()
 
 	// 服务器发现 (在 wellknown.go 中定义)
 	// r.GET("/.well-known/matrix/server", handleWellKnownServer)

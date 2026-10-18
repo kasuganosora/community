@@ -253,9 +253,9 @@ func (MatrixRoomState) TableName() string {
 // MatrixRoomMember 房间成员状态.
 type MatrixRoomMember struct {
 	ID          uint64          `gorm:"primaryKey;autoIncrement"         json:"id"`
-	RoomID      string          `gorm:"index;type:varchar(255);not null" json:"room_id"`
+	RoomID      string          `gorm:"index;index:idx_matrix_room_members_room_membership,priority:1;type:varchar(255);not null" json:"room_id"`
 	UserID      string          `gorm:"index;type:varchar(255);not null" json:"user_id"`
-	Membership  MembershipState `gorm:"type:varchar(16);not null"        json:"membership"`
+	Membership  MembershipState `gorm:"type:varchar(16);not null;index:idx_matrix_room_members_room_membership,priority:2" json:"membership"`
 	PowerLevel  int             `gorm:"default:0"                        json:"power_level"`
 	DisplayName *string         `gorm:"type:varchar(128)"                json:"display_name"`
 	AvatarURL   *string         `gorm:"type:varchar(512)"                json:"avatar_url"`

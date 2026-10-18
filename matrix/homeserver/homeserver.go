@@ -182,6 +182,7 @@ func loadHSConfig() *HSConfig {
 // application migrations (see migrate/scripts.MigrateMatrixHSScript).
 func Models() []any {
 	return []any{
+		&MatrixGroupHotScore{},
 		&models.MatrixDMDelivery{},
 		&models.MatrixDMEventJob{},
 		&MatrixDMReactionReference{},

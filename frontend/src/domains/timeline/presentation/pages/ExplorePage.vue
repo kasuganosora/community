@@ -15,32 +15,45 @@ import TimelineFeed from '../components/TimelineFeed.vue'
 import SearchBox from '@/shared/components/widgets/SearchBox.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
 import { useVisitorPolicy } from '@/shared/composables/useVisitorPolicy'
+import { defineAsyncComponent } from 'vue'
+const ExploreGroups = defineAsyncComponent(() => import('@/domains/group/presentation/components/ExploreGroups.vue'))
 
 import { t } from '@/shared/i18n'
-type ExploreTab = 'local' | 'federated'
+type ExploreTab = 'local' | 'federated' | 'groups'
+type FeedTab = Exclude<ExploreTab, 'groups'>
 const TABS: { value: ExploreTab; label: string }[] = [
   { value: 'local', label: t('timeline.ExplorePage.s10') },
   { value: 'federated', label: t('timeline.ExplorePage.s11') },
+  { value: 'groups', label: t('timeline.ExplorePage.s12') },
 ]
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const followedTags = ref<TagInfo[]>([])
-const activeTab = ref<ExploreTab>(route.query.tab === 'federated' ? 'federated' : 'local')
+const initialTab: ExploreTab = route.query.tab === 'federated' || route.query.tab === 'groups' ? route.query.tab : 'local'
+const activeTab = ref<ExploreTab>(initialTab)
+// The post feed keeps the last post tab while the groups tab is shown.
+const feedTab = ref<FeedTab>(initialTab === 'groups' ? 'local' : initialTab)
+watch(activeTab, tab => {
+  if (tab === 'groups') return
+  if (feedTab.value !== tab) feedTab.value = tab
+  else if (!statuses.value.length && !loading.value) void feed.refresh() // opened directly on the groups tab
+})
 const { policy: visitorPolicy } = useVisitorPolicy()
 const visitor = computed(() => !authStore.currentUser)
 const visitorBlocked = computed(() => visitor.value && visitorPolicy.value === 'none')
-const tabs = computed(() => visitor.value && visitorPolicy.value === 'local' ? TABS.filter(t => t.value === 'local') : TABS)
+// Visitors limited to local content still see local groups (the server filters them).
+const tabs = computed(() => visitor.value && visitorPolicy.value === 'local' ? TABS.filter(t => t.value !== 'federated') : TABS)
 watch(tabs, t => { if (!t.some(x => x.value === activeTab.value)) activeTab.value = 'local' })
 
 const feed = usePaginatedList((maxId, limit) => timelineApi.getPublicTimeline({
   max_id: maxId,
   limit,
-  ...(activeTab.value === 'local' ? { local: true } : {}),
+  ...(feedTab.value === 'local' ? { local: true } : {}),
 }), TIMELINE_PAGE_SIZE, 8)
 const { items: statuses, loading, error, hasMore, newer, hasPrevious } = feed
-const streamTarget = computed(() => activeTab.value === 'local' ? 'stream=public:local' : 'stream=public')
+const streamTarget = computed(() => feedTab.value === 'local' ? 'stream=public:local' : 'stream=public')
 useFeedStream(streamTarget, feed.revalidate)
 async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
 
@@ -50,13 +63,13 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
 
 function selectTab(tab: ExploreTab) {
   if (tab === activeTab.value) return
-  saveListSnapshot(`explore:${activeTab.value}`, statuses.value, hasMore.value, feed.windowState())
+  if (activeTab.value !== 'groups') saveListSnapshot(`explore:${activeTab.value}`, statuses.value, hasMore.value, feed.windowState())
   activeTab.value = tab
   router.replace({ query: { ...route.query, tab } }).catch(() => {})
 }
 
-watch(activeTab, () => {
-  const snap = readListSnapshot<typeof statuses.value[number]>(`explore:${activeTab.value}`)
+watch(feedTab, () => {
+  const snap = readListSnapshot<typeof statuses.value[number]>(`explore:${feedTab.value}`)
   if (snap?.items.length) {
     feed.hydrate(snap.items, snap.hasMore, snap.window)
     nextTick(() => restoreListScroll(snap.scroll))
@@ -84,7 +97,8 @@ watch(sessionEpoch, () => {
 onBeforeUnmount(() => { ++tagVersion })
 onMounted(() => {
   void loadFollowedTags()
-  const snap = readListSnapshot<typeof statuses.value[number]>(`explore:${activeTab.value}`)
+  if (activeTab.value === 'groups') return
+  const snap = readListSnapshot<typeof statuses.value[number]>(`explore:${feedTab.value}`)
   if (snap?.items.length) {
     feed.hydrate(snap.items, snap.hasMore, snap.window)
     nextTick(() => restoreListScroll(snap.scroll))
@@ -93,7 +107,7 @@ onMounted(() => {
   feed.refresh()
 })
 
-onBeforeRouteLeave(() => saveListSnapshot(`explore:${activeTab.value}`, statuses.value, hasMore.value, feed.windowState()))
+onBeforeRouteLeave(() => { if (activeTab.value !== 'groups') saveListSnapshot(`explore:${activeTab.value}`, statuses.value, hasMore.value, feed.windowState()) })
 
 function retryFeed() {
   if (statuses.value.length && hasMore.value) void feed.loadMore()
@@ -124,6 +138,8 @@ function retryFeed() {
       :label="$t('timeline.ExplorePage.s8')"
       @update:model-value="selectTab"
     />
+    <ExploreGroups v-if="activeTab === 'groups'" />
+    <template v-else>
     <NewPostsPill :show="newer.length > 0" @click="reloadHead" />
     <TimelineFeed
       :statuses="statuses"
@@ -142,6 +158,7 @@ function retryFeed() {
       @favourite="toggleFavourite"
       @bookmark="toggleBookmark"
     />
+    </template>
     </template>
   </div>
 </template>

@@ -2209,6 +2209,24 @@
       "s98": "Remplacer le brouillon actuel ?",
       "s99": "Modifier un message remplace le brouillon de la zone de saisie par le message d’origine.",
       "s100": "Remplacer le brouillon"
+    },
+    "ExploreGroups": {
+      "join": "Rejoindre",
+      "open": "Ouvrir",
+      "accept": "Accepter l’invitation",
+      "requested": "Demande envoyée",
+      "joining": "Connexion…",
+      "members": "{0} membres",
+      "remote": "Distant",
+      "empty": "Aucun groupe public pour le moment.",
+      "loading": "Chargement…",
+      "retry": "Réessayer",
+      "errLoad": "Impossible de charger les groupes. Veuillez réessayer.",
+      "errCursor": "Cette page a expiré. Veuillez actualiser.",
+      "errSignin": "Connectez-vous pour parcourir les groupes de ce serveur.",
+      "errJoin": "Impossible de rejoindre ce groupe. Veuillez réessayer.",
+      "errJoinRules": "Ce groupe restreint les adhésions.",
+      "errJoinForbidden": "Vous n’êtes pas autorisé à rejoindre ce groupe."
     }
   },
   "instance": {
@@ -2962,7 +2980,8 @@
       "s8": "Fil",
       "s9": "Aucun post public pour le moment.",
       "s10": "Local",
-      "s11": "Inter-serveurs"
+      "s11": "Inter-serveurs",
+      "s12": "Groupes"
     },
     "HomePage": {
       "s1": "Accueil",
