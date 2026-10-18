@@ -9,6 +9,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 )
@@ -26,6 +27,7 @@ type AvatarDecoration struct {
 }
 
 type Account struct {
+	Moved               *Account           `json:"moved,omitempty"`
 	AvatarDecorations   []AvatarDecoration `json:"avatar_decorations,omitempty"`
 	AvatarDecorationURL string             `json:"avatar_decoration_url,omitempty"`
 	AvatarDecorationID  string             `json:"avatar_decoration_id,omitempty"`
@@ -93,6 +95,9 @@ func ToAccount(account *models.Account) (acc *Account) {
 		return nil
 	}
 
+	if account.DeletionRequestedAt != nil {
+		return toAccount(account, contentRenderOptions(), nil)
+	}
 	return toAccount(account, contentRenderOptions(), accountEmojis(account))
 }
 func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis []*Emoji) (acc *Account) {
@@ -100,6 +105,14 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 		return nil
 	}
 
+	// A deletion request hides profile data immediately, including references
+	// embedded in old notifications while the background worker is running.
+	if account.DeletionRequestedAt != nil {
+		account = &models.Account{Id: account.Id, Username: account.Username, Domain: account.Domain,
+			OriginId: account.OriginId, LocalActorURI: account.LocalActorURI, CreatedAt: account.CreatedAt,
+			DeletionRequestedAt: account.DeletionRequestedAt, IsBan: true, NoIndex: true, HideCollections: true}
+		emojis = nil
+	}
 	acct, profileURL, actorURI := accountAddress(account)
 	domain := systemsettings.GetDomain()
 	if account.Domain != nil && *account.Domain != "" {
@@ -164,6 +177,24 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 		acc.StatusesCount = account.Extra.StatusesCount
 
 		acc.Fields = toAPIFields(account.Extra.Fields, account.IsLocal(), options)
+	}
+
+	if account.MovedTo != "" && db.GetDB() != nil {
+		var target models.Account
+		parsed, parseErr := url.Parse(account.MovedTo)
+		if parseErr == nil {
+			err := db.GetDB().Preload("Extra").Where("origin_id = ? OR local_actor_uri = ?", account.MovedTo, account.MovedTo).First(&target).Error
+			if err != nil {
+				base, _ := url.Parse(systemsettings.GetBaseURL())
+				if base != nil && parsed.Scheme == base.Scheme && parsed.Host == base.Host {
+					err = db.GetDB().Preload("Extra").Where("domain IS NULL AND username = ?", path.Base(parsed.Path)).First(&target).Error
+				}
+			}
+			if err == nil && target.Id != account.Id && target.ActorURI(systemsettings.GetBaseURL()) == account.MovedTo {
+				target.MovedTo = "" // Bound recursion even if a peer publishes a cycle.
+				acc.Moved = ToAccount(&target)
+			}
+		}
 	}
 
 	return acc

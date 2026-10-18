@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/kasuganosora/community/db/dialect"
@@ -32,6 +33,9 @@ func (Follow) TableName() string {
 }
 
 func (f *Follow) AfterCreate(tx *gorm.DB) (err error) {
+	if err = QueueUserWebhook(tx, f.AccountId, fmt.Sprintf("follow:%d", f.Id), "follow", map[string]any{"userId": fmt.Sprint(f.FollowId)}); err != nil {
+		return err
+	}
 	if err = queueFeedFollowChange(tx, f); err != nil {
 		return err
 	}

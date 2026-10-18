@@ -229,6 +229,7 @@ func SetRouter(app gin.IRouter) {
 	// 认证基础组：AuthMiddleware 解析 token，CheckAuthMiddleware 强制要求已登录。
 	authGroupV1 := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
 	registerChatRoutes(authGroupV1)
+	registerConnectionsRoutes(authGroupV1)
 	registerDiscoveryRoutes(maybeAuthGroupV1, authGroupV1)
 	registerAdminManagementRoutes(v1ApiGroup, authGroupV1)
 	transfers := authGroupV1.Group("", transferapi.AuthorizeTransfer)
@@ -281,6 +282,11 @@ func SetRouter(app gin.IRouter) {
 
 	// 内部接口（仅允许 Web 端登录的 token，拒绝 OAuth token）
 	authInternalGroupV1 := authGroupV1.Group("", middleware.InternalApiMiddleware())
+	authInternalGroupV1.GET("/accounts/lifecycle", account.Lifecycle)
+	lifecycle := authInternalGroupV1.Group("/accounts/lifecycle", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/accounts/lifecycle", 6))
+	lifecycle.PUT("/aliases", account.UpdateAliases)
+	lifecycle.POST("/move", account.MoveAccount)
+	lifecycle.POST("/delete", account.RequestAccountDeletion)
 	// Logout revokes the caller's own token, so any valid token (web or OAuth) may use it.
 	authGroupV1.GET("/accounts/logout", account.Logout)
 	authGroupV1.POST("/accounts/logout", account.Logout)

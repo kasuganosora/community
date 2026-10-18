@@ -16,6 +16,7 @@ import (
 // separately. TestEveryTableModelIsRegistered fails when a new type with a
 // TableName method is added without being listed here.
 var appModels = []any{
+	&models.AccountDeletion{}, &models.PersonalAccessToken{}, &models.UserWebhook{}, &models.UserWebhookDelivery{}, &models.ListHashtag{},
 	&migrate.Migration{},
 	&activitypub.Delivery{},
 	&activitypub.ProcessedActivity{},

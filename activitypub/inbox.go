@@ -1326,50 +1326,19 @@ func handleMoveActivity(ctx context.Context, c *gin.Context, activity map[string
 		return
 	}
 
-	// Get or create the new account
-	newAccount, err := getOrCreateRemoteAccountContext(ctx, newActorURI) //nolint:contextcheck
+	newAccount, err := ResolveMigrationAccount(ctx, activityDB(ctx), newActorURI)
 	if err != nil {
 		respondRemoteAccountError(c, newActorURI, err)
 		return
 	}
-
-	// Update follows: redirect followers from old account to new account
-	// Find all local accounts that follow the old account
-	var follows []models.Follow
-	if err := activityDB(ctx).Where("follow_id = ? AND account_id IN (SELECT id FROM accounts WHERE domain IS NULL)", oldAccount.Id).Find(&follows).Error; err != nil {
-		log.Error("Failed to find follows for account migration: %v", err)
-	} else {
-		for _, follow := range follows {
-			// Check if already following the new account
-			var existingFollow models.Follow
-
-			err := activityDB(ctx).Where("account_id = ? AND follow_id = ?", follow.AccountId, newAccount.Id).First(&existingFollow).Error
-			if err != nil {
-				// Create new follow to the new account
-				newFollow := models.Follow{
-					AccountId: follow.AccountId,
-					FollowId:  newAccount.Id,
-					Status:    models.FollowStatusFollowed,
-				}
-				err := activityDB(ctx).Create(&newFollow).Error
-				if err != nil {
-					log.Error("Failed to create follow to new account during migration: %v", err)
-				}
-			}
-
-			// Remove the old follow
-			activityDB(ctx).Delete(&follow)
-		}
-
-		log.Info("Migrated %d followers from %s to %s", len(follows), oldActorURI, newActorURI)
+	if err := VerifyMigrationTarget(ctx, activityDB(ctx), &oldAccount, newAccount, NewFetchClient()); err != nil {
+		c.JSON(422, gin.H{"error": "target must verify the source account alias"})
+		return
 	}
-
-	// Mark the old account as moved
-	now := time.Now()
-	activityDB(ctx).Model(&oldAccount).Updates(map[string]any{
-		"moved_to_account_id": newAccount.Id,
-		"updated_at":          now,
-	})
+	if err := ApplyAccountMove(activityDB(ctx), oldAccount.Id, newAccount.Id, false); err != nil {
+		c.JSON(500, gin.H{"error": "account migration could not be applied"})
+		return
+	}
 
 	// Create notification for followers about the move
 	createAccountMoveNotification(ctx, oldAccount.Id, newAccount.Id)

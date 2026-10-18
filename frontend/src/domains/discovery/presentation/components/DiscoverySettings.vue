@@ -103,7 +103,7 @@ onBeforeUnmount(() => { ++version })
       <p class="hint">{{ $t('discovery.DiscoverySettings.s24') }}</p>
       <p v-if="!feedback.length && !error" class="hint">{{ $t('discovery.DiscoverySettings.s25') }}</p>
       <ul v-else>
-        <li v-for="item in feedback" :key="item.id"><span><strong>{{ labels[item.action] || $t('discovery.DiscoverySettings.s26') }}</strong><small>{{ item.target_label || `${item.target_kind === 'tag' ? '#' : item.target_kind === 'account' ? $t('discovery.DiscoverySettings.s27') : $t('discovery.DiscoverySettings.s28')}${item.target_key}` }}</small><small v-if="item.created_at">{{ new Date(item.created_at).toLocaleDateString() }}</small></span><button type="button" class="btn btn--secondary btn--sm" :disabled="busy" @click="undo(item)">{{ $t('discovery.DiscoverySettings.s29') }}</button></li>
+        <li v-for="item in feedback" :key="item.id"><span><strong>{{ labels[item.action] || $t('discovery.DiscoverySettings.s26') }}</strong><small>{{ item.target_label || (item.target_kind === 'account' ? $t('discovery.DiscoverySettings.accountUnavailable') : `${item.target_kind === 'tag' ? '#' : $t('discovery.DiscoverySettings.s28')}${item.target_key}`) }}</small><small v-if="item.created_at">{{ new Date(item.created_at).toLocaleDateString() }}</small></span><button type="button" class="btn btn--secondary btn--sm" :disabled="busy" @click="undo(item)">{{ $t('discovery.DiscoverySettings.s29') }}</button></li>
       </ul>
     </section>
   </div>

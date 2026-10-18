@@ -118,6 +118,17 @@ func queueFederationStatus(tx *gorm.DB, kind string, s *Status) error {
 	for id := range recipients {
 		ids = append(ids, id)
 	}
+	if kind == "Delete" && snapshot.Account.DeletionRequestedAt != nil {
+		// Erasure tombstones only need identity and the original audience.
+		// Do not retain a second copy of deleted private content in the queue.
+		snapshot.Content = StatusContent{}
+		snapshot.Attachments = nil
+		snapshot.Emojis = nil
+		snapshot.Poll = nil
+		snapshot.Properties = nil
+		snapshot.Account.Note = ""
+		snapshot.Account.ImportedNoteHTML = ""
+	}
 	payload, err := json.Marshal(&snapshot)
 	if err != nil {
 		return err

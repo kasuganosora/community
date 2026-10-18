@@ -153,3 +153,38 @@ func TestDiscoveryRoutesFeedbackOwnerCannotBeSpoofedOrDeletedByAnotherUser(t *te
 	require.NoError(t, f.conn.Model(&models.RecommendationFeedback{}).Count(&remaining).Error)
 	require.Zero(t, remaining)
 }
+
+func TestDiscoveryFeedbackDisplaysLocalAndRemoteHandles(t *testing.T) {
+	f := newDiscoveryRouteFixture(t)
+	token := f.token(t, f.owner, models.AppScopeReadAccounts, models.AppScopeWriteAccounts)
+	domain := "remote.example"
+	remote := models.Account{Id: 8300, Username: "alice", DisplayName: "Not the username", Domain: &domain}
+	require.NoError(t, f.conn.Create(&remote).Error)
+	for _, row := range []models.RecommendationFeedback{
+		{Scope: "user", OwnerID: f.owner.Id, Action: "hide_author", TargetKind: "account", TargetKey: fmt.Sprint(f.other.Id)},
+		{Scope: "user", OwnerID: f.owner.Id, Action: "dismiss_suggestion", TargetKind: "account", TargetKey: fmt.Sprint(remote.Id)},
+		{Scope: "user", OwnerID: f.owner.Id, Action: "hide_author", TargetKind: "account", TargetKey: "99999"},
+		{Scope: "user", OwnerID: f.owner.Id, Action: "hide_status", TargetKind: "status", TargetKey: fmt.Sprint(remote.Id)},
+	} {
+		require.NoError(t, f.conn.Create(&row).Error)
+	}
+	response := f.request(http.MethodGet, "/api/v1/discovery/feedback", token, "")
+	require.Equal(t, 200, response.Code, response.Body.String())
+	var rows []struct {
+		ID    string `json:"id"`
+		Kind  string `json:"target_kind"`
+		Key   string `json:"target_key"`
+		Label string `json:"target_label"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &rows))
+	require.Len(t, rows, 4)
+	require.Empty(t, rows[0].Label, "a status ID must not accidentally resolve an account")
+	require.Empty(t, rows[1].Label)
+	require.Equal(t, "@alice@remote.example", rows[2].Label)
+	require.Equal(t, "@"+f.other.Username, rows[3].Label)
+	require.NoError(t, f.conn.Model(&remote).Update("username", "alice_new").Error)
+	response = f.request(http.MethodGet, "/api/v1/discovery/feedback", token, "")
+	require.Contains(t, response.Body.String(), "@alice_new@remote.example")
+	response = f.request(http.MethodDelete, "/api/v1/discovery/feedback/"+rows[2].ID, token, "")
+	require.Equal(t, 200, response.Code, response.Body.String())
+}

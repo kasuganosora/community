@@ -27,6 +27,8 @@ func buildActorProfile(account *models.Account, tags []Tag) (Actor, error) {
 			"https://w3id.org/security/v1",
 		},
 		ID:                        actorURL,
+		Aliases:                   account.AlsoKnownAs,
+		MovedTo:                   account.MovedTo,
 		Type:                      "Person", //nolint:goconst
 		Following:                 actorURL + "/following",
 		Followers:                 actorURL + "/followers",

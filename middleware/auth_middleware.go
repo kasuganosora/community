@@ -85,6 +85,16 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// Personal tokens expose only the two explicitly granted coarse scopes.
+		// Enforce them even on legacy routes without a granular scope guard.
+		if token.ExternalClient == models.PersonalTokenClient {
+			reading := c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead || c.Request.Method == http.MethodOptions
+			if tokenData.Scopes == nil || (reading && tokenData.Scopes.ReadScope == 0) || (!reading && tokenData.Scopes.WriteScope == 0) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient_scope"})
+				return
+			}
+		}
+
 		// 获取用户信息
 		user := &models.User{}
 

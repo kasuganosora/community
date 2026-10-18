@@ -31,6 +31,7 @@ type Actor struct {
 	Published                 *time.Time   `json:"published,omitempty"`
 	Tag                       any          `json:"tag,omitempty"`
 	Attachments               []Attachment `json:"attachment,omitempty"`
+	Aliases                   []string     `json:"-"`
 	AlsoKnownAs               string       `json:"alsoKnownAs,omitempty"`
 	MovedTo                   string       `json:"movedTo,omitempty"`
 }

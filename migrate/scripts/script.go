@@ -59,6 +59,8 @@ var ScripsType = []MigrationScript{
 	AccountLanguagesScript{},
 	PollCloseNotifiedScript{},
 	StatusAccountRepliesIndexScript{},
+	AccountLifecycleScript{},
+	ConnectedServicesScript{},
 }
 
 type MigrationScript interface {

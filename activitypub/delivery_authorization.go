@@ -33,7 +33,7 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 	}
 	// Revocation messages contain identifiers, never old note content, and
 	// must be delivered even after an unfollow/block removed access.
-	if auth.Kind == "ReactionUndo" || auth.Kind == "Undo" || auth.Kind == "Delete" || auth.Kind == "Reject" || auth.Kind == "AnnounceUndo" {
+	if auth.Kind == "AccountDelete" || auth.Kind == "ReactionUndo" || auth.Kind == "Undo" || auth.Kind == "Delete" || auth.Kind == "Reject" || auth.Kind == "AnnounceUndo" {
 		return activity, true, nil
 	}
 	if auth.Kind == "Reaction" {
@@ -48,6 +48,10 @@ func authorizeQueuedDelivery(delivery *Delivery, activity map[string]any) (map[s
 	}
 	if author.Domain != nil || author.IsBan {
 		return activity, false, nil
+	}
+	if auth.Kind == "Move" {
+		target, _ := activity["target"].(string)
+		return activity, target != "" && author.MovedTo == target, nil
 	}
 	var status *models.Status
 	if auth.StatusID > 0 {

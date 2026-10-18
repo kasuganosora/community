@@ -304,6 +304,9 @@ func (s *Status) SpoilerTextPlain() string {
 // BeforeCreate fills a missing language from the text's script, so ranking
 // can match readers to authors even when clients and servers omit it.
 func (s *Status) BeforeCreate(tx *gorm.DB) (err error) {
+	if err := ensureAccountWritable(tx, s.AccountId); err != nil {
+		return err
+	}
 	s.FillLanguage()
 	return nil
 }

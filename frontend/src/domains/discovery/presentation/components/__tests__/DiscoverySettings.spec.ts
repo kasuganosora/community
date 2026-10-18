@@ -55,3 +55,19 @@ it('saves explicit reading languages separately from the posting language and va
   expect(wrapper.text()).toContain('不会改变发帖时的默认语言')
   wrapper.unmount()
 })
+
+it('renders local and remote usernames and can undo an unavailable account rule', async () => {
+ vi.spyOn(discoveryApi, 'preferences').mockResolvedValue({ preference: 'generic', revision: 1 })
+ vi.spyOn(discoveryApi, 'feedback').mockResolvedValue([
+  { id:'1', action:'hide_author', target_kind:'account', target_key:'3500', target_label:'@alice', created_at:'' },
+  { id:'2', action:'dismiss_suggestion', target_kind:'account', target_key:'3501', target_label:'@bob@remote.example', created_at:'' },
+  { id:'3', action:'hide_author', target_kind:'account', target_key:'3502', created_at:'' },
+ ])
+ const undo=vi.spyOn(discoveryApi,'removeFeedback').mockResolvedValue({preference:'generic',revision:2})
+ const w=mount(DiscoverySettings);await flushPromises()
+ expect(w.text()).toContain('@alice');expect(w.text()).toContain('@bob@remote.example')
+ expect(w.text()).toContain('账号已不可用');expect(w.text()).not.toContain('350')
+ await w.findAll('.discovery-rules li button')[2]!.trigger('click');await flushPromises()
+ expect(undo).toHaveBeenCalledWith('3');expect(w.findAll('.discovery-rules li')).toHaveLength(2)
+ w.unmount()
+})

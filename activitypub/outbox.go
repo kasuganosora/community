@@ -263,6 +263,10 @@ func ActorProfile(c *gin.Context) {
 		return
 	}
 
+	if account.DeletionRequestedAt != nil {
+		c.JSON(410, gin.H{"@context": "https://www.w3.org/ns/activitystreams", "id": account.ActorURI(systemsettings.GetBaseURL()), "type": "Tombstone"})
+		return
+	}
 	actor, err := buildActorProfile(&account, localAccountEmojiTags(&account, systemsettings.GetBaseURL()))
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to load actor signing key"})

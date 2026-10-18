@@ -8,7 +8,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
+	"gorm.io/gorm"
 )
 
 type authorizedApp struct {
@@ -61,25 +63,28 @@ func ListAuthorized(c *gin.Context) {
 func RevokeAuthorized(c *gin.Context) {
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
+	if err != nil || id == 0 {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 
 		return
 	}
 
-	if err = db.GetDB().Where("application_id = ? AND user_id = ?", id, account.UserId).Delete(&models.ApplicationUserAuth{}).Error; err != nil {
+	var hashes []string
+	err = db.GetDB().WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if e := tx.Model(&models.AuthToken{}).Where("user_id = ? AND application_id = ? AND revoke IS NULL", account.UserId, id).Pluck("token", &hashes).Error; e != nil {
+			return e
+		}
+		if e := tx.Where("application_id = ? AND user_id = ?", id, account.UserId).Delete(&models.ApplicationUserAuth{}).Error; e != nil {
+			return e
+		}
+		return tx.Model(&models.AuthToken{}).Where("user_id = ? AND application_id = ? AND revoke IS NULL", account.UserId, id).Update("revoke", time.Now()).Error
+	})
+	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
-
 		return
 	}
-
-	now := time.Now()
-	if err = db.GetDB().Model(&models.AuthToken{}).
-		Where("user_id = ? AND application_id = ? AND revoke IS NULL", account.UserId, id).
-		Update("revoke", now).Error; err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
-
-		return
+	for _, hash := range hashes {
+		middleware.InvalidateTokenCacheHash(hash)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true})

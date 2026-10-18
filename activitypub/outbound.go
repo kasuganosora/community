@@ -115,7 +115,7 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 	if err := db.GetDB().First(&author, e.AccountID).Error; err != nil {
 		return nil, err
 	}
-	if author.Domain != nil || author.IsBan {
+	if author.Domain != nil || (author.IsBan && !(author.DeletionRequestedAt != nil && (e.Kind == "Delete" || e.Kind == "AccountDelete" || e.Kind == "Undo" || e.Kind == "AnnounceUndo"))) {
 		return nil, nil
 	} // Never reflect remote input.
 	actorURI := accountActorURI(&author, systemsettings.GetBaseURL())
@@ -123,6 +123,22 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 	var payload map[string]any
 	var snapshot *models.Status
 	switch e.Kind {
+	case "Move":
+		var data struct {
+			Target string `json:"target"`
+		}
+		if err := json.Unmarshal([]byte(e.Payload), &data); err != nil {
+			return nil, err
+		}
+		if data.Target == "" || author.MovedTo != data.Target {
+			return nil, errors.New("account move target mismatch")
+		}
+		payload = map[string]any{"id": activityID, "type": "Move", "actor": actorURI, "object": actorURI, "target": data.Target}
+	case "AccountDelete":
+		if author.DeletionRequestedAt == nil {
+			return nil, errors.New("account deletion is not requested")
+		}
+		payload = map[string]any{"id": activityID, "type": "Delete", "actor": actorURI, "object": actorURI, "to": []string{"https://www.w3.org/ns/activitystreams#Public"}}
 	case "ProfileUpdate":
 		var err error
 		payload, err = profileUpdatePayload(e, actorURI, activityID)
@@ -247,7 +263,7 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 		if e.Kind == "ProfileUpdate" {
 			allowed, err = profileRecipientAllowed(&author, &target)
 		}
-		if e.Kind == "ReactionUndo" || e.Kind == "Undo" || e.Kind == "Delete" || e.Kind == "Reject" || e.Kind == "AnnounceUndo" {
+		if e.Kind == "Move" || e.Kind == "AccountDelete" || e.Kind == "ReactionUndo" || e.Kind == "Undo" || e.Kind == "Delete" || e.Kind == "Reject" || e.Kind == "AnnounceUndo" {
 			allowed = true
 			err = nil
 		}

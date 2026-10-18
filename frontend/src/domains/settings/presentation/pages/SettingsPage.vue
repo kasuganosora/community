@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { adminEntry } from '@/domains/admin/domain/navigation'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
@@ -7,7 +6,8 @@ import SegmentedControl from '@/shared/components/common/SegmentedControl.vue'
 import ProfileSettingsForm from '../components/ProfileSettingsForm.vue'
 import PasswordSettingsForm from '../components/PasswordSettingsForm.vue'
 import PasskeySettings from '../components/PasskeySettings.vue'
-import AuthorizedApps from '../components/AuthorizedApps.vue'
+import ConnectionsSettings from '../components/ConnectionsSettings.vue'
+import AccountLifecycleSettings from '../components/AccountLifecycleSettings.vue'
 import FilterSettings from '../components/FilterSettings.vue'
 import DomainBlockSettings from '../components/DomainBlockSettings.vue'
 import DiscoverySettings from '@/domains/discovery/presentation/components/DiscoverySettings.vue'
@@ -25,6 +25,7 @@ const sections = [
   { id: 'discovery', icon: 'earth', label: t('settings.SettingsPage.s4') },
   { id: 'security', icon: 'secured', label: t('settings.SettingsPage.s26') },
   { id: 'privacy', icon: 'browse-off', label: t('settings.SettingsPage.s27') },
+  { id: 'connections', icon: 'link', label: t('settings.Connections.title') },
   { id: 'more', icon: 'more', label: t('settings.SettingsPage.s28') },
 ]
 const activeSection = computed(() => sections.some(item => item.id === route.query.section) ? route.query.section : 'profile')
@@ -123,11 +124,9 @@ async function logout() {
         </div>
       </section>
 
-      <section v-if="authStore.currentUser" class="settings__section" v-show="activeSection === 'security'" aria-labelledby="settings-apps">
-        <h2 id="settings-apps" class="settings__heading">{{ $t('settings.SettingsPage.s15') }}</h2>
-        <div class="settings__group settings__group--padded">
-          <AuthorizedApps />
-        </div>
+      <section v-if="authStore.currentUser && activeSection === 'connections'" class="settings__section" aria-labelledby="settings-connections">
+        <h2 id="settings-connections" class="settings__heading">{{ $t('settings.Connections.title') }}</h2>
+        <ConnectionsSettings />
       </section>
 
       <section v-if="authStore.currentUser" class="settings__section" v-show="activeSection === 'privacy'" aria-labelledby="settings-filters">
@@ -146,13 +145,7 @@ async function logout() {
 
       <section v-if="authStore.currentUser" v-show="activeSection === 'more'" class="settings__section"><h2 class="settings__heading">{{ $t('settings.SettingsPage.s18') }}</h2><div class="settings__group"><router-link to="/settings/data" class="settings__row">{{ $t('settings.SettingsPage.s19') }} <t-icon name="chevron-right" :size="16" class="settings__chevron" aria-hidden="true" /></router-link></div></section>
 
-      <section v-show="activeSection === 'more'" class="settings__section"><h2 class="settings__heading">{{ $t('settings.SettingsPage.s20') }}</h2><div class="settings__group"><router-link to="/announcements" class="settings__row">{{ $t('settings.SettingsPage.s21') }} <t-icon name="chevron-right" :size="16" class="settings__chevron" aria-hidden="true" /></router-link></div></section>
-      <section v-if="adminEntry(authStore.currentUser)" class="settings__section" v-show="activeSection === 'more'" aria-labelledby="settings-admin">
-        <h2 id="settings-admin" class="settings__heading">{{ $t('settings.SettingsPage.s22') }}</h2>
-        <div class="settings__group">
-          <router-link :to="adminEntry(authStore.currentUser)!" class="settings__row">{{ $t('settings.SettingsPage.s23') }} <t-icon name="chevron-right" :size="16" class="settings__chevron" aria-hidden="true" /></router-link>
-        </div>
-      </section>
+      <AccountLifecycleSettings v-if="authStore.currentUser && activeSection === 'more'" />
 
       <section v-show="activeSection === 'more'" class="settings__section">
         <div class="settings__group">

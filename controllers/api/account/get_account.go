@@ -70,6 +70,10 @@ func GetAccount(c *gin.Context) {
 		return
 	}
 
+	if account.DeletionRequestedAt != nil {
+		c.JSON(410, gin.H{"error": "account deleted"})
+		return
+	}
 	err = db.GetDB().Model(account).Association("Emojis").Find(&account.Emojis)
 	if err != nil {
 		err = errors.Wrap(err, "GetAccount")

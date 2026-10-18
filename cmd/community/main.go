@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community"
+	"github.com/kasuganosora/community/accountlifecycle"
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/adminwebhook"
 	"github.com/kasuganosora/community/cache"
@@ -40,6 +41,7 @@ import (
 	"github.com/kasuganosora/community/server"
 	"github.com/kasuganosora/community/setup"
 	"github.com/kasuganosora/community/systemsettings"
+	"github.com/kasuganosora/community/userwebhook"
 	"github.com/kasuganosora/community/utils"
 )
 
@@ -153,6 +155,8 @@ func main() {
 	defer stopTransfers()
 	datatransfer.ResumeJobs(transferContext, db.GetDB())
 	adminwebhook.Start(transferContext, db.GetDB())
+	userwebhook.Start(transferContext, db.GetDB())
+	accountlifecycle.Start(transferContext, db.GetDB())
 	moderation.StartInactivityChecker(serviceContext)
 
 	event.GetEventManager("status")

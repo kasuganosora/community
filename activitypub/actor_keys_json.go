@@ -24,7 +24,8 @@ func (a Actor) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		*plain
 		PublicKey any `json:"publicKey,omitempty"`
-	}{plain: (*plain)(&a), PublicKey: keys})
+		Aliases   any `json:"alsoKnownAs,omitempty"`
+	}{plain: (*plain)(&a), PublicKey: keys, Aliases: actorAliases(a)})
 }
 
 // UnmarshalJSON accepts the actor shapes seen across the fediverse. Besides
@@ -81,6 +82,10 @@ func (a *Actor) UnmarshalJSON(data []byte) error {
 	}
 	a.URL = firstLinkHref(raw.URL)
 	a.AlsoKnownAs = firstLinkHref(raw.AlsoKnownAs)
+	_ = json.Unmarshal(raw.AlsoKnownAs, &a.Aliases)
+	if len(a.Aliases) == 0 && a.AlsoKnownAs != "" {
+		a.Aliases = []string{a.AlsoKnownAs}
+	}
 	a.MovedTo = firstLinkHref(raw.MovedTo)
 	a.Name = jsonText(raw.Name)
 	a.Summary = jsonText(raw.Summary)
@@ -208,6 +213,16 @@ func firstImage(value json.RawMessage) *Image {
 			return nil
 		}
 		return &Image{Type: obj.Type, MediaType: obj.MediaType, URL: u, Name: jsonText(obj.Name)}
+	}
+	return nil
+}
+
+func actorAliases(a Actor) any {
+	if len(a.Aliases) > 0 {
+		return a.Aliases
+	}
+	if a.AlsoKnownAs != "" {
+		return []string{a.AlsoKnownAs}
 	}
 	return nil
 }

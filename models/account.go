@@ -17,6 +17,9 @@ import (
 )
 
 type Account struct { //nolint:recvcheck
+	AlsoKnownAs         []string   `gorm:"type:text;serializer:json" json:"also_known_as,omitempty"`
+	MovedTo             string     `gorm:"type:varchar(2048)" json:"moved_to_uri,omitempty"`
+	DeletionRequestedAt *time.Time `json:"deletion_requested_at,omitempty"`
 	// Remote discovery consent is nullable: legacy defaults and missing actor fields
 	// must never be mistaken for a remote author's explicit permission.
 	RemoteDiscoverable       *bool      `json:"-"`
