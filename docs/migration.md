@@ -1,0 +1,165 @@
+# Misskey / Mastodon → Community 整站迁移（运维手册）
+
+本文是同域名整站迁移的运维手册，总结了 **maid.lat 实战演练**（Misskey，4.57M 条笔记，其中本地用户 9536 个）中踩过的坑。
+功能范围与权限模型见 [data-migration.md](data-migration.md)，导入后核对见 [migration-verify.md](migration-verify.md)。
+
+## 推荐方式：直连模式（direct mode）
+
+```sh
+community-transfer --source misskey \
+  --source-dsn "host=10.0.0.5 port=5432 dbname=misskey user=community_export" --sslmode require \
+  --source-base-url https://maid.lat --id-method aidx --source-version 2025.4.0 \
+  --object-storage-mode reference --object-base-url https://files.maid.lat \
+  --work-dir /srv/maid-migration --apply --report /srv/maid-migration/report.json
+```
+
+`community-transfer` 只读地连接源 PostgreSQL，直接写入 Community 数据库，**不生成、也不加载 `bundle.json`**。
+目标库由 Community 自身的环境变量（`.env` / `DB_*` / `APP_BASE_URL`）决定，与服务进程一致。
+
+| 参数 | 说明 |
+| --- | --- |
+| `--source misskey\|mastodon` | 源平台 |
+| `--source-dsn` | libpq 连接串。**不要写密码**，用 `PGPASSFILE` / `~/.pgpass` |
+| `--sslmode` | DSN 中没有 `sslmode` 时追加（`disable` / `require` / `verify-full` …） |
+| `--source-base-url` | 源站公开 origin，必须等于目标 `APP_BASE_URL` |
+| `--id-method` | Misskey `config.id`。历史上切换过 ID 格式也没关系，每个 ID 单独识别（见下文） |
+| `--work-dir` | 私有工作目录：读取检查点（`state/`）、spool（`spool.sqlite3`）、复制的媒体（`out-*/`） |
+| `--fetch-only` | 第一阶段：源站继续在线，批量读取到 `--work-dir` 后停止 |
+| `--final-sync` | 第二阶段：源站停写后，补读新增/修改/删除的行，然后导入 |
+| `--batch-size 5000` | 每页行数 = 每个只读事务的大小（keyset 分页） |
+| `--max-rows-per-sec` / `--batch-sleep` | 对在线源站限速 |
+| `--include-remote-cache` | 同时迁移远端内容缓存（默认只迁本地数据及其引用的远端实体） |
+| `--chunk-size 1000` | 每个目标事务导入的记录数 |
+| `--reuse-spool` | 不再读源库，直接用现有 spool 继续导入（断点续传） |
+| `--apply` | 省略时只做预检（validate），不写业务数据 |
+
+Docker 镜像已包含 `python3`、`psql` 和读取脚本：
+
+```sh
+docker compose exec community ./community-transfer --source misskey --source-dsn "..." ...
+```
+
+### 安全性
+
+- 源库每个读取事务都带 `default_transaction_read_only=on`、`statement_timeout`、`lock_timeout=5s`，只发 `SELECT`，按主键 keyset 分页，不会长时间持有快照或锁。
+- 仍然建议给迁移单独建只读角色，并在**隔离网络**里演练：
+
+  ```sql
+  CREATE ROLE community_export LOGIN PASSWORD '…';
+  ALTER ROLE community_export SET default_transaction_read_only = on;
+  GRANT CONNECT ON DATABASE misskey TO community_export;
+  GRANT USAGE ON SCHEMA public TO community_export;
+  GRANT SELECT ON ALL TABLES IN SCHEMA public TO community_export;
+  ```
+
+- 导入是历史数据导入：不会向联邦发送任何活动（`federation_outbox` 保持为空）。演练时目标实例仍使用 `APP_BASE_URL=https://maid.lat`，**务必阻断其出站网络**，否则启动后的正常后台任务可能以 maid.lat 的身份对外请求。
+
+### 两阶段迁移（停机时间最短）
+
+```sh
+# 源站在线时，可多次运行；中断后原命令重跑即从检查点继续
+community-transfer ... --work-dir /srv/maid-migration --fetch-only --max-rows-per-sec 20000
+
+# 源站停写（维护模式）后
+community-transfer ... --work-dir /srv/maid-migration --final-sync --apply --report report.json
+```
+
+`--final-sync` 读取 `bulk_started - 5 分钟` 以后更新的行，并删除源站已删除的行，然后导入。
+
+### 断点续传与幂等
+
+- 读源阶段：状态目录逐页检查点，中断后原命令重跑即可。
+- 导入阶段：每个 chunk 一个事务。`data_transfer_receipts` 记录 *源 ID → 目标 ID*，所以 chunk 可以重复执行：已提交的记录只计入 `skipped`。中断后加 `--reuse-spool` 重跑，从 `checkpoint:<stage>` 继续。
+- 对已完成的迁移再次执行也是安全的（全部 `skipped`）。注意：chunk 会把它引用的账号/媒体/表情一起带上（已提交的会被跳过），因此报告里的 `skipped` 数会大于实际行数，以 `created` 和数据库计数为准。
+
+### 进度输出
+
+stderr 每隔几秒输出一行，同样的数据驱动安装向导的进度条：
+
+```
+progress stage=fetch/note done=1250000/4570000 (27.4%) speed=18250/s eta=3m2s
+progress stage=spool done=370000 speed=52000/s
+progress stage=import/posts done=187340 total=412880 pct=45.4 speed=1312/s eta=2m52s
+```
+
+阶段顺序：`emojis → accounts → credentials → keys → media → posts → polls → relations → lists → reactions → bookmarks → poll_votes → records`。
+
+### 实现选择（为什么不是纯 Go）
+
+直连模式复用了 `scripts/migration/export_misskey.py` / `export_mastodon_db.py` 的读取层：它已经实现了源库 schema 映射、keyset 分页、检查点、`--final-sync` 和限速，并在 maid.lat 上验证过。新增的 `--emit ndjson` 让转换后的记录通过管道逐条流给 `community-transfer`，后者写入磁盘上的 SQLite spool，再分块导入。
+
+- 读取状态目录（`state/staging.sqlite3`）就是 staging；没有任何环节把整个源库或整个 bundle 放进内存。
+- 两种平台的映射只有一份实现（Python），向导和命令行共用，避免 Go/Python 两份映射逐渐不一致。
+- 代价：需要 `python3` 和 `psql`（镜像里已有）。纯 Go 读取器可以以后替换 Python 那一段，spool/分块导入不受影响。
+
+### 内存
+
+| 场景 | 峰值 RSS |
+| --- | --- |
+| 旧路径：整份 `bundle.json` 读入内存（合成 250 MB bundle，374k 条记录） | 1.26 GiB |
+| 新路径：同一 bundle 流式 spool + 分块导入（`--stream`，默认） | 81 MiB |
+| 直连模式，同一合成源库（读取 + 转换 + 导入，4m08s；进程树中单个进程的最大值） | 111 MiB |
+
+两种路径导入结果逐表一致（accounts / statuses / follows / media / receipts / preserved records）。流式路径慢约 1/3（3m54s vs 2m54s），换来内存不随实例规模增长。
+复现：`psql -v remote_notes=200000 -v local_notes=100000 -f scripts/migration/testdata/synthetic_misskey.sql`，导出后分别用 `--stream=false` 和默认参数导入，并用 `/usr/bin/time -v` 记录。
+
+### 已有 bundle 的导入
+
+`community-transfer --scope site --input <export-dir>` 现在默认流式读取 `bundle.json`（`--stream`），不再受 `--max-json-bytes` 限制。zip 包、个人备份和 `--stream=false` 仍走旧的内存路径。
+
+## maid.lat 演练得到的教训
+
+1. **默认只迁本地数据。** maid.lat 有 4.57M 条笔记，绝大多数是远端缓存。默认只导出本地用户的数据和它们引用的远端实体；被裁掉的引用记为 `remote_reference_trimmed`（info）。只有确实需要远端缓存时才加 `--include-remote-cache`，内存和时间都会大很多。
+2. **ID 格式会混用。** maid.lat 早期笔记是 10 位 `aid`，后来切换成 16 位 `aidx`；旧导出器按单一 `config.id` 解码，产生了 8739 条阻断性 `invalid_source_time`。现在每个 ID 单独识别（aid / aidx / meid / meidg / ulid / objectid，`--id-method` 只用于消除 meid/objectid 这类歧义），并要求解出的时间落在 2000 年至今之间。
+3. **媒体尺寸可能是小数。** Misskey 的 `drive_file.properties` 里有 `width: 1665.517` 这种值，旧导入器因为 `int` 字段解析失败而拒绝整个 bundle。现在 `size` / `width` / `height` 接受小数和数字字符串并四舍五入。
+4. **对象存储 URL 必须保持在线。** `--object-storage-mode reference` 不复制文件，导入后的附件、头像、表情仍指向原 bucket 的公开 URL。迁移完成后**不能删除 bucket、不能改它的域名或访问策略**；要换存储，先用 `copy` 模式（或之后用 `tootctl media` 迁移）把文件搬过来。
+5. **不迁移的内容（用户需要知道）：**
+   - 登录会话、OAuth 应用与访问令牌：所有客户端需要重新登录 / 重新授权。
+   - TOTP 二步验证（MFA）：不迁移，用户迁移后重新设置。**注意：**目前启用了二步验证、安全密钥或无密码登录的本地账号会让预检报 `unsupported_auth`（阻断），因为直接导入只剩密码的账号是一次安全降级。正式迁移前需要明确策略（例如通知这些用户先在源站关闭 2FA，或增加显式的 `--drop-mfa` 选项并强制他们下次登录时重新绑定）；这一项尚未实现。
+   - 通行密钥（passkeys / WebAuthn）：不在主导入里，单独运行  
+     `tootctl passkeys import-misskey --dsn "$MISSKEY_DSN" --dry-run`，确认后去掉 `--dry-run`（按用户名匹配，可重复执行）。安装向导里是独立的 `passkeys` 阶段。
+   - **引用（quote）笔记**（maid.lat：317 条）和**频道笔记**（5 条）只进入私有归档（archive-only），不作为公开帖子发布。回复它们的笔记照常发布，但不带回复链（帖子属性 `import_reply_parent_archived` 记录原父帖 ID）；转发它们的笔记同样只归档。
+   - 使用目标站不存在的自定义表情（例如本地迁移范围之外的远端表情）的回应会归档，而不是让整个事务失败。
+6. **核对脚本以前会误报通过。** `verify_misskey_import.py` 现在：空目标库直接 FAIL；逐个检查每个本地用户是否存在；实例 Actor 的公钥必须等于 Misskey `instance.actor` 的公钥；连接失败显示真实错误（不再是 `HTTP 0`）。
+7. **旧导出器的隐藏错误。** 失败时会打印阶段、异常类型和 psql 的原始错误（密码已脱敏），`--verbose` 打印 traceback；psql 警告（例如 PGPASSFILE 权限不安全）也会显示。
+
+## 重新执行 maid.lat 演练（隔离网络、只读源）
+
+前提：一台**不能访问公网**的演练机；源库是 maid.lat 的只读副本或恢复出来的快照，使用上面的只读角色；目标是一个空的 Community 数据库。
+
+```sh
+# 0) 目标实例配置（演练机）
+cat > /srv/maid-rehearsal/.env <<'ENV'
+APP_BASE_URL=https://maid.lat
+DB_CONNECTION=postgres
+DB_DSN=host=127.0.0.1 port=5432 dbname=community_rehearsal user=community sslmode=disable
+ENCRYPTED_KEY=<32 字节随机串>
+ENV
+export ENV_FILE=/srv/maid-rehearsal/.env PGPASSFILE=/srv/maid-rehearsal/.pgpass   # .pgpass 权限 0600
+
+COMMON=(--source misskey
+  --source-dsn 'host=10.0.0.5 port=5432 dbname=misskey user=community_export' --sslmode require
+  --source-base-url https://maid.lat --id-method aidx --source-version '<maid.lat 的 Misskey 版本>'
+  --object-storage-mode reference --object-base-url '<objectStorageBaseUrl>'
+  --work-dir /srv/maid-rehearsal/work --batch-size 5000)
+
+# 1) 读取源库（可在源站在线时进行；中断后重跑同一命令即续传）
+community-transfer "${COMMON[@]}" --fetch-only --max-rows-per-sec 20000
+
+# 2) 预检（不写业务数据），查看 report-validate.json 的 issues
+community-transfer "${COMMON[@]}" --final-sync --report /srv/maid-rehearsal/report-validate.json
+
+# 3) 导入（中断后加 --reuse-spool 重跑即可从检查点继续）
+TRANSFER_DEBUG=1 community-transfer "${COMMON[@]}" --reuse-spool --apply --report /srv/maid-rehearsal/report-import.json
+
+# 4) 通行密钥
+tootctl passkeys import-misskey --dsn "postgresql://community_export@10.0.0.5:5432/misskey?sslmode=require" --dry-run
+
+# 5) 启动目标实例（仍在隔离网络中）并核对
+MISSKEY_DB_DSN='postgresql://community_export@10.0.0.5:5432/misskey?sslmode=require' \
+COMMUNITY_DB_DSN='postgresql://community@127.0.0.1:5432/community_rehearsal' \
+COMMUNITY_BASE='http://127.0.0.1:8080' HOST_HEADER=maid.lat SAMPLE=200 \
+python3 scripts/migration/verify_misskey_import.py --seed 42 -v
+```
+
+步骤 2 只预检；预检结果为 `can_execute: false` 时（退出码 2）先处理阻断问题，再执行步骤 3。`TRANSFER_DEBUG=1` 会在失败时打印底层错误链（可能包含记录内容，只用于隔离演练）。

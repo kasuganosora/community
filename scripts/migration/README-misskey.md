@@ -1,5 +1,7 @@
 # Misskey administrator export
 
+> **Recommended:** run the migration in direct mode, `community-transfer --source misskey --source-dsn …`, which drives this exporter with `--emit ndjson` and imports the stream in chunks without a `bundle.json`. See [docs/migration.md](../../docs/migration.md). The bundle workflow below remains supported.
+
 `export_misskey.py` creates a **private site migration bundle**, not a public
 personal backup. It contains password hashes, AP private keys, email addresses,
 MFA material and complete raw source rows. Keep the directory private and encrypt
