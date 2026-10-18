@@ -406,6 +406,17 @@ async function loadMentions(q: string) {
 
 function applyMention(account: MastodonAccount) {
   if (!mentionRange) return
+  const input = composerRoot.value?.querySelector('textarea')
+  if (composing && input) {
+    // Rewriting the value under a live IME composition leaves the browser,
+    // the IME and the textarea all waiting for a compositionend that never
+    // comes, and every later keystroke is swallowed. Blurring commits the
+    // composition first; the caret then decides which mention to replace.
+    input.blur()
+    composing = false
+    const current = mentionAtCaret(content.value, input.selectionStart ?? content.value.length)
+    if (current && current.start === mentionRange.start) mentionRange = { start: current.start, end: current.end }
+  }
   window.clearTimeout(mentionTimer)
   mentionSeq++
   const label = account.acct.includes('@') ? account.acct : account.username
@@ -415,9 +426,9 @@ function applyMention(account: MastodonAccount) {
   mentions.value = []
   mentionRange = null
   void nextTick(() => {
-    const input = composerRoot.value?.querySelector('textarea')
-    input?.focus()
-    input?.setSelectionRange(cursor, cursor)
+    const el = composerRoot.value?.querySelector('textarea')
+    el?.focus()
+    el?.setSelectionRange(cursor, cursor)
   })
 }
 
@@ -429,6 +440,8 @@ function onMentionKeydown(e: KeyboardEvent) {
     return
   }
   if (!mentions.value.length) return
+  // Keys pressed mid-composition belong to the IME (Enter commits the pinyin).
+  if (e.isComposing || e.keyCode === 229) return
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
     const step = e.key === 'ArrowDown' ? 1 : -1

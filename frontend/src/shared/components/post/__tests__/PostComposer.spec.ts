@@ -4,6 +4,7 @@ import { createPinia } from 'pinia'
 import PostComposer from '../PostComposer.vue'
 import EmojiPicker from '../EmojiPicker.vue'
 import { postApi } from '@/domains/post/infrastructure/postApi'
+import { userApi } from '@/domains/user/infrastructure/userApi'
 import type { MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
 
 describe('PostComposer media upload', () => {
@@ -160,6 +161,67 @@ describe('PostComposer topic and mention tools', () => {
     await wrapper.get('button[aria-label="提及用户"]').trigger('click')
     expect(element.value).toBe('hello @')
     expect(element.selectionStart).toBe(7)
+    wrapper.unmount()
+  })
+})
+
+describe('PostComposer mention suggestions', () => {
+  // Like TDesign's textarea, the model only follows the DOM outside an IME composition.
+  const ImeTextarea = {
+    props: ['modelValue'],
+    emits: ['update:modelValue'],
+    data: () => ({ composing: false }),
+    template: '<textarea :value="modelValue" @compositionstart="composing = true" @compositionend="composing = false; $emit(\'update:modelValue\', $event.target.value)" @input="composing || $emit(\'update:modelValue\', $event.target.value)" />',
+  }
+  const qa = { id: '192', username: 'qa', acct: 'qa', display_name: '', avatar: '', emojis: [] }
+
+  async function openSuggestions() {
+    vi.useFakeTimers()
+    vi.spyOn(userApi, 'searchAccounts').mockResolvedValue([qa] as never)
+    const wrapper = shallowMount(PostComposer, { attachTo: document.body, global: { plugins: [createPinia()], stubs: { TTextarea: ImeTextarea } } })
+    const input = wrapper.get('textarea')
+    const element = input.element as HTMLTextAreaElement
+    element.focus()
+    await input.setValue('@q')
+    element.setSelectionRange(2, 2)
+    await input.trigger('keyup')
+    await vi.advanceTimersByTimeAsync(150)
+    await flushPromises()
+    vi.useRealTimers()
+    return { wrapper, input, element }
+  }
+
+  it('commits a live IME composition before inserting the picked account, so typing keeps working', async () => {
+    const { wrapper, input, element } = await openSuggestions()
+    // The IME is still composing the next letter when the suggestion is clicked.
+    await input.trigger('compositionstart')
+    element.value = '@qa'
+    element.setSelectionRange(3, 3)
+    // Browsers end the composition on blur.
+    element.addEventListener('blur', () => element.dispatchEvent(new CompositionEvent('compositionend', { data: 'a' })))
+    wrapper.get('.composer__mention').element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(element.value).toBe('@qa ')
+    expect(element.selectionStart).toBe(4)
+    expect(document.activeElement).toBe(element)
+    expect(wrapper.find('.composer__mention').exists()).toBe(false)
+    // Typing afterwards reaches the draft and the composer is no longer stuck composing.
+    await input.setValue('@qa 1')
+    await flushPromises()
+    expect(element.value).toBe('@qa \u200e1')
+    wrapper.unmount()
+  })
+
+  it('leaves Enter to the IME while composing and picks with Enter afterwards', async () => {
+    const { wrapper, input, element } = await openSuggestions()
+    await input.trigger('keydown', { key: 'Enter', isComposing: true })
+    expect(element.value).toBe('@q')
+    await input.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(element.value).toBe('@qa ')
+    expect(element.selectionStart).toBe(4)
+    await input.setValue('@qa hi')
+    expect(element.value).toBe('@qa hi')
     wrapper.unmount()
   })
 })
