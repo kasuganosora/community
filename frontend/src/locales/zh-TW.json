@@ -421,6 +421,10 @@
       "filtered": "內容已被過濾",
       "sensitive": "敏感內容",
       "open": "查看原帖"
+    },
+    "appUpdate": {
+      "available": "Community 已更新，將在你閒置時自動重新整理…",
+      "reloadNow": "立即重新整理"
     }
   },
   "admin": {

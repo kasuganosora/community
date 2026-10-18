@@ -181,8 +181,10 @@ func spaFallback(frontendDir string, indexHTML []byte) gin.HandlerFunc {
 			code = http.StatusNotFound
 		}
 
-		// The shell names the current hashed bundles: never serve a stale one.
-		c.Header("Cache-Control", cacheRevalidate)
+		// The shell names the current hashed bundles and carries the build
+		// id: never let a browser or CDN keep one (the service worker keeps
+		// its own copy for offline reloads).
+		c.Header("Cache-Control", "no-store")
 		c.Data(code, "text/html; charset=utf-8", systemsettings.BrandIndexHTML(indexHTML))
 	}
 }

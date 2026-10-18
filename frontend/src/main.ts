@@ -8,6 +8,7 @@ import { setAuthExpiredCallback } from '@/shared/api/client'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { initTheme } from '@/shared/composables/useTheme'
 import { loadBranding } from '@/shared/composables/useBranding'
+import { startVersionSync } from '@/shared/composables/useVersionSync'
 
 // TDesign's base token sheet (radii, sizes, light/dark palettes) must load
 // before our theme bridge, which remaps those tokens onto the design system.
@@ -51,6 +52,9 @@ setAuthExpiredCallback(() => {
 })
 
 app.mount('#app')
+
+// Service worker + automatic alignment with the server's frontend build.
+startVersionSync()
 
 // After a deploy an open tab still references the previous build's hashed
 // chunks, which no longer exist. Reload once to pick up the new index.html.

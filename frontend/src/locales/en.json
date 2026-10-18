@@ -421,6 +421,10 @@
       "filtered": "Filtered content",
       "sensitive": "Sensitive content",
       "open": "View original post"
+    },
+    "appUpdate": {
+      "available": "A new version of Community is available. Reloading when you're idle…",
+      "reloadNow": "Reload now"
     }
   },
   "admin": {

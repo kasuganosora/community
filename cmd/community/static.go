@@ -57,9 +57,14 @@ func acceptsEncoding(header, token string) bool {
 // serveFrontendFile writes a built frontend file, preferring a precompressed
 // .br/.gz sidecar the client accepts, with cache headers chosen by path.
 func serveFrontendFile(c *gin.Context, abs, requestPath string) {
-	if strings.HasPrefix(requestPath, "/assets/") {
+	switch {
+	case strings.HasPrefix(requestPath, "/assets/"):
 		c.Header("Cache-Control", cacheImmutable)
-	} else {
+	case requestPath == "/version.json":
+		// The client compares this build id with its own to detect a deploy:
+		// neither the browser nor the CDN may keep a copy.
+		c.Header("Cache-Control", "no-store")
+	default:
 		c.Header("Cache-Control", cacheRevalidate)
 	}
 
@@ -108,7 +113,8 @@ func serveFrontendFile(c *gin.Context, abs, requestPath string) {
 }
 
 // frontendFileHandler serves requestPath-relative files below frontendDir.
-func frontendFileHandler(frontendDir string) gin.HandlerFunc {
+// archiveDirs are fallbacks (previous builds' /assets, see asset_archive.go).
+func frontendFileHandler(frontendDir string, archiveDirs ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p := c.Request.URL.Path
 		if hasDotSegment(p) {
@@ -117,6 +123,16 @@ func frontendFileHandler(frontendDir string) gin.HandlerFunc {
 			return
 		}
 		file, ok := frontendAsset(frontendDir, p)
+		if !ok && strings.HasPrefix(p, "/assets/") {
+			for _, archive := range archiveDirs {
+				if archive == "" {
+					continue
+				}
+				if file, ok = frontendAsset(archive, strings.TrimPrefix(p, "/assets")); ok {
+					break
+				}
+			}
+		}
 		if !ok {
 			// A hashed asset can be requested moments before the new build
 			// is on disk (or after an old one is gone). Without a header the

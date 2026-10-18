@@ -5,6 +5,7 @@ import Components from 'unplugin-vue-components/vite'
 import AutoImport from 'unplugin-auto-import/vite'
 import { TDesignResolver } from 'unplugin-vue-components/resolvers'
 import { precompress } from './vite-plugins/precompress.ts'
+import { buildVersion, buildId } from './vite-plugins/build-version.ts'
 
 export default defineConfig(({ mode }) => {
   // Dev-server proxy target for the Go backend. Defaults to the backend's
@@ -40,6 +41,7 @@ export default defineConfig(({ mode }) => {
         ],
         dts: 'src/components.d.ts', // Generate TypeScript declaration
       }),
+      buildVersion(),
       precompress(),
       AutoImport({
         resolvers: [TDesignResolver({ library: 'vue-next' })],
@@ -47,6 +49,9 @@ export default defineConfig(({ mode }) => {
         dts: 'auto-imports.d.ts',
       }),
     ],
+    define: {
+      __BUILD_ID__: JSON.stringify(mode === 'production' ? buildId : 'dev'),
+    },
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, 'src'),

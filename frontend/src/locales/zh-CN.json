@@ -421,6 +421,10 @@
       "filtered": "内容已被过滤",
       "sensitive": "敏感内容",
       "open": "查看原帖"
+    },
+    "appUpdate": {
+      "available": "Community 已更新，将在你空闲时自动刷新…",
+      "reloadNow": "立即刷新"
     }
   },
   "admin": {

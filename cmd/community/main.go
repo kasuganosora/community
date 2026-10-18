@@ -319,7 +319,7 @@ func setupFrontend(app *gin.Engine) {
 	registerBrandingRoutes(app)
 	frontendDir := utils.ResolveAppPath("frontend/dist")
 	if info, err := os.Stat(frontendDir); err == nil && info.IsDir() {
-		files := frontendFileHandler(frontendDir)
+		files := frontendFileHandler(frontendDir, setupAssetArchive(frontendDir))
 		app.GET("/assets/*filepath", files)
 		app.HEAD("/assets/*filepath", files)
 		app.GET("/logo.svg", files)

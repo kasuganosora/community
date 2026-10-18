@@ -90,7 +90,7 @@ func TestFrontendPrecompressedAndCacheHeaders(t *testing.T) {
 	if w := get("/theme-init.js", "br"); w.Body.String() != "THEME" || w.Header().Get("Cache-Control") != cacheRevalidate || w.Header().Get("Vary") != "" {
 		t.Errorf("theme-init: body=%q cc=%q", w.Body.String(), w.Header().Get("Cache-Control"))
 	}
-	if w := get("/explore", "br"); w.Header().Get("Cache-Control") != "no-cache" || w.Body.String() != "<html>" {
+	if w := get("/explore", "br"); w.Header().Get("Cache-Control") != "no-store" || w.Body.String() != "<html>" {
 		t.Errorf("index: cc=%q", w.Header().Get("Cache-Control"))
 	}
 }

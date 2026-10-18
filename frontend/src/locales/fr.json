@@ -421,6 +421,10 @@
       "filtered": "Contenu filtré",
       "sensitive": "Contenu sensible",
       "open": "Voir la publication originale"
+    },
+    "appUpdate": {
+      "available": "Une nouvelle version de Community est disponible. Rechargement dès que vous serez inactif…",
+      "reloadNow": "Recharger maintenant"
     }
   },
   "admin": {

@@ -421,6 +421,10 @@
       "filtered": "フィルターされた内容",
       "sensitive": "センシティブな内容",
       "open": "元の投稿を見る"
+    },
+    "appUpdate": {
+      "available": "Community の新しいバージョンがあります。操作していないときに自動で再読み込みします…",
+      "reloadNow": "今すぐ再読み込み"
     }
   },
   "admin": {
