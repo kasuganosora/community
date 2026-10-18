@@ -118,6 +118,9 @@ func StatusObject(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
+	if !signedFetchAllowed(c, &account) {
+		return
+	}
 	if status.Visibility != models.StatusVisibilityPublic && status.Visibility != models.StatusVisibilityUnlisted {
 		c.Header("Cache-Control", "private, no-store")
 		actor, verifyErr := VerifyActivitySignature(c, nil)

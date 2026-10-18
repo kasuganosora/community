@@ -65,6 +65,7 @@ var ScripsType = []MigrationScript{
 	AnnounceRetriesScript{},
 	InboxJobsScript{},
 	TwoFactorScript{},
+	AccountRequireSigninScript{},
 }
 
 type MigrationScript interface {

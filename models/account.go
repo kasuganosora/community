@@ -63,16 +63,19 @@ type Account struct { //nolint:recvcheck
 	Group                      bool                       `gorm:"default:false"                             json:"group"`
 	NoIndex                    bool                       `gorm:"default:false"                             json:"noindex"`
 	HideCollections            bool                       `gorm:"default:false"                             json:"hide_collections"`
-	Note                       string                     `gorm:"type:text"                        json:"note"`
-	Website                    string                     `gorm:"type:varchar(1024)"                        json:"website"`
-	CreatedAt                  *time.Time                 `gorm:"autoCreateTime"                            json:"created_at"`
-	UpdatedAt                  *time.Time                 `gorm:"autoUpdateTime"                            json:"updated_at"`
-	LastStatusAt               *time.Time                 `gorm:"type:datetime"                             json:"last_status_at"`
-	LastActivityAt             *time.Time                 `gorm:"type:datetime"                             json:"last_activity_at"`
-	IsBan                      bool                       `gorm:"default:false"                             json:"is_ban"`
-	DeletedAt                  gorm.DeletedAt
-	Emojis                     []*Emoji      `gorm:"many2many:account_emojis;" json:"-"`
-	Extra                      *AccountExtra `json:"-"`
+	// RequireSigninToView hides the account's posts from logged-out visitors
+	// and unsigned ActivityPub fetches (Misskey requireSigninToViewContents).
+	RequireSigninToView bool       `gorm:"not null;default:false" json:"require_signin_to_view"`
+	Note                string     `gorm:"type:text"                        json:"note"`
+	Website             string     `gorm:"type:varchar(1024)"                        json:"website"`
+	CreatedAt           *time.Time `gorm:"autoCreateTime"                            json:"created_at"`
+	UpdatedAt           *time.Time `gorm:"autoUpdateTime"                            json:"updated_at"`
+	LastStatusAt        *time.Time `gorm:"type:datetime"                             json:"last_status_at"`
+	LastActivityAt      *time.Time `gorm:"type:datetime"                             json:"last_activity_at"`
+	IsBan               bool       `gorm:"default:false"                             json:"is_ban"`
+	DeletedAt           gorm.DeletedAt
+	Emojis              []*Emoji      `gorm:"many2many:account_emojis;" json:"-"`
+	Extra               *AccountExtra `json:"-"`
 
 	User *User `gorm:"foreignKey:UserId;references:Id" json:"-"`
 }

@@ -21,6 +21,9 @@ func Outbox(c *gin.Context) {
 
 		return
 	}
+	if !signedFetchAllowed(c, &account) {
+		return
+	}
 
 	// Get pagination params
 	page := c.Query("page") == "true"
@@ -123,6 +126,9 @@ func Followers(c *gin.Context) {
 
 		return
 	}
+	if !signedFetchAllowed(c, &account) {
+		return
+	}
 
 	page := c.Query("page") == "true"
 	baseURL := systemsettings.GetBaseURL()
@@ -184,6 +190,9 @@ func Following(c *gin.Context) {
 	if err != nil {
 		c.JSON(404, gin.H{"error": "user not found"})
 
+		return
+	}
+	if !signedFetchAllowed(c, &account) {
 		return
 	}
 

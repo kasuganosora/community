@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -131,6 +132,20 @@ func TestFrontendAssetContentTypes(t *testing.T) {
 		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/"+name, nil))
 		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != typ {
 			t.Errorf("/%s: code %d, Content-Type %q, want %q", name, w.Code, w.Header().Get("Content-Type"), typ)
+		}
+	}
+}
+
+// Status and profile pages are served as the static app shell: no post text,
+// OG description or oEmbed link is rendered server-side, so accounts that
+// require sign-in to view leak nothing to link unfurlers or crawlers.
+func TestSPAShellRendersNoPostContent(t *testing.T) {
+	app := newSPATestEngine(t)
+	for _, p := range []string{"/@alice", "/@alice/status/123", "/notes/abc123"} {
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
+		if body := w.Body.String(); strings.Contains(body, "og:description") || strings.Contains(body, "oembed") {
+			t.Fatalf("%s: shell carries per-page metadata: %s", p, body)
 		}
 	}
 }

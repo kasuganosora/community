@@ -35,7 +35,8 @@ func visitorStreamAllowed(account *models.Account, stream string) bool {
 const visitorRestrictedError = "This content is restricted by the server for visitors. Please sign in."
 
 // visitorCanSeeStatuses drops events a logged-out visitor may not see under
-// ugcVisibilityForVisitor (author or reblogged author on a disallowed host).
+// ugcVisibilityForVisitor (author or reblogged author on a disallowed host)
+// or by an account that requires sign-in to view.
 func visitorCanSeeStatuses(statuses models.Statuses) bool {
 	snap := moderation.Current()
 	for _, st := range statuses {
@@ -47,7 +48,7 @@ func visitorCanSeeStatuses(statuses models.Statuses) bool {
 			if cur.Account.Domain != nil {
 				host = *cur.Account.Domain
 			}
-			if !snap.GuestCanSee(host) {
+			if !snap.GuestCanSee(host) || cur.Account.HiddenFromVisitors() {
 				return false
 			}
 			if cur.Reblog == cur {

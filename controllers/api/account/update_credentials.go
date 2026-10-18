@@ -20,22 +20,24 @@ import (
 
 // UpdateCredentialsRequest represents the request for updating account credentials.
 type UpdateCredentialsRequest struct {
-	DisplayName        *string `form:"display_name" json:"display_name"`
-	Note               *string `form:"note" json:"note"`
-	Avatar             string  `form:"avatar" json:"avatar"`
-	Header             string  `form:"header" json:"header"`
-	Locked             *bool   `form:"locked" json:"locked"`
-	Bot                *bool   `form:"bot" json:"bot"`
-	Discoverable       *bool   `form:"discoverable" json:"discoverable"`
-	HideCollections    *bool   `form:"hide_collections" json:"hide_collections"`
-	Indexable          *bool   `form:"indexable" json:"indexable"`
-	IsCat              *bool   `form:"is_cat" json:"is_cat"`
-	Location           *string `form:"location" json:"location"`
-	Birthday           *string `form:"birthday" json:"birthday"`
-	Language           *string `form:"language" json:"language"`
-	FollowedMessage    *string `form:"followed_message" json:"followed_message"`
-	ReactionAcceptance *string `form:"reaction_acceptance" json:"reaction_acceptance"`
-	FieldsAttributes   []struct {
+	DisplayName     *string `form:"display_name" json:"display_name"`
+	Note            *string `form:"note" json:"note"`
+	Avatar          string  `form:"avatar" json:"avatar"`
+	Header          string  `form:"header" json:"header"`
+	Locked          *bool   `form:"locked" json:"locked"`
+	Bot             *bool   `form:"bot" json:"bot"`
+	Discoverable    *bool   `form:"discoverable" json:"discoverable"`
+	HideCollections *bool   `form:"hide_collections" json:"hide_collections"`
+	Indexable       *bool   `form:"indexable" json:"indexable"`
+	// RequireSigninToView is an extension; Mastodon clients never send it.
+	RequireSigninToView *bool   `form:"require_signin_to_view" json:"require_signin_to_view"`
+	IsCat               *bool   `form:"is_cat" json:"is_cat"`
+	Location            *string `form:"location" json:"location"`
+	Birthday            *string `form:"birthday" json:"birthday"`
+	Language            *string `form:"language" json:"language"`
+	FollowedMessage     *string `form:"followed_message" json:"followed_message"`
+	ReactionAcceptance  *string `form:"reaction_acceptance" json:"reaction_acceptance"`
+	FieldsAttributes    []struct {
 		Name  string `form:"name" json:"name"`
 		Value string `form:"value" json:"value"`
 	} `form:"fields_attributes" json:"fields_attributes"`
@@ -99,6 +101,10 @@ func UpdateCredentials(c *gin.Context) {
 
 	if req.HideCollections != nil {
 		updates["hide_collections"] = *req.HideCollections
+	}
+
+	if req.RequireSigninToView != nil {
+		updates["require_signin_to_view"] = *req.RequireSigninToView
 	}
 
 	// Update avatar if provided
@@ -186,11 +192,12 @@ func GetAccountSettings(c *gin.Context) {
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	settings := gin.H{
-		"locked":           account.Locked,
-		"bot":              account.Bot,
-		"discoverable":     account.Discoverable,
-		"hide_collections": account.HideCollections,
-		"indexable":        !account.NoIndex,
+		"locked":                 account.Locked,
+		"bot":                    account.Bot,
+		"discoverable":           account.Discoverable,
+		"hide_collections":       account.HideCollections,
+		"indexable":              !account.NoIndex,
+		"require_signin_to_view": account.RequireSigninToView,
 	}
 
 	c.JSON(200, settings)

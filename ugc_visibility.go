@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
+	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/moderation"
 )
 
@@ -49,33 +52,33 @@ func UGCVisitorGuard() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		mode := moderation.Current().UGCVisibilityForVisitor
-		if mode == moderation.UGCAll {
-			c.Next()
+		path := c.FullPath()
+		if signinRequiredTarget(c, path) {
+			c.Header("Cache-Control", "private, no-store")
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": signinRequiredMessage, "code": "SIGNIN_REQUIRED"})
 			return
 		}
-		path := c.FullPath()
+		mode := moderation.Current().UGCVisibilityForVisitor
 		if mode == moderation.UGCNone {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": ugcRestrictedMessage, "code": "CONTENT_RESTRICTED_BY_SERVER"})
 			return
 		}
-		// local
 		trimmed := strings.TrimPrefix(strings.TrimPrefix(path, "/api/v1"), "/api/v2")
 		if strings.HasPrefix(trimmed, "/streaming") {
-			if ugcRemoteStreams[trimmed] {
+			if mode == moderation.UGCLocal && ugcRemoteStreams[trimmed] {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": ugcRestrictedMessage, "code": "CONTENT_RESTRICTED_BY_SERVER"})
 				return
 			}
-			c.Next()
+			c.Next() // stream events are filtered per event
 			return
 		}
-		if trimmed == "/timelines/public" || trimmed == "/timelines/tag/:tag" || trimmed == "/directory" {
+		if mode == moderation.UGCLocal && (trimmed == "/timelines/public" || trimmed == "/timelines/tag/:tag" || trimmed == "/directory") {
 			q := c.Request.URL.Query()
 			q.Set("local", "true")
 			q.Del("remote")
 			c.Request.URL.RawQuery = q.Encode()
 		}
-		w := &bufferedWriter{ResponseWriter: c.Writer}
+		w := &bufferedWriter{ResponseWriter: c.Writer, remoteHidden: mode == moderation.UGCLocal}
 		c.Writer = w
 		c.Next()
 		c.Writer = w.ResponseWriter
@@ -83,10 +86,36 @@ func UGCVisitorGuard() gin.HandlerFunc {
 	}
 }
 
+const signinRequiredMessage = "This account's posts are only visible to signed-in users. Please sign in."
+
+// signinRequiredTarget reports whether a logged-out request addresses a
+// status (or an account's status list) whose author requires sign-in to view.
+func signinRequiredTarget(c *gin.Context, path string) bool {
+	trimmed := strings.TrimPrefix(strings.TrimPrefix(path, "/api/v1"), "/api/v2")
+	switch {
+	case trimmed == "/accounts/:id/statuses":
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil {
+			return false
+		}
+		var hidden []bool
+		db.GetDB().Model(&models.Account{}).Where("id = ?", id).Limit(1).Pluck("require_signin_to_view", &hidden)
+		return len(hidden) == 1 && hidden[0]
+	case strings.HasPrefix(trimmed, "/statuses/:id"):
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil {
+			return false
+		}
+		return models.StatusRequiresSignin(db.GetDB(), id)
+	}
+	return false
+}
+
 type bufferedWriter struct {
 	gin.ResponseWriter
-	buf    bytes.Buffer
-	status int
+	buf          bytes.Buffer
+	status       int
+	remoteHidden bool // ugcVisibilityForVisitor=local: drop remote content
 }
 
 func (w *bufferedWriter) WriteHeader(code int) { w.status = code }
@@ -108,7 +137,7 @@ func (w *bufferedWriter) flush(c *gin.Context) {
 	status := w.Status()
 	body := w.buf.Bytes()
 	if status == http.StatusOK && strings.Contains(w.Header().Get("Content-Type"), "json") {
-		if filtered, gone := filterRemoteUGC(body); gone {
+		if filtered, gone := filterVisitorUGC(body, w.remoteHidden); gone {
 			w.Header().Del("Content-Length")
 			w.ResponseWriter.WriteHeader(http.StatusNotFound)
 			_, _ = w.ResponseWriter.Write([]byte(`{"error":"Record not found"}`))
@@ -125,7 +154,12 @@ func (w *bufferedWriter) flush(c *gin.Context) {
 // filterRemoteUGC drops remote statuses and accounts from a Mastodon API
 // JSON body. It returns gone=true when the body itself is a remote status
 // or account, and nil when nothing changed.
-func filterRemoteUGC(body []byte) (out []byte, gone bool) {
+func filterRemoteUGC(body []byte) (out []byte, gone bool) { return filterVisitorUGC(body, true) }
+
+// filterVisitorUGC drops content a logged-out visitor may not see: statuses
+// by (or boosting, or quoting) accounts that require sign-in, and with
+// remote=true remote statuses and accounts too.
+func filterVisitorUGC(body []byte, remote bool) (out []byte, gone bool) {
 	var v any
 	if json.Unmarshal(body, &v) != nil {
 		return nil, false
@@ -133,14 +167,14 @@ func filterRemoteUGC(body []byte) (out []byte, gone bool) {
 	changed := false
 	switch t := v.(type) {
 	case []any:
-		v, changed = filterList(t)
+		v, changed = filterList(t, remote)
 	case map[string]any:
-		if isRemoteUGC(t) {
+		if hiddenUGC(t, remote) {
 			return nil, true
 		}
 		for _, key := range []string{"ancestors", "descendants", "accounts", "statuses"} {
 			if list, ok := t[key].([]any); ok {
-				next, ch := filterList(list)
+				next, ch := filterList(list, remote)
 				if ch {
 					t[key], changed = next, true
 				}
@@ -157,15 +191,41 @@ func filterRemoteUGC(body []byte) (out []byte, gone bool) {
 	return b, false
 }
 
-func filterList(list []any) ([]any, bool) {
+func filterList(list []any, remote bool) ([]any, bool) {
 	out := make([]any, 0, len(list))
 	for _, item := range list {
-		if m, ok := item.(map[string]any); ok && isRemoteUGC(m) {
+		if m, ok := item.(map[string]any); ok && hiddenUGC(m, remote) {
 			continue
 		}
 		out = append(out, item)
 	}
 	return out, len(out) != len(list)
+}
+
+func hiddenUGC(m map[string]any, remote bool) bool {
+	return (remote && isRemoteUGC(m)) || signinOnlyStatus(m, 0)
+}
+
+// signinOnlyStatus recognises a serialized status whose author, boosted
+// author or quoted author has require_signin_to_view set.
+func signinOnlyStatus(m map[string]any, depth int) bool {
+	if depth > 4 {
+		return false
+	}
+	if _, isStatus := m["content"]; !isStatus {
+		return false
+	}
+	if account, ok := m["account"].(map[string]any); ok {
+		if hidden, _ := account["require_signin_to_view"].(bool); hidden {
+			return true
+		}
+	}
+	for _, key := range []string{"reblog", "quote"} {
+		if inner, ok := m[key].(map[string]any); ok && signinOnlyStatus(inner, depth+1) {
+			return true
+		}
+	}
+	return false
 }
 
 // isRemoteUGC recognises a serialized remote account (acct contains "@")

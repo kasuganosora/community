@@ -65,6 +65,9 @@ type Account struct {
 	Emoji               []*Emoji           `json:"emojis"`
 	Fields              []Field            `json:"fields"`
 	NoIndex             bool               `json:"noindex,omitempty"`
+	// RequireSigninToView (extension, Misskey requireSigninToViewContents):
+	// logged-out visitors see the profile but not its posts.
+	RequireSigninToView bool `json:"require_signin_to_view,omitempty"`
 	// Roles is always an array in Mastodon >= 4.3 (empty for plain users).
 	Roles []any `json:"roles"`
 
@@ -164,6 +167,7 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 		Roles:               []any{},
 		HideCollections:     account.HideCollections,
 		NoIndex:             account.NoIndex,
+		RequireSigninToView: account.RequireSigninToView,
 		Emoji:               emojis,
 		intId:               account.Id,
 	}

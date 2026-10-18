@@ -28,6 +28,9 @@ func Featured(c *gin.Context) {
 
 		return
 	}
+	if !signedFetchAllowed(c, &account) {
+		return
+	}
 
 	baseURL := systemsettings.GetBaseURL()
 	featuredURL := account.ActorURI(baseURL) + "/collections/featured"
