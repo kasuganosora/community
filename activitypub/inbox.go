@@ -916,8 +916,8 @@ func handleRejectActivity(ctx context.Context, c *gin.Context, activity map[stri
 func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[string]any, targetAccount *models.Account) { //nolint:unparam // param reserved for future use
 	actor, _ := ctx.Value(actorKey).(string)
 
-	object, ok := activity["object"].(string)
-	if !ok {
+	object, embedded := announceObject(activity["object"])
+	if object == "" {
 		c.JSON(400, gin.H{"error": "invalid object"})
 
 		return
@@ -933,42 +933,77 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 		return
 	}
 
-	// Find the original status (might be local or remote)
-	var originalStatus models.Status
+	originalStatus, fetchErr := resolveAnnouncedStatus(ctx, actor, object, embedded) //nolint:contextcheck
+	if fetchErr != nil {
+		log.Warn("Could not find or fetch original status for announce %s by %s: %s, error: %v", activityID, actor, object, fetchErr)
+		// Accept the activity (the sender must not retry forever) but keep it
+		// for our own capped retries: the origin may be briefly down or only
+		// serve the object later.
+		enqueueAnnounceRetry(ctx, activityID, actor, object, publishedStr, fetchErr)
+		c.JSON(200, gin.H{"status": "accepted"})
 
-	err = activityDB(ctx).Scopes(statusByObjectRef(object)).First(&originalStatus).Error
-	if err != nil {
-		// Try to fetch the remote status
-		fetchedStatus, fetchErr := fetchAndCreateRemoteStatus(ctx, object) //nolint:contextcheck
-		if fetchErr != nil {
-			log.Warn("Could not find or fetch original status for announce: %s, error: %v", object, fetchErr)
-			c.JSON(200, gin.H{"status": "accepted"})
-
-			return
-		}
-
-		originalStatus = *fetchedStatus
+		return
 	}
 
 	if originalStatus.LocalOnly {
 		c.JSON(403, gin.H{"error": "forbidden"})
 		return
 	}
-	// Check if we already have this reblog
-	var existingReblog models.Status
-
-	err = activityDB(ctx).Where("account_id = ? AND reblog_id = ? AND origin_uri = ?",
-		remoteAccount.Id, originalStatus.Id, activityID).First(&existingReblog).Error
-	if err == nil {
-		c.JSON(200, gin.H{"status": "accepted"})
+	if _, err := createRemoteReblog(ctx, remoteAccount, originalStatus, activityID, publishedStr); err != nil {
+		log.Error("Failed to create reblog: %v", err)
+		c.JSON(500, gin.H{"error": "failed to create reblog"})
 
 		return
 	}
+	c.JSON(200, gin.H{"status": "accepted"})
+}
 
-	// Parse published time
+// announceObject returns the boosted object's id and, when the Announce
+// embeds the full object (Misskey, some relays), that object.
+func announceObject(object any) (string, map[string]any) {
+	switch v := object.(type) {
+	case string:
+		return v, nil
+	case map[string]any:
+		id, _ := v["id"].(string)
+		return id, v
+	}
+	return "", nil
+}
+
+// resolveAnnouncedStatus finds the boosted status locally or fetches it from
+// its origin (signed by the instance actor when the origin requires it). An
+// embedded copy is used only when the fetch fails and the booster is hosted
+// on the object's own origin: the HTTP signature already authenticated that
+// server, so it is the authority for the object.
+func resolveAnnouncedStatus(ctx context.Context, actor, object string, embedded map[string]any) (*models.Status, error) {
+	var originalStatus models.Status
+	if err := activityDB(ctx).Scopes(statusByObjectRef(object)).First(&originalStatus).Error; err == nil {
+		return &originalStatus, nil
+	}
+	fetched, fetchErr := fetchAndCreateRemoteStatus(ctx, object)
+	if fetchErr == nil {
+		return fetched, nil
+	}
+	if embedded != nil && actor != "" && sameURIOrigin(object, actor) {
+		if status, err := importFetchedStatus(ctx, object, embedded); err == nil {
+			return status, nil
+		}
+	}
+	return nil, fetchErr
+}
+
+// createRemoteReblog stores remoteAccount's boost of originalStatus once per
+// Announce id and bumps the reblog counter. It returns the existing row when
+// the Announce was already applied.
+func createRemoteReblog(ctx context.Context, remoteAccount *models.Account, originalStatus *models.Status, activityID, publishedStr string) (*models.Status, error) {
+	var existingReblog models.Status
+	if err := activityDB(ctx).Where("account_id = ? AND reblog_id = ? AND origin_uri = ?",
+		remoteAccount.Id, originalStatus.Id, activityID).First(&existingReblog).Error; err == nil {
+		return &existingReblog, nil
+	}
+
 	publishedAt := utils.ParseRFC3339(publishedStr)
-
-	// Create reblog
 	now := time.Now()
 	reblog := models.Status{
 		AccountId:  remoteAccount.Id,
@@ -980,25 +1015,17 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 		CreatedAt: publishedAt,
 		UpdatedAt: &now,
 	}
-
 	if reblog.CreatedAt == nil {
 		reblog.CreatedAt = &now
 	}
-
 	if err := activityDB(ctx).Create(&reblog).Error; err != nil {
-		log.Error("Failed to create reblog: %v", err)
-		c.JSON(500, gin.H{"error": "failed to create reblog"})
-
-		return
+		return nil, err
 	}
-
-	// Increment reblogs count
-	if err := activityDB(ctx).Model(&originalStatus).UpdateColumn("reblogs_count", gorm.Expr("reblogs_count + ?", 1)).Error; err != nil {
+	if err := activityDB(ctx).Model(originalStatus).UpdateColumn("reblogs_count", gorm.Expr("reblogs_count + ?", 1)).Error; err != nil {
 		log.Error("Failed to increment reblogs_count for status %d: %v", originalStatus.Id, err)
 	}
-
-	log.Info("Created remote reblog %d from %s", reblog.Id, actor)
-	c.JSON(200, gin.H{"status": "accepted"})
+	log.Info("Created remote reblog %d from account %d", reblog.Id, remoteAccount.Id)
+	return &reblog, nil
 }
 
 // handleLikeActivity handles Like activities (favourites).
@@ -1143,7 +1170,8 @@ func handleUndoActivity(ctx context.Context, c *gin.Context, activity map[string
 		}
 
 	case "Announce":
-		// Undo an announce (reblog)
+		// Undo an announce (reblog); also drop a pending fetch retry.
+		activityDB(ctx).Where("activity_id = ? AND actor = ?", objectID, actor).Delete(&AnnounceRetry{})
 		var reblog models.Status
 		err := activityDB(ctx).Where("origin_uri = ? AND account_id = ?", objectID, remoteAccount.Id).First(&reblog).Error
 		if err == nil {
@@ -1984,8 +2012,8 @@ type prefetchedObject struct {
 }
 
 func withPrefetchedAnnounceObject(ctx context.Context, object any) context.Context {
-	uri, ok := object.(string)
-	if !ok || uri == "" {
+	uri, _ := announceObject(object)
+	if uri == "" {
 		return ctx
 	}
 	var ids []uint64

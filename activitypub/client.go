@@ -76,11 +76,17 @@ func (c *Client) getWithStatus(ctx context.Context, uri string) ([]byte, int, er
 	return data, status, err
 }
 
-// requiresSignedFetch reports whether an unsigned GET was refused because
-// the remote enforces authorized fetch (Mastodon secure mode answers 401,
-// some servers answer 403).
+// requiresSignedFetch reports whether an unsigned GET may have been refused
+// because the remote only serves signed requests. Mastodon secure mode
+// answers 401, some servers 403, and others (Threads, GoToSocial for
+// non-public objects) hide the object with 404/410 unless the request is
+// signed, so those are retried once with the instance actor's signature too.
 func requiresSignedFetch(status int) bool {
-	return status == http.StatusUnauthorized || status == http.StatusForbidden
+	switch status {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusGone:
+		return true
+	}
+	return false
 }
 
 // FetchError is a non-200 answer to a federation GET.

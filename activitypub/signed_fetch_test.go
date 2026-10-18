@@ -61,7 +61,7 @@ func testSigner(t *testing.T) func(context.Context) (*Client, error) {
 }
 
 func TestFetchClientRetriesSignedOnAuthorizedFetch(t *testing.T) {
-	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusGone} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			srv := &secureModeServer{status: status}
 			withFetchTransport(t, func(r *http.Request) (*http.Response, error) { return srv.serve(r), nil }, testSigner(t))
@@ -76,14 +76,14 @@ func TestFetchClientRetriesSignedOnAuthorizedFetch(t *testing.T) {
 }
 
 func TestFetchClientDoesNotSignOtherFailures(t *testing.T) {
-	srv := &secureModeServer{status: http.StatusNotFound}
+	srv := &secureModeServer{status: http.StatusInternalServerError}
 	withFetchTransport(t, func(r *http.Request) (*http.Response, error) { return srv.serve(r), nil }, testSigner(t))
 
 	_, status, err := NewFetchClient().getWithStatus(context.Background(), "https://secure.test/users/gone")
 	require.Error(t, err)
-	require.Equal(t, http.StatusNotFound, status)
-	require.Equal(t, http.StatusNotFound, fetchStatusCode(err))
-	require.Equal(t, "unexpected status code: 404", err.Error())
+	require.Equal(t, http.StatusInternalServerError, status)
+	require.Equal(t, http.StatusInternalServerError, fetchStatusCode(err))
+	require.Equal(t, "unexpected status code: 500", err.Error())
 	require.Empty(t, srv.signed)
 }
 

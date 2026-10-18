@@ -62,6 +62,7 @@ var ScripsType = []MigrationScript{
 	AccountLifecycleScript{},
 	ConnectedServicesScript{},
 	ProfilePreferencesScript{},
+	AnnounceRetriesScript{},
 }
 
 type MigrationScript interface {

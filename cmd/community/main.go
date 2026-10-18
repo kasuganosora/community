@@ -392,6 +392,8 @@ func startServer(app *gin.Engine, stopTransfers context.CancelFunc) {
 	log.FatalIf(initErr)
 	srv.RegisterPostShutdown(func() error { outbound.Stop(); return nil })
 	serializer.PollViewed = activitypub.MaybeRepairRemotePoll
+	announceRetry := activitypub.StartAnnounceRetryWorker()
+	srv.RegisterPostShutdown(func() error { announceRetry.Stop(); return nil })
 	pollClose := activitypub.StartPollCloseWorker()
 	srv.RegisterPostShutdown(func() error { pollClose.Stop(); return nil })
 	// Federation-tier row updates (delivery status, blurhash) are batched.

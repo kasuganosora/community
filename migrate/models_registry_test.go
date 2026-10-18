@@ -21,6 +21,7 @@ var appModels = []any{
 	&migrate.Migration{},
 	&activitypub.Delivery{},
 	&activitypub.ProcessedActivity{},
+	&activitypub.AnnounceRetry{},
 	&adminwebhook.Delivery{},
 	&adminwebhook.Subscription{},
 	&models.EmailDomainBlock{},
