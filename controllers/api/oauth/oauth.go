@@ -62,6 +62,10 @@ type TokenRequest struct {
 	// Password grant
 	Username string `form:"username" json:"username"`
 	Password string `form:"password" json:"password"`
+	// OTPAttempt is a non-standard extension: Mastodon rejects the password
+	// grant outright for accounts with 2FA; we do the same unless a valid
+	// TOTP/backup code is supplied here.
+	OTPAttempt string `form:"otp_attempt" json:"otp_attempt"`
 	// Refresh token
 	RefreshToken string `form:"refresh_token" json:"refresh_token"`
 	// PKCE (RFC 7636). Required for Misskey OAuth / IndieAuth clients.

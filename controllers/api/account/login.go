@@ -16,6 +16,8 @@ type AuthRequest struct {
 	Email    string `form:"email"               json:"email"`
 	Password string `binding:"required"         form:"password"            json:"password"`
 	Captcha  string `form:"grecaptcha[response]" json:"captcha_response"`
+	// OTPAttempt optionally carries the TOTP or backup code in the same request.
+	OTPAttempt string `form:"otp_attempt" json:"otp_attempt"`
 }
 
 func Login(c *gin.Context) {
@@ -86,6 +88,14 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	if !PassSecondFactor(c, user.Id, req.OTPAttempt, true) {
+		return
+	}
+
+	finishLogin(c, user)
+}
+
+func finishLogin(c *gin.Context, user *models.User) {
 	rawTokenStr, err := IssueWebSession(c, user)
 	if err != nil {
 		log.ErrorV(err)

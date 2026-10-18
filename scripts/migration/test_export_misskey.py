@@ -358,5 +358,17 @@ class ExportTests(unittest.TestCase):
         finally:
             os.umask(previous_umask)
 
+class RedactTwoFactorTests(unittest.TestCase):
+    def test_two_factor_secrets_are_redacted(self):
+        samples = ['row {"twoFactorSecret": "JBSWY3DPEHPK3PXP", "x": 1}',
+                   "{'twoFactorBackupSecret': ['abcd1234', 'efgh5678'], 'a': 2}",
+                   "twoFactorTempSecret=JBSWY3DPEHPK3PXP other",
+                   'DETAIL: Key ("twoFactorSecret")=(JBSWY3DPEHPK3PXP) already exists.']
+        for text in samples:
+            out = m.redact(text)
+            for secret in ("JBSWY3DPEHPK3PXP", "abcd1234", "efgh5678"):
+                self.assertNotIn(secret, out)
+
+
 if __name__ == "__main__":
     unittest.main()

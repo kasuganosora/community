@@ -82,6 +82,7 @@ func newApp(version string, prepare func()) *cli.App {
 			commands.MediaProxyCommand(),
 			commands.OAuthCommand(),
 			commands.PasskeysCommand(),
+			commands.TwoFactorCommand(),
 			commands.RelaysCommand(),
 			commands.StatusesCommand(),
 			commands.TagsCommand(),

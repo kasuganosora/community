@@ -26,6 +26,7 @@ var appModels = []any{
 	&adminwebhook.Delivery{},
 	&adminwebhook.Subscription{},
 	&models.EmailDomainBlock{},
+	&models.UserTwoFactor{}, &models.UserBackupCode{},
 	&models.StatusCard{},
 	&models.RecommendationFeedback{},
 	&models.AccountLanguage{},

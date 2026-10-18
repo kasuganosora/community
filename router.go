@@ -169,6 +169,7 @@ func SetRouter(app gin.IRouter) {
 	v1ApiGroup.POST("/accounts/register", account.Register)
 	v1ApiGroup.GET("/accounts/verify_email", account.VerifyEmail)
 	v1ApiGroup.POST("/accounts/login", account.Login)
+	v1ApiGroup.POST("/accounts/login/two_factor", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/accounts/login/two_factor", 30), account.LoginTwoFactor)
 	v1ApiGroup.POST("/accounts/reset_password", account.RecoverPasswordVerifyEmail)
 	v1ApiGroup.POST("/accounts/reset_password/verify_token", account.RecoverPassword)
 
@@ -287,6 +288,12 @@ func SetRouter(app gin.IRouter) {
 	lifecycle.PUT("/aliases", account.UpdateAliases)
 	lifecycle.POST("/move", account.MoveAccount)
 	lifecycle.POST("/delete", account.RequestAccountDeletion)
+	twoFactor := authInternalGroupV1.Group("/accounts/two_factor", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/accounts/two_factor", 30))
+	twoFactor.GET("", account.TwoFactorStatus)
+	twoFactor.POST("/setup", account.TwoFactorSetup)
+	twoFactor.POST("/confirm", account.TwoFactorConfirm)
+	twoFactor.POST("/backup_codes", account.TwoFactorRegenerateBackupCodes)
+	twoFactor.POST("/disable", account.TwoFactorDisable)
 	// Logout revokes the caller's own token, so any valid token (web or OAuth) may use it.
 	authGroupV1.GET("/accounts/logout", account.Logout)
 	authGroupV1.POST("/accounts/logout", account.Logout)
@@ -490,7 +497,8 @@ func SetRouter(app gin.IRouter) {
 	// 账户管理（管理员读取）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadAccounts})).
 		GET("/admin/accounts", admin.ListAccounts).
-		GET("/admin/accounts/:id", admin.GetAccount)
+		GET("/admin/accounts/:id", admin.GetAccount).
+		GET("/admin/accounts/:id/two_factor", admin.GetAccountTwoFactor)
 
 	// 账户管理（管理员写入）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteAccounts})).
@@ -499,7 +507,8 @@ func SetRouter(app gin.IRouter) {
 		POST("/admin/accounts/:id/approve", admin.ApproveAccount).
 		POST("/admin/accounts/:id/reject", admin.RejectAccount).
 		POST("/admin/accounts/:id/unsilence", admin.UnsilenceAccount).
-		POST("/admin/accounts/:id/unsuspend", admin.UnsuspendAccount)
+		POST("/admin/accounts/:id/unsuspend", admin.UnsuspendAccount).
+		POST("/admin/accounts/:id/two_factor/reset", admin.ResetAccountTwoFactor)
 
 	// 状态管理（管理员读取）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
@@ -576,6 +585,7 @@ func SetRouter(app gin.IRouter) {
 	v2ApiGroup.POST("/accounts/register", account.Register)
 	v2ApiGroup.GET("/accounts/verify_email", account.VerifyEmail)
 	v2ApiGroup.POST("/accounts/login", account.Login)
+	v2ApiGroup.POST("/accounts/login/two_factor", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v2/accounts/login/two_factor", 30), account.LoginTwoFactor)
 	v2ApiGroup.POST("/accounts/reset_password", account.RecoverPasswordVerifyEmail)
 	v2ApiGroup.POST("/accounts/reset_password/verify_token", account.RecoverPassword)
 	v2ApiGroup.GET("/streaming/health", streaming.Health)

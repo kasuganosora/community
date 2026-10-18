@@ -40,6 +40,8 @@ var allTestModels = []any{
 	&models.User{},
 	&models.Account{},
 	&models.AccountExtra{},
+	&models.UserTwoFactor{},
+	&models.UserBackupCode{},
 	&models.AccountEmoji{},
 	&models.ApplicationUserAuth{},
 	&models.AuthToken{},

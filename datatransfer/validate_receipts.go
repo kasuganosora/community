@@ -43,7 +43,7 @@ func validateExistingReceipts(ctx context.Context, conn *gorm.DB, b *Bundle, o O
 		}
 	}
 	for _, c := range b.Credentials {
-		if err := check("credential", c.AccountID, c); err != nil {
+		if err := check("credential", c.AccountID, redactTwoFactor(c)); err != nil {
 			return err
 		}
 	}

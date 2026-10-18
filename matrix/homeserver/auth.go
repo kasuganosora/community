@@ -15,6 +15,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/twofactor"
 	"github.com/kasuganosora/community/utils"
 
 	"gorm.io/gorm"
@@ -172,6 +173,15 @@ func (a *AuthService) loginWithPassword(req *LoginRequest) (*LoginResponse, *Mat
 		return nil, &MatrixError{
 			ErrCode: "M_USER_DEACTIVATED",
 			Error:   "User is deactivated or banned",
+		}
+	}
+
+	// m.login.password has no second-factor field: accounts with 2FA must
+	// sign in on the web (which asks for the code) and use m.login.token.
+	if on, tfErr := twofactor.IsEnabled(db.GetDB(), user.Id); on || tfErr != nil {
+		return nil, &MatrixError{
+			ErrCode: "M_FORBIDDEN",
+			Error:   "Two-factor authentication is enabled: sign in on the web and use token login",
 		}
 	}
 
@@ -685,7 +695,14 @@ func (a *AuthService) VerifyUserPassword(matrixUserID, password string) bool {
 		return false
 	}
 
-	return secretData.CheckPassword(password) == nil
+	if secretData.CheckPassword(password) != nil {
+		return false
+	}
+
+	// A password alone is not enough for sensitive actions on 2FA accounts.
+	on, err := twofactor.IsEnabled(db.GetDB(), user.Id)
+
+	return !on && err == nil
 }
 
 func (a *AuthService) GetLocalAccountID(matrixUserID string) (uint64, error) {

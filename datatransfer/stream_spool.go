@@ -47,7 +47,12 @@ func knownSection(s string) bool {
 // OpenSpool creates or reopens a spool file. A reopened spool keeps its
 // records and header so an interrupted import can resume.
 func OpenSpool(path string) (*Spool, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), PrivateDirMode); err != nil {
+		return nil, err
+	}
+	// Create the file 0600 before SQLite opens it; SQLite copies the
+	// database file's mode to its -wal/-shm files.
+	if err := ensurePrivateFile(path); err != nil {
 		return nil, err
 	}
 	gdb, err := gorm.Open(sqlite.Open(path+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"), &gorm.Config{Logger: logger.Discard})
@@ -70,7 +75,9 @@ func OpenSpool(path string) (*Spool, error) {
 			return nil, err
 		}
 	}
-	_ = os.Chmod(path, 0o600)
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		_ = os.Chmod(p, PrivateFileMode)
+	}
 	s := &Spool{db: db, gdb: gdb, path: path}
 	if h := s.Meta("header"); h != "" {
 		_ = json.Unmarshal([]byte(h), &s.Header)

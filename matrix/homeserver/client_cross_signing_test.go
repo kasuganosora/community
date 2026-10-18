@@ -27,7 +27,7 @@ func clientSigningDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.User{}, &models.UserSecretData{}, &MatrixCrossSigningKey{}, &MatrixDeviceKey{}))
+	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.User{}, &models.UserSecretData{}, &models.UserTwoFactor{}, &models.UserBackupCode{}, &MatrixCrossSigningKey{}, &MatrixDeviceKey{}))
 	old := database.GetDB()
 	database.SetTestDB(conn)
 	t.Cleanup(func() { database.SetTestDB(old) })

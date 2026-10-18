@@ -21,7 +21,7 @@ func TestImportedPasswordAccountServiceVerification(t *testing.T) {
 	previous := database.GetDB()
 	database.SetTestDB(conn)
 	t.Cleanup(func() { database.SetTestDB(previous) })
-	require.NoError(t, conn.AutoMigrate(&models.User{}, &models.Account{}, &models.UserSecretData{}))
+	require.NoError(t, conn.AutoMigrate(&models.User{}, &models.Account{}, &models.UserSecretData{}, &models.UserTwoFactor{}, &models.UserBackupCode{}))
 	raw := conn.Session(&gorm.Session{SkipHooks: true})
 	user := models.User{UUID: "import-user", UserName: "imported"}
 	require.NoError(t, raw.Create(&user).Error)

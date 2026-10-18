@@ -58,7 +58,9 @@ class ExportError(Exception):
 _REDACT = [(re.compile(r"(password\s*=\s*)('[^']*'|\S+)", re.I), r"\1***"),
            (re.compile(r"(postgres(?:ql)?://[^:/@\s]*:)[^@\s]*@", re.I), r"\1***@"),
            (re.compile(r"\$2[aby]\$\d\d\$[./A-Za-z0-9]{20,}"), "***"),
-           (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S), "***")]
+           (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S), "***"),
+           # TOTP secrets / backup codes (dict reprs, JSON, key=value, Postgres DETAIL lines)
+           (re.compile(r"""(["']?two[_]?factor(?:Temp|Backup)?[_]?secret["']?\)?\s*[:=]\s*)(\([^)]*\)|\[[^\]]*\]|\{[^}]*\}|"[^"]*"|'[^']*'|[^\s,)]+)""", re.I), r"\1***")]
 
 
 def redact(text):

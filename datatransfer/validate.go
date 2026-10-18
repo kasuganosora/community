@@ -207,8 +207,11 @@ func Preview(ctx context.Context, conn *gorm.DB, b *Bundle, o Options) (*Report,
 		if !accounts[c.AccountID].Local {
 			issue(r, "credential_owner", "credential", c.AccountID, "credentials belong only to local accounts")
 		}
-		if c.TwoFactor || len(c.Extensions) > 0 && string(c.Extensions) != "null" && string(c.Extensions) != "{}" {
-			issue(r, "unsupported_auth", "credential", c.AccountID, "two-factor or extended credential state requires a supported adapter")
+		if tf, reason := parseCredentialTwoFactor(c); reason != "" {
+			issue(r, "unsupported_auth", "credential", c.AccountID, reason+": "+authReasonText[reason])
+		} else if tf != nil && tf.SecurityKeys {
+			r.Issues = append(r.Issues, Issue{Severity: "warning", Code: "security_keys_separate", Kind: "credential", SourceID: c.AccountID,
+				Message: "security keys are not in the bundle; run `tootctl passkeys import-misskey` right after the import"})
 		}
 		if c.PasswordScheme == "bcrypt" {
 			if models.ValidateImportedBcrypt(c.PasswordHash) != nil {

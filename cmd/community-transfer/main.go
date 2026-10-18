@@ -29,6 +29,9 @@ import (
 
 func main() { os.Exit(guardedRun(run)) }
 
+// keepSecretSpool mirrors --keep-secret-spool for the streamed bundle path.
+var keepSecretSpool *bool
+
 // guardedRun keeps a missing optional dependency from surfacing as a bare Go
 // panic: community-transfer only uses Redis to drop stale timeline caches
 // after an import, and skips that step when no Redis is configured.
@@ -73,6 +76,8 @@ func run() int {
 	stream := flag.Bool("stream", true, "site bundle.json: stream it into an on-disk spool and import in chunks (memory does not grow with the bundle)")
 	chunkSize := flag.Int("chunk-size", 1000, "records per transaction for streamed and direct imports")
 	d := directFlags()
+	d.keepSecretSpool = flag.Bool("keep-secret-spool", false, "after a successful --apply keep the spool/staging files that hold plaintext source credentials (TOTP secrets etc.) instead of wiping them; debugging only, prints a warning")
+	keepSecretSpool = d.keepSecretSpool
 	flag.Parse()
 	if *apply {
 		redisNotice()
@@ -202,6 +207,8 @@ func run() int {
 			exitCode = 1
 			debugCause(err)
 			fmt.Fprintln(os.Stderr, "Import did not complete. Review the safe report; receipts support a retry.")
+		} else if *scope == "site" && len(bundle.Credentials) > 0 {
+			bundleNotice()
 		}
 	}
 	if report != nil {

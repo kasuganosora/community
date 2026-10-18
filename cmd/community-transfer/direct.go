@@ -29,7 +29,7 @@ import (
 type direct struct {
 	dsn, baseURL, idMethod, version, workDir, sslmode, exporterDir    *string
 	objectMode, objectBaseURL, objectDir, sourceDir, mediaDir, python *string
-	fetchOnly, finalSync, includeRemote, reuseSpool                   *bool
+	fetchOnly, finalSync, includeRemote, reuseSpool, keepSecretSpool  *bool
 	batchSize                                                         *int
 	maxRowsPerSec, batchSleep                                         *float64
 }
@@ -53,6 +53,7 @@ func directFlags() direct {
 		finalSync:     flag.Bool("final-sync", false, "direct mode: after source writes are stopped, read new/updated/deleted rows, then import"),
 		includeRemote: flag.Bool("include-remote-cache", false, "direct mode: also migrate the remote-content cache (default: local data and what it references)"),
 		reuseSpool:    flag.Bool("reuse-spool", false, "direct mode: skip reading the source and import the existing spool again (resume an interrupted import)"),
+		// keepSecretSpool is registered in run() (shared with the streamed bundle path).
 		batchSize:     flag.Int("batch-size", 5000, "direct mode: rows per keyset page / read-only source transaction"),
 		maxRowsPerSec: flag.Float64("max-rows-per-sec", 0, "direct mode: throttle source reads (0 = unlimited)"),
 		batchSleep:    flag.Float64("batch-sleep", 0, "direct mode: seconds to sleep after every source page"),
@@ -153,10 +154,12 @@ func runDirect(d direct, source string, apply bool, reportPath string, chunkSize
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := os.MkdirAll(*d.workDir, 0o700); err != nil {
+	if err := datatransfer.EnsurePrivateDir(*d.workDir); err != nil {
 		fmt.Fprintln(os.Stderr, "Work directory is not writable.")
 		return 1
 	}
+	// The exporter runs with umask 077; tighten anything an older run left.
+	_ = datatransfer.TightenTree(*d.workDir)
 	state := filepath.Join(*d.workDir, "state")
 	spoolPath := filepath.Join(*d.workDir, "spool.sqlite3")
 	var reportFile *os.File
@@ -171,7 +174,9 @@ func runDirect(d direct, source string, apply bool, reportPath string, chunkSize
 		out := filepath.Join(*d.workDir, "out-fetch")
 		cmd := exec.CommandContext(ctx, *d.python, exporterArgs(d, source, script, state, out)...)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		if err := cmd.Run(); err != nil {
+		err := cmd.Run()
+		_ = datatransfer.TightenTree(*d.workDir)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Source read failed (%v); rerun the same command to resume from the checkpoint.\n", exitReason(err))
 			return 1
 		}
@@ -239,7 +244,29 @@ func runDirect(d direct, source string, apply bool, reportPath string, chunkSize
 		return 1
 	}
 	defer archive.Close()
-	return importSpool(ctx, conn, sp, archive, apply, reportFile, chunkSize)
+	_ = datatransfer.TightenTree(*d.workDir)
+	code := importSpool(ctx, conn, sp, archive, apply, reportFile, chunkSize)
+	if code == 0 && apply {
+		_ = sp.Close()
+		finishSecretSpool(*d.workDir, *d.keepSecretSpool)
+	}
+	return code
+}
+
+// finishSecretSpool runs after a successful --apply: the spool and exporter
+// staging hold plaintext source credentials (including TOTP secrets), so
+// they are wiped unless --keep-secret-spool asks to keep them for debugging.
+func finishSecretSpool(workDir string, keep bool) {
+	if keep {
+		fmt.Fprintf(os.Stderr, "WARNING: --keep-secret-spool: %s still contains plaintext source credentials (password hashes, signing keys, TOTP secrets and backup codes). Wipe it as soon as debugging is done.\n", workDir)
+		return
+	}
+	wiped, err := datatransfer.WipeSecretSpool(workDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not wipe every secret-bearing spool file in %s (%s); remove spool.sqlite3*, state/ and out-*/.spool by hand.\n", workDir, safeReason(err))
+		return
+	}
+	fmt.Fprintf(os.Stderr, "wiped %d secret-bearing spool path(s) in %s (copied media kept); a later run re-reads the source from scratch, receipts keep it idempotent\n", len(wiped), workDir)
 }
 
 func importSpool(ctx context.Context, conn *gorm.DB, sp *datatransfer.Spool, archive *datatransfer.Archive, apply bool, reportFile *os.File, chunkSize int) int {
@@ -344,7 +371,13 @@ func runStreamedBundle(ctx context.Context, conn *gorm.DB, input, bundlePath str
 	if err != nil {
 		return 1
 	}
-	defer os.RemoveAll(tmp)
+	defer func() {
+		if keepSecretSpool != nil && *keepSecretSpool {
+			fmt.Fprintf(os.Stderr, "WARNING: --keep-secret-spool: %s contains plaintext source credentials (including TOTP secrets). Wipe it when debugging is done.\n", tmp)
+			return
+		}
+		_ = datatransfer.WipeTree(tmp)
+	}()
 	sp, err := datatransfer.OpenSpool(filepath.Join(tmp, "spool.sqlite3"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Spool could not be created:", err)
@@ -379,8 +412,17 @@ func runStreamedBundle(ctx context.Context, conn *gorm.DB, input, bundlePath str
 	}
 	defer archive.Close()
 	code := importSpool(ctx, conn, sp, archive, apply, reportFile, chunkSize)
+	if code == 0 && apply {
+		bundleNotice()
+	}
 	if reportFile != nil && code != 1 {
 		*reportWritten = true
 	}
 	return code
+}
+
+// bundleNotice reminds operators that an input bundle keeps plaintext source
+// credentials; community-transfer never deletes operator-supplied input.
+func bundleNotice() {
+	fmt.Fprintln(os.Stderr, "NOTICE: the input bundle contains plaintext source credentials (password hashes, signing keys, TOTP secrets, backup codes). Once the import is verified, wipe it (e.g. shred -u bundle.json) and its copies.")
 }

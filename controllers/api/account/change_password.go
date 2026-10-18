@@ -10,6 +10,7 @@ import (
 type ChangePasswordReq struct {
 	OldPassword string `binding:"required" form:"old_password"`
 	NewPassword string `binding:"required" form:"new_password"`
+	OTPAttempt  string `form:"otp_attempt"  json:"otp_attempt"`
 }
 
 func ChangePassword(c *gin.Context) {
@@ -39,6 +40,10 @@ func ChangePassword(c *gin.Context) {
 	if err = userSecret.CheckPassword(req.OldPassword); err != nil {
 		c.JSON(400, gin.H{"error": "old password is wrong"})
 
+		return
+	}
+
+	if !RequireSecondFactorForSensitive(c, user.Id, req.OTPAttempt) {
 		return
 	}
 

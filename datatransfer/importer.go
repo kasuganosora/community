@@ -146,7 +146,13 @@ func (i *importer) importPreserved() error {
 				value = post
 			}
 		}
-		if err := i.preserve(r.Kind, r.ID, value); err != nil {
+		stored := value
+		if redacted, changed := RedactSecretFields(r.Data); changed {
+			copyRecord := r
+			copyRecord.Data = redacted
+			stored = copyRecord
+		}
+		if err := i.preserveStored(r.Kind, r.ID, value, stored); err != nil {
 			return err
 		}
 	}

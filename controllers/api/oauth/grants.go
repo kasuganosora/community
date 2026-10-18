@@ -14,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
+	"github.com/kasuganosora/community/twofactor"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -311,6 +312,17 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
 
 		return
+	}
+
+	// Mastodon behaviour: accounts with 2FA cannot use the password grant
+	// (clients fall back to the authorization-code flow, whose web login
+	// asks for the code). Same invalid_grant so clients behave unchanged.
+	if on, tfErr := twofactor.IsEnabled(db.GetDB(), user.Id); on || tfErr != nil {
+		if tfErr != nil || req.OTPAttempt == "" || twofactor.Verify(db.GetDB(), user.Id, req.OTPAttempt) != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
+
+			return
+		}
 	}
 
 	if systemsettings.GetBool(systemsettings.KeyRegistrationCheckEmail, false) && !user.IsMailVerified {

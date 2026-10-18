@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/htmlsafe"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/twofactor"
 	"gorm.io/gorm"
 )
 
@@ -136,7 +137,13 @@ func (i *importer) importAccounts() error {
 		}
 	}
 	for _, c := range i.bundle.Credentials {
-		_, err := i.apply("credential", c.AccountID, c, func(tx *gorm.DB) (uint64, error) {
+		tf, reason := parseCredentialTwoFactor(c)
+		if reason != "" {
+			return errors.New("unsupported credential two-factor state: " + reason)
+		}
+		// The receipt digest covers the redacted form; the plaintext
+		// secret only flows into the encrypted user_two_factors row.
+		_, err := i.apply("credential", c.AccountID, redactTwoFactor(c), func(tx *gorm.DB) (uint64, error) {
 			id, err := i.ref("account", c.AccountID)
 			if err != nil {
 				return 0, err
@@ -159,6 +166,12 @@ func (i *importer) importAccounts() error {
 			}
 			if err = tx.Create(&secret).Error; err != nil {
 				return 0, err
+			}
+			if tf != nil && tf.TOTP {
+				if err = twofactor.ImportSecret(tx, account.UserId, tf.Secret, tf.BackupCodes); err != nil {
+					return 0, errors.New("two-factor secret could not be stored")
+				}
+				i.report.Created["two_factor"]++
 			}
 			return account.UserId, nil
 		})

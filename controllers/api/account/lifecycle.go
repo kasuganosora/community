@@ -106,7 +106,7 @@ func UpdateAliases(c *gin.Context) {
 	c.JSON(200, gin.H{"aliases": aliases, "moved_to": "", "deletion_requested": false})
 }
 
-func lifecyclePassword(c *gin.Context, userID uint64, password string) bool {
+func lifecyclePassword(c *gin.Context, userID uint64, password, otp string) bool {
 	if password == "" || len(password) > 1024 {
 		c.JSON(422, gin.H{"error": "invalid password"})
 		return false
@@ -120,7 +120,7 @@ func lifecyclePassword(c *gin.Context, userID uint64, password string) bool {
 		c.JSON(422, gin.H{"error": "invalid password"})
 		return false
 	}
-	return true
+	return RequireSecondFactorForSensitive(c, userID, otp)
 }
 
 func MoveAccount(c *gin.Context) {
@@ -132,12 +132,13 @@ func MoveAccount(c *gin.Context) {
 		Target   string `json:"target"`
 		Password string `json:"password"`
 		Confirm  bool   `json:"confirm"`
+		OTP      string `json:"otp_attempt"`
 	}
 	if c.ShouldBindJSON(&req) != nil || !req.Confirm {
 		c.JSON(422, gin.H{"error": "migration confirmation required"})
 		return
 	}
-	if !lifecyclePassword(c, u.Id, req.Password) {
+	if !lifecyclePassword(c, u.Id, req.Password, req.OTP) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
@@ -172,12 +173,13 @@ func RequestAccountDeletion(c *gin.Context) {
 		Password     string `json:"password"`
 		Confirmation string `json:"confirmation"`
 		Confirm      bool   `json:"confirm"`
+		OTP          string `json:"otp_attempt"`
 	}
 	if c.ShouldBindJSON(&req) != nil || !req.Confirm || req.Confirmation != a.Username {
 		c.JSON(422, gin.H{"error": "account deletion confirmation required"})
 		return
 	}
-	if !lifecyclePassword(c, u.Id, req.Password) {
+	if !lifecyclePassword(c, u.Id, req.Password, req.OTP) {
 		return
 	}
 	if err := accountlifecycle.RequestDeletion(c.Request.Context(), db.GetDB(), a.Id, u.Id); err != nil {

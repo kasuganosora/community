@@ -14,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/twofactor"
 )
 
 // ===== 账户管理实现 =====
@@ -224,7 +225,16 @@ func (as *AccountService) verifyUserPassword(userID, password string) error {
 		return errors.New("secret data not found")
 	}
 
-	return secretData.CheckPassword(password)
+	if err = secretData.CheckPassword(password); err != nil {
+		return err
+	}
+
+	// A password alone is not enough for sensitive actions on 2FA accounts.
+	if on, tfErr := twofactor.IsEnabled(db.GetDB(), user.Id); on || tfErr != nil {
+		return errors.New("two-factor authentication enabled: use the web settings")
+	}
+
+	return nil
 }
 
 // DeactivateAccount 停用账户.

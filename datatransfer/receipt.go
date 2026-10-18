@@ -114,8 +114,14 @@ func (i *importer) ref(kind, id string) (uint64, error) {
 	return 0, fmt.Errorf("unresolved %s reference", kind)
 }
 func (i *importer) preserve(kind, id string, value any) error {
+	return i.preserveStored(kind, id, value, value)
+}
+
+// preserveStored digests value (keeping receipts stable across versions) but
+// stores stored, which may be a redacted copy.
+func (i *importer) preserveStored(kind, id string, value, stored any) error {
 	_, err := i.apply("archive:"+digestBytes([]byte(kind)), id, value, func(tx *gorm.DB) (uint64, error) {
-		data, err := json.Marshal(value)
+		data, err := json.Marshal(stored)
 		if err != nil {
 			return 0, err
 		}
