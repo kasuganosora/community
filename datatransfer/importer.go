@@ -63,6 +63,11 @@ func Import(ctx context.Context, conn *gorm.DB, b *Bundle, o Options, onProgress
 		report.Skipped = map[string]int{}
 		report.Archived = map[string]int{}
 		runner := &importer{bundle: b, options: o, namespace: transferNamespace(b, o), ids: map[string]map[string]uint64{}, report: report, mediaPaths: mediaPaths}
+		for kind, m := range o.Seed {
+			for id, target := range m {
+				runner.remember(kind, id, target)
+			}
+		}
 		err = conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			if o.LeaseCheck != nil {
 				if err := o.LeaseCheck(tx); err != nil {

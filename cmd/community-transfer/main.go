@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -37,8 +38,14 @@ func run() int {
 	maxBytes := flag.Int64("max-expanded-bytes", 1<<30, "maximum uncompressed snapshot size; provision free disk before increasing")
 	maxFiles := flag.Int("max-files", 20000, "maximum number of archive files")
 	maxRecords := flag.Int("max-records", 100000, "maximum normalized records")
-	maxJSONBytes := flag.Int64("max-json-bytes", 64<<20, "maximum size of one JSON file such as bundle.json (it is parsed in memory; provision RAM before increasing)")
+	maxJSONBytes := flag.Int64("max-json-bytes", 64<<20, "maximum size of one JSON file for the in-memory path (--stream=false or zip/personal input)")
+	stream := flag.Bool("stream", true, "site bundle.json: stream it into an on-disk spool and import in chunks (memory does not grow with the bundle)")
+	chunkSize := flag.Int("chunk-size", 1000, "records per transaction for streamed and direct imports")
+	d := directFlags()
 	flag.Parse()
+	if *d.dsn != "" {
+		return runDirect(d, *source, *apply, *reportPath, *chunkSize, *maxFiles, *maxBytes)
+	}
 	if *input == "" || (*scope != "site" && *scope != "personal") || *maxBytes <= 0 || *maxFiles <= 0 || *maxRecords <= 0 || *maxJSONBytes <= 0 {
 		fmt.Fprintln(os.Stderr, "Provide --input, --scope site|personal and positive limits. Use the target Community environment configuration.")
 		return 1
@@ -88,6 +95,11 @@ func run() int {
 	if err != nil || info.Mode()&os.ModeSymlink != 0 {
 		fmt.Fprintln(os.Stderr, "Input must be a readable regular file or directory, not a symlink.")
 		return 1
+	}
+	if *stream && *scope == "site" && *source != "community" && *kind == "archive" {
+		if bundlePath, ok := streamableBundle(*input, info); ok {
+			return runStreamedBundle(ctx, conn, *input, bundlePath, info.IsDir(), limits, *apply, reportFile, &reportWritten, *chunkSize)
+		}
 	}
 	var archive *datatransfer.Archive
 	if info.IsDir() {
@@ -154,6 +166,7 @@ func run() int {
 		report, err = datatransfer.Import(ctx, conn, bundle, opts, nil)
 		if err != nil {
 			exitCode = 1
+			debugCause(err)
 			fmt.Fprintln(os.Stderr, "Import did not complete. Review the safe report; receipts support a retry.")
 		}
 	}
@@ -181,4 +194,15 @@ func safeReason(err error) string {
 		msg = msg[:160]
 	}
 	return msg
+}
+
+// debugCause prints the underlying failure when TRANSFER_DEBUG is set. It may
+// include record values, so it is opt-in and meant for isolated rehearsals.
+func debugCause(err error) {
+	if os.Getenv("TRANSFER_DEBUG") == "" || err == nil {
+		return
+	}
+	for u := errors.Unwrap(err); u != nil; u = errors.Unwrap(u) {
+		fmt.Fprintln(os.Stderr, "cause:", u)
+	}
 }

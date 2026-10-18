@@ -472,6 +472,40 @@ class FileSink:
         shutil.rmtree(self.spool, ignore_errors=True)
 
 
+class StreamSink(FileSink):
+    """Direct mode: write NDJSON records to a stream instead of assembling bundle.json.
+
+    Line 1 is {"header": {...}}; every following line is {"s": <section>, "v": <record>}.
+    `community-transfer --source-dsn` reads this from the exporter's stdout and
+    spools it into its own SQLite staging file, so no bundle.json is ever built.
+    Media bytes (copy mode) are still written under --output.
+    """
+
+    def __init__(self, output, header, stream=None):
+        self.output = Path(output)
+        self.header = header
+        self.stream = stream or sys.stdout
+        self.files, self.counts = {}, defaultdict(int)
+        self.severity = defaultdict(int)
+        self.bundle = dict(header)
+        for key in SECTIONS:
+            self.bundle[key] = _Section(self, key)
+        self.stream.write(json.dumps({"header": header}, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+    def append(self, key, obj):
+        self.stream.write(json.dumps({"s": key, "v": obj}, ensure_ascii=False, separators=(",", ":")) + "\n")
+        self.counts[key] += 1
+        if key == "issues":
+            self.severity[obj.get("severity")] += 1
+
+    def finish(self):
+        self.stream.flush()
+
+
+def make_sink(args, output, header):
+    return StreamSink(output, header) if getattr(args, "emit", "bundle") == "ndjson" else FileSink(output, header)
+
+
 class _Section:
     def __init__(self, sink, key):
         self.sink, self.key = sink, key
@@ -1318,6 +1352,8 @@ def add_common_args(ap):
     ap.add_argument("--max-snapshot-bytes", type=int, default=0, help=argparse.SUPPRESS)  # accepted for compatibility; memory no longer scales with it
     ap.add_argument("--max-media-bytes", type=int, default=8 << 30)
     ap.add_argument("--verbose", action="store_true", help="print the full traceback on failure")
+    ap.add_argument("--emit", choices=("bundle", "ndjson"), default="bundle",
+                    help="bundle: write <output>/bundle.json; ndjson: stream records to stdout for community-transfer direct mode")
 
 
 class Run:
@@ -1396,8 +1432,10 @@ class Run:
 
 def summary(sink):
     errors = sink.severity["error"]
+    # In NDJSON mode stdout carries the records, so the summary goes to stderr.
+    out = sys.stderr if isinstance(sink, StreamSink) else sys.stdout
     print(json.dumps({"status": "blocked" if errors else "exported_with_review_required", "source_records": sink.counts["records"],
-                      "errors": errors, "warnings": sink.severity["warning"]}), flush=True)
+                      "errors": errors, "warnings": sink.severity["warning"]}), file=out, flush=True)
     return 2 if errors else 0
 
 
@@ -1430,7 +1468,7 @@ def main(argv=None):
         conv = Converter(run.staging, args.base_url, args.id_method, args.source_dir, args.output, args.source_version, run.snapshot_id(),
                          args.max_media_bytes, args.object_storage_mode, args.object_storage_dir, args.object_base_url,
                          sink=None, progress=run.progress)
-        sink = FileSink(args.output, {k: v for k, v in conv.bundle.items() if k not in SECTIONS})
+        sink = make_sink(args, args.output, {k: v for k, v in conv.bundle.items() if k not in SECTIONS})
         conv.sink, conv.bundle, conv.trim_references = sink, sink.bundle, True
         conv.convert()
         run.stage = "build: writing bundle.json"

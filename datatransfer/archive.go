@@ -27,6 +27,11 @@ type Limits struct {
 	MaxFiles           int
 	MaxRecords         int
 	TempDir            string
+	// Skip lists top-level directory entries OpenDirectory ignores (a streamed
+	// bundle.json or the exporter's state). AllowEmpty accepts a directory
+	// without files (direct mode with media kept in object storage).
+	Skip       []string
+	AllowEmpty bool
 }
 
 func DefaultLimits() Limits {

@@ -38,6 +38,14 @@ func OpenDirectory(ctx context.Context, directory string, limits Limits) (result
 		if name == "." {
 			return nil
 		}
+		for _, skip := range limits.Skip {
+			if name == skip {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+		}
 		if _, e := SafeArchiveName(name); e != nil {
 			return e
 		}
@@ -75,7 +83,7 @@ func OpenDirectory(ctx context.Context, directory string, limits Limits) (result
 	if err != nil {
 		return nil, err
 	}
-	if len(a.Files) == 0 {
+	if len(a.Files) == 0 && !limits.AllowEmpty {
 		return nil, errors.New("backup contains no data files")
 	}
 	return a, nil

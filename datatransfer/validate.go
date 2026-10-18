@@ -179,7 +179,7 @@ func Preview(ctx context.Context, conn *gorm.DB, b *Bundle, o Options) (*Report,
 		add("emoji", e.ID)
 	}
 	ref := func(kind, id, source string) {
-		if id != "" && !ids[kind][id] {
+		if id != "" && !ids[kind][id] && o.Seed[kind][id] == 0 && !(kind == "post" && o.Seed[ArchivedPostKind][id] != 0) {
 			issue(r, "missing_reference", kind, source, "referenced source record is missing")
 		}
 	}

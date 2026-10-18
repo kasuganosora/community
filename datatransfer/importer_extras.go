@@ -182,13 +182,17 @@ func (i *importer) importExtras() error {
 		if id == "" {
 			id = reaction.AccountID + "/" + reaction.PostID + "/" + reaction.Emoji
 		}
-		if i.ids["post"][reaction.PostID] == 0 || i.personal() && reaction.AccountID != i.bundle.OwnerID {
+		missingEmoji, err := i.reactionEmojiMissing(reaction.Emoji)
+		if err != nil {
+			return err
+		}
+		if missingEmoji || i.ids["post"][reaction.PostID] == 0 || i.personal() && reaction.AccountID != i.bundle.OwnerID {
 			if err := i.preserve("reaction", id, reaction); err != nil {
 				return err
 			}
 			continue
 		}
-		_, err := i.apply("reaction", id, reaction, func(tx *gorm.DB) (uint64, error) {
+		_, err = i.apply("reaction", id, reaction, func(tx *gorm.DB) (uint64, error) {
 			post, _ := i.ref("post", reaction.PostID)
 			account, err := i.ref("account", reaction.AccountID)
 			if err != nil {
@@ -255,6 +259,25 @@ func (i *importer) importExtras() error {
 		}
 	}
 	return nil
+}
+
+// reactionEmojiMissing reports a custom-emoji reaction whose emoji does not
+// exist on the target (e.g. a remote emoji outside a local-only migration).
+// Such reactions are archived instead of aborting the whole transaction.
+func (i *importer) reactionEmojiMissing(name string) (bool, error) {
+	if !strings.HasPrefix(name, ":") {
+		return false, nil
+	}
+	parts := strings.SplitN(strings.Trim(name, ":"), "@", 2)
+	domain := ""
+	if len(parts) == 2 && parts[1] != "." {
+		domain = parts[1]
+	}
+	var n int64
+	if err := i.tx.Model(&models.Emoji{}).Where("shortcode = ? AND domain = ?", parts[0], domain).Count(&n).Error; err != nil {
+		return false, err
+	}
+	return n == 0, nil
 }
 
 func (i *importer) importAccountEmojis() error {

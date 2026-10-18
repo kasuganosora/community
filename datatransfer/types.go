@@ -274,4 +274,9 @@ type Options struct {
 	Namespace          string
 	JobID              string
 	LeaseCheck         func(*gorm.DB) error
+	// Seed holds source-to-target IDs committed by earlier chunks of the same
+	// streamed import (kind -> source ID -> target ID, read from receipts).
+	// References to seeded records are valid even though the records are not
+	// part of this bundle.
+	Seed map[string]map[string]uint64
 }

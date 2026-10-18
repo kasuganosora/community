@@ -39,7 +39,17 @@ func (i *importer) importPosts() error {
 				advanced = true
 				continue
 			}
-			if p.ReplyID != "" && i.ids["post"][p.ReplyID] == 0 || p.ReblogID != "" && i.ids["post"][p.ReblogID] == 0 {
+			// A boost of private archived history cannot be published; keep it archived too.
+			if p.ReblogID != "" && i.ids["post"][p.ReblogID] == 0 && i.archivedPost(p.ReblogID) {
+				if err := i.preserve("post", p.ID, p); err != nil {
+					return err
+				}
+				advanced = true
+				continue
+			}
+			// A reply to an archive-only parent (quote, channel note, private
+			// history) is published without the thread link instead of failing.
+			if p.ReplyID != "" && i.ids["post"][p.ReplyID] == 0 && !i.archivedPost(p.ReplyID) || p.ReblogID != "" && i.ids["post"][p.ReblogID] == 0 {
 				next = append(next, p)
 				continue
 			}
@@ -64,6 +74,12 @@ func (i *importer) importPosts() error {
 	}
 	return nil
 }
+
+// ArchivedPostKind is the receipt kind of posts kept only as private archive records.
+var ArchivedPostKind = "archive:" + digestBytes([]byte("post"))
+
+func (i *importer) archivedPost(id string) bool { return i.ids[ArchivedPostKind][id] != 0 }
+
 func (i *importer) importPost(p Post) error {
 	_, err := i.apply("post", p.ID, p, func(tx *gorm.DB) (uint64, error) {
 		author, err := i.ref("account", p.AuthorID)
@@ -82,7 +98,9 @@ func (i *importer) importPost(p Post) error {
 			target.OriginUrl = &p.URL
 			target.Domain = sourceDomain(source)
 		}
-		if p.ReplyID != "" {
+		if p.ReplyID != "" && i.ids["post"][p.ReplyID] == 0 && i.archivedPost(p.ReplyID) {
+			target.Properties["import_reply_parent_archived"] = p.ReplyID
+		} else if p.ReplyID != "" {
 			id, _ := i.ref("post", p.ReplyID)
 			target.InReplyToId = &id
 			var parent models.Status

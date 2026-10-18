@@ -32,7 +32,7 @@ import sys
 from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from export_misskey import (QUIET, SECTIONS, Converter, ExportError, FileSink, Run, Staging, StagingMap,  # noqa: E402
+from export_misskey import (QUIET, make_sink, SECTIONS, Converter, ExportError, FileSink, Run, Staging, StagingMap,  # noqa: E402
                             StagingTables, add_common_args, origin, sid, summary)
 
 SCHEMA = "community-transfer/v1"
@@ -535,7 +535,7 @@ def main(argv=None):
         run.stage = "build"
         conv = MastodonConverter(run.staging, args.base_url, args.output, args.media_dir, args.object_storage_mode or "",
                                  args.object_storage_dir, args.object_base_url, run.snapshot_id(), args.max_media_bytes, progress=run.progress)
-        sink = FileSink(args.output, conv.header)
+        sink = make_sink(args, args.output, conv.header)
         conv.sink, conv.bundle, conv.trim_references = sink, sink.bundle, True
         conv.convert()
         run.stage = "build: writing bundle.json"
