@@ -30,7 +30,7 @@ func setupBuildFeedsTest(t *testing.T) (*gorm.DB, *redis.Client) {
 	sqlDB, err := conn.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.User{}, &models.UserSetting{}, &models.UserSecretData{}, &models.Status{}, &models.StatusToAccount{}, &models.Follow{}, &models.List{}, &models.ListAccount{}))
+	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.User{}, &models.UserSetting{}, &models.UserSecretData{}, &models.Status{}, &models.StatusToAccount{}, &models.Follow{}, &models.List{}, &models.ListAccount{}, &models.ListHashtag{}, &models.Block{}))
 	database.SetTestDB(conn)
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})

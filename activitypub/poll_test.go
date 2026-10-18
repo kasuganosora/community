@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/tests/testutil"
@@ -108,17 +107,12 @@ func TestApplyQuestionFieldsMatchesMastodonShape(t *testing.T) {
 
 func setupPollDB(t *testing.T) *testutil.TestDB {
 	t.Helper()
-	testDB := testutil.QuickDBSetup(t,
-		&models.Account{}, &models.AccountExtra{}, &models.AccountKey{}, &models.Follow{}, &models.Block{},
-		&models.Status{}, &models.StatusContent{}, &models.StatusToAccount{}, &models.Tag{}, &models.StatusTag{},
-		&models.MediaAttachment{}, &models.Emoji{}, &models.StatusEmoji{}, &models.Application{},
-		&models.Conversation{}, &models.AccountConversation{}, &models.SystemSetting{},
-		&models.Poll{}, &models.PollOption{}, &models.PollOptionVote{},
-		&models.Notification{}, &models.FederationOutbox{},
-	)
-	database.SetTestDB(testDB.GormDB)
-	t.Cleanup(database.ResetTestDB)
-	return testDB
+	// The vote path uses correlated visibility queries which the old sqlexec
+	// optimizer cannot plan. Exercise them on the same SQLite/PostgreSQL
+	// fixture used by federation resolution tests.
+	conn := searchFederationDB(t)
+	require.NoError(t, conn.AutoMigrate(&models.PollOptionVote{}))
+	return &testutil.TestDB{GormDB: conn}
 }
 
 func createLocalPoll(t *testing.T, testDB *testutil.TestDB, expires time.Time, multiple bool) (*models.Account, *models.Status) {

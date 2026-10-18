@@ -86,9 +86,21 @@ func TestUpdateWritesImmediatelyWithoutRunningBuffer(t *testing.T) {
 func TestRunningBufferFlushesOnTickAndStop(t *testing.T) {
 	conn, err := gorm.Open(dialect.OpenSQLite(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
+	// SQLite :memory: databases belong to one connection. The timer goroutine
+	// and test reader must use that same connection.
+	raw, err := conn.DB()
+	require.NoError(t, err)
+	raw.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = raw.Close() })
 	require.NoError(t, conn.AutoMigrate(&wbRow{}))
 	require.NoError(t, conn.Create(&[]wbRow{{ID: 1, Status: "processing"}, {ID: 2, Status: "processing"}}).Error)
 	b := Start(New(func() *gorm.DB { return conn }, 20*time.Millisecond))
+	stopped := false
+	t.Cleanup(func() {
+		if !stopped {
+			b.Stop()
+		}
+	})
 	require.NoError(t, Update(conn, "writebuffer_rows", 1, map[string]any{"status": "delivered"}, ""))
 	require.Eventually(t, func() bool {
 		var row wbRow
@@ -96,6 +108,7 @@ func TestRunningBufferFlushesOnTickAndStop(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 	b.Add("writebuffer_rows", 2, map[string]any{"status": "delivered"}, "")
 	b.Stop()
+	stopped = true
 	var row wbRow
 	require.NoError(t, conn.First(&row, 2).Error)
 	require.Equal(t, "delivered", row.Status, "Stop flushes what is pending")

@@ -9,7 +9,9 @@ import (
 )
 
 func TestStatusLanguageBackfillAndAccountPrimaryLanguage(t *testing.T) {
-	conn := setupTestDB(t)
+	// Use the discovery SQL fixture for nullable joins and grouped queries.
+	conn := recommendationTestDB(t)
+	require.NoError(t, conn.AutoMigrate(&AccountLanguage{}))
 	now := time.Now()
 	raw := conn.Session(&gorm.Session{SkipHooks: true})
 	add := func(account uint64, lang, text string) uint64 {

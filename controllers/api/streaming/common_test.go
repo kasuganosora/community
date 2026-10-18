@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 // ---------------------------------------------------------------------------
@@ -131,6 +132,23 @@ func setupTestDB(t *testing.T) {
 	gdb, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
+	if gdb.Dialector.Name() == "sqlite" {
+		raw, err := gdb.DB()
+		require.NoError(t, err)
+		raw.SetMaxOpenConns(1)
+		// SQLite auto-increment requires INTEGER PRIMARY KEY; the models'
+		// explicit MySQL bigint tags otherwise create accounts with ID zero.
+		for _, model := range []any{&models.Account{}, &models.Follow{}} {
+			stmt := &gorm.Statement{DB: gdb}
+			require.NoError(t, stmt.Parse(model))
+			for _, field := range stmt.Schema.Fields {
+				if field.AutoIncrement {
+					field.DataType = schema.Int
+				}
+			}
+		}
+	}
+
 	// Auto-migrate models used by CheckAndLoadAllExtendFields
 	require.NoError(t, gdb.AutoMigrate(
 		&models.Status{},
@@ -147,7 +165,7 @@ func setupTestDB(t *testing.T) {
 		&models.FavoriteStatus{}, &models.BookmarkStatus{}, &models.StatusReaction{},
 		&models.PollOptionVote{}, &models.AccountEmoji{}, &models.SystemSetting{}, &models.StatusHistory{},
 		&models.StatusToAccount{}, &models.Notification{}, &models.Conversation{}, &models.AccountConversation{},
-		&models.List{}, &models.ListFollowAccount{},
+		&models.List{}, &models.ListFollowAccount{}, &models.ListHashtag{},
 	))
 
 	database.SetTestDB(gdb)

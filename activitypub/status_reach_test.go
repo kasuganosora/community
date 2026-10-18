@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/kasuganosora/community/tests/testutil"
@@ -17,19 +16,11 @@ import (
 // setupStatusReachDB creates a test DB with all models needed by StatusReachFinder.
 func setupStatusReachDB(t *testing.T) *testutil.TestDB {
 	t.Helper()
-	testDB := testutil.QuickDBSetup(t,
-		&models.Account{},
-		&models.AccountExtra{},
-		&models.Follow{},
-		&models.Status{},
-		&models.StatusContent{},
-		&models.Block{},
-		&models.Relay{},
-		&Delivery{},
-		&models.SystemSetting{},
-	)
-	database.SetTestDB(testDB.GormDB)
-	t.Cleanup(database.ResetTestDB)
+	// The delivery compare-and-swap SQL requires SQLite/PostgreSQL syntax;
+	// sqlexec does not implement IS DISTINCT FROM.
+	conn := searchFederationDB(t)
+	require.NoError(t, conn.AutoMigrate(&models.Relay{}, &Delivery{}))
+	testDB := &testutil.TestDB{GormDB: conn}
 	oldClient := sharedHTTPClient
 	sharedHTTPClient = &http.Client{Transport: outboundTransport(func(r *http.Request) (*http.Response, error) {
 		return outboundResponse(200, `{"id":"`+r.URL.String()+`","inbox":"`+r.URL.String()+`/inbox"}`), nil
