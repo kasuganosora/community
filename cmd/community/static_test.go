@@ -46,6 +46,8 @@ func TestFrontendPrecompressedAndCacheHeaders(t *testing.T) {
 	write(filepath.Join(js, "app-abc.js.br"), "BR")
 	write(filepath.Join(js, "app-abc.js.gz"), "GZ")
 	write(filepath.Join(dir, "theme-init.js"), "THEME")
+	write(filepath.Join(dir, "sw.js"), "SW")
+	write(filepath.Join(dir, "version.json"), `{"build":"x"}`)
 
 	r := gin.New()
 	h := frontendFileHandler(dir)
@@ -92,5 +94,12 @@ func TestFrontendPrecompressedAndCacheHeaders(t *testing.T) {
 	}
 	if w := get("/explore", "br"); w.Header().Get("Cache-Control") != "no-store" || w.Body.String() != "<html>" {
 		t.Errorf("index: cc=%q", w.Header().Get("Cache-Control"))
+	}
+	// Update-controlling files must never be served from a CDN/HTTP cache.
+	if w := get("/sw.js", ""); w.Body.String() != "SW" || w.Header().Get("Cache-Control") != "no-cache, no-store, must-revalidate" || w.Header().Get("Service-Worker-Allowed") != "/" {
+		t.Errorf("sw.js: body=%q cc=%q swa=%q", w.Body.String(), w.Header().Get("Cache-Control"), w.Header().Get("Service-Worker-Allowed"))
+	}
+	if w := get("/version.json?t=1", ""); w.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("version.json: cc=%q", w.Header().Get("Cache-Control"))
 	}
 }

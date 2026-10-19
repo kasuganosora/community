@@ -34,7 +34,17 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 		if authToken == "" {
 			// 尝试从Cookie中获取token
-			authToken, _ = c.Cookie("app-token")
+			authToken, _ = c.Cookie(AppTokenCookie)
+			if authToken != "" {
+				// Cookie-only auth from another site is CSRF / cross-site
+				// WebSocket hijacking: refuse it. Bearer, access_token and
+				// subprotocol auth keep working from any origin.
+				if !cookieOriginAllowed(c.Request) {
+					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "cross-origin cookie authentication is not allowed"})
+					return
+				}
+				c.Set(AuthViaCookieKey, true)
+			}
 		} else if c.GetHeader("Authorization") != "" {
 			// 去掉前缀 Bearer
 			const bearerPrefix = "Bearer "
@@ -178,11 +188,8 @@ func tokenDataExpired(td *models.AuthTokenData, now time.Time) bool {
 func returnUnauthorizedAndRemoveCookie(c *gin.Context) {
 	// 如果有 app-token cookie，删除
 	// Secure 标志根据请求是否为 HTTPS 动态判断
-	secure := c.Request.TLS != nil
-	if _, err := c.Cookie("app-token"); err == nil {
-		// SameSite=Lax 与登录时设置 Cookie 保持一致，防止 CSRF
-		c.SetSameSite(http.SameSiteLaxMode)
-		c.SetCookie("app-token", "", -1, "/", "", secure, true)
+	if _, err := c.Cookie(AppTokenCookie); err == nil {
+		SetAppTokenCookie(c, "", -1)
 	}
 
 	c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"}) //nolint:goconst

@@ -5,6 +5,7 @@ import (
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"net/http"
@@ -125,9 +126,7 @@ func IssueWebSession(c *gin.Context, user *models.User) (string, error) {
 		return "", err
 	}
 
-	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("app-token", rawTokenStr, sessionExpire, "/", "", secure, true)
+	middleware.SetAppTokenCookie(c, rawTokenStr, sessionExpire)
 
 	return rawTokenStr, nil
 }

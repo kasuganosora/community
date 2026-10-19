@@ -1,7 +1,6 @@
 package account
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -47,9 +46,6 @@ func Logout(c *gin.Context) {
 	middleware.InvalidateTokenCacheHash(pairHash)
 	middleware.InvalidateTokenCache(tokenStr)
 
-	// SameSite=Lax matches the login cookie.
-	secure := c.Request.TLS != nil
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("app-token", "", -1, "/", "", secure, true)
+	middleware.SetAppTokenCookie(c, "", -1)
 	c.JSON(200, gin.H{"message": "ok"}) //nolint:goconst
 }

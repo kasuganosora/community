@@ -60,6 +60,11 @@ func serveFrontendFile(c *gin.Context, abs, requestPath string) {
 	switch {
 	case strings.HasPrefix(requestPath, "/assets/"):
 		c.Header("Cache-Control", cacheImmutable)
+	case requestPath == "/sw.js":
+		// The browser byte-compares the worker on every update check; a CDN
+		// or HTTP-cache copy would pin clients to the old build until purged.
+		c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+		c.Header("Service-Worker-Allowed", "/")
 	case requestPath == "/version.json":
 		// The client compares this build id with its own to detect a deploy:
 		// neither the browser nor the CDN may keep a copy.

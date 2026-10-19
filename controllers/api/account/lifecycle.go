@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/kasuganosora/community/middleware"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -191,6 +192,6 @@ func RequestAccountDeletion(c *gin.Context) {
 		return
 	}
 	_ = cache.InvalidateAccount(c.Request.Context(), a.Id)
-	c.SetCookie("app-token", "", -1, "/", "", c.Request.TLS != nil, true)
+	middleware.SetAppTokenCookie(c, "", -1)
 	c.JSON(202, gin.H{"state": "pending"})
 }

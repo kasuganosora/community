@@ -16,7 +16,9 @@ import (
 // .webmanifest link in index.html) and /favicon.ico.
 func registerBrandingRoutes(app *gin.Engine) {
 	manifest := func(c *gin.Context) {
-		c.Header("Cache-Control", "public, max-age=300")
+		// Branding changes (name, icons) must reach installed PWAs on the
+		// next update check without a CDN purge.
+		c.Header("Cache-Control", "no-cache")
 		c.Header("Access-Control-Allow-Origin", "*")
 		ct := "application/manifest+json"
 		if strings.HasSuffix(c.Request.URL.Path, ".json") {
