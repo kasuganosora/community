@@ -324,10 +324,7 @@ func FeedStreaming(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication no longer valid"})
 		return
 	}
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache, no-transform")
-	c.Header("X-Accel-Buffering", "no")
-	c.Header("Connection", "keep-alive")
+	setSSEHeaders(c.Writer.Header())
 	controller := http.NewResponseController(c.Writer)
 	write := func(payload []byte) error {
 		_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
@@ -343,11 +340,11 @@ func FeedStreaming(c *gin.Context) {
 	// while the client's own on-connect refetch was in flight) would be lost,
 	// so send one hint with a unique revision: the client recounts unread
 	// state and reconciles its window after the subscriptions are live.
-	if write(subscribedHintFrame()) != nil {
+	if write(append(append([]byte{}, sseInitialPadding...), subscribedHintFrame()...)) != nil {
 		return
 	}
 	_ = feed.RecordActivity(ctx, account)
-	heartbeat := time.NewTicker(25 * time.Second)
+	heartbeat := time.NewTicker(sseHeartbeatInterval)
 	defer heartbeat.Stop()
 	for {
 		select {
@@ -381,7 +378,7 @@ func FeedStreaming(c *gin.Context) {
 					return
 				}
 			}
-			if write([]byte(": keepalive\n\n")) != nil {
+			if write(sseHeartbeat) != nil {
 				return
 			}
 			_ = feed.RecordActivity(ctx, account)

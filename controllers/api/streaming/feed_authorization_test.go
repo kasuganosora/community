@@ -115,7 +115,7 @@ func TestFeedLiveStreamClosesBeforeRevokedHint(t *testing.T) {
 			defer response.Body.Close()
 			require.Equal(t, 200, response.StatusCode)
 			reader := bufio.NewReader(response.Body)
-			for i := 0; i < 3; i++ {
+			for i := 0; i < 5; i++ { // padding comment + blank, then the subscribed frame
 				_, err = reader.ReadString('\n')
 				require.NoError(t, err)
 			}

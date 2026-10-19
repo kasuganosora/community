@@ -75,6 +75,7 @@ func TestFeedStreamingAuthenticatedHTTPAndTimeoutExemption(t *testing.T) {
 	defer response.Body.Close()
 	require.Equal(t, 200, response.StatusCode)
 	scanner := bufio.NewScanner(response.Body)
+	skipSSEPadding(t, scanner)
 	require.True(t, scanner.Scan())
 	require.Equal(t, "event: feed.changed", scanner.Text())
 	require.True(t, scanner.Scan())

@@ -197,6 +197,7 @@ func TestDirectSSEConsumesRealRedisJSONString(t *testing.T) {
 	}, time.Second, time.Millisecond)
 	require.NoError(t, client.Publish(ctx, channel, `{"type":"conversation","payload":{"id":7}}`).Err())
 	scanner := bufio.NewScanner(response.Body)
+	skipSSEPadding(t, scanner)
 	var lines []string
 	for scanner.Scan() {
 		line := scanner.Text()

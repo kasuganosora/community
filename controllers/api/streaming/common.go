@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -220,9 +221,7 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 		_ = topicChan.Close()
 	}()
 
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
+	setSSEHeaders(c.Writer.Header())
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
 		c.AbortWithStatusJSON(500, gin.H{"error": "streaming not supported"})
@@ -230,12 +229,22 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 		return
 	}
 
+	if _, err := c.Writer.Write(sseInitialPadding); err != nil {
+		return
+	}
 	flusher.Flush()
+	heartbeat := time.NewTicker(sseHeartbeatInterval)
+	defer heartbeat.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-heartbeat.C:
+			if _, err := c.Writer.Write(sseHeartbeat); err != nil {
+				return
+			}
+			flusher.Flush()
 		case msg, open := <-topicChan.Channel():
 			if !open || msg == nil {
 				return
@@ -266,6 +275,30 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 			flusher.Flush()
 		}
 	}
+}
+
+// sseHeartbeatInterval is the comment heartbeat period for SSE streams. It
+// stays well under common proxy idle timeouts (Cloudflare drops idle origin
+// responses after ~100s) and matches Mastodon's streaming server cadence.
+var sseHeartbeatInterval = 15 * time.Second
+
+// sseInitialPadding is a ~2KB comment written as soon as a stream opens.
+// Some proxies (observed on the Cloudflare path) hold the first bytes of a
+// response until a buffer fills, so a connected stream could receive zero
+// events; filling that buffer up front makes later frames flow immediately.
+var sseInitialPadding = []byte(":" + strings.Repeat(" ", 2048) + "\n\n")
+
+// sseHeartbeat is the Mastodon-compatible keepalive comment.
+var sseHeartbeat = []byte(":thump\n\n")
+
+// setSSEHeaders marks a response as an unbuffered, untransformed event stream.
+func setSSEHeaders(h http.Header) {
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache, no-transform")
+	h.Set("X-Accel-Buffering", "no")
+	h.Set("Connection", "keep-alive")
+	h.Del("Content-Encoding")
+	h.Del("Content-Length")
 }
 
 type RedisChannelEvent struct {

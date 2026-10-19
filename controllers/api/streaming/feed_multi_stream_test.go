@@ -31,6 +31,7 @@ func openTestFeedStream(t *testing.T, url string) *testFeedStream {
 	require.NoError(t, err)
 	require.Equal(t, 200, response.StatusCode)
 	scanner := bufio.NewScanner(response.Body)
+	skipSSEPadding(t, scanner)
 	for i := 0; i < 3; i++ { // the "subscribed" frame
 		require.True(t, scanner.Scan())
 	}
