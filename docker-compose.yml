@@ -195,9 +195,12 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        # Pass the key through the environment, not argv, so it does not
+        # show up in `ps` for other local users.
         if [ -n "$$MEILISEARCH_API_KEY" ]; then
-          exec /bin/meilisearch --master-key "$$MEILISEARCH_API_KEY"
+          export MEILI_MASTER_KEY="$$MEILISEARCH_API_KEY"
         fi
+        unset MEILISEARCH_API_KEY
         exec /bin/meilisearch
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7700/health"]
