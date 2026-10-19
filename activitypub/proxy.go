@@ -127,8 +127,9 @@ func ensureProxyAccountWithRetry(ctx context.Context, conn *gorm.DB) (*models.Ac
 			continue
 		}
 
-		// localAccountKey locks the account row and is backed by the
-		// unique account_id index, so concurrent callers share one key.
+		// localAccountKey only locks the account row when the key is
+		// missing and is backed by the unique account_id index, so
+		// concurrent callers share one key.
 		key, err := localAccountKeyWith(conn.WithContext(ctx), account)
 		if err != nil {
 			lastErr = fmt.Errorf("ensuring proxy signing key: %w", err)
