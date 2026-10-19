@@ -8,6 +8,7 @@ const path = '/api/v1/settings'
 export const connectionsApi = {
   async tokens() { return (await client.get<AccessToken[]>(`${path}/tokens`)).data },
   async createToken(input: { name: string; scopes: string[]; expires_in_days: number; password?: string; otp?: string }) { return (await client.post<{ token: string; item: AccessToken }>(`${path}/tokens`, input)).data },
+  async updateToken(id: string, input: { name: string; scopes: string[]; password?: string; otp?: string }) { return (await client.patch<AccessToken>(`${path}/tokens/${encodeURIComponent(id)}`, input)).data },
   async revokeToken(id: string) { await client.delete(`${path}/tokens/${encodeURIComponent(id)}`) },
   async hooks() { return (await client.get<Webhook[]>(`${path}/webhooks`)).data },
   async saveHook(input: HookDraft, id?: string) {

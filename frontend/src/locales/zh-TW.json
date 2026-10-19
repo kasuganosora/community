@@ -2891,7 +2891,10 @@
       "expiredInactive": "已過期：180 天未使用",
       "allRead": "全部讀取",
       "allWrite": "全部寫入",
-      "scopeCount": "{count} 項權限"
+      "scopeCount": "{count} 項權限",
+      "editTitle": "編輯存取權杖",
+      "editKeepsToken": "權杖字串不變；使用它的應用程式會在下一次請求時取得新的權限。",
+      "editGone": "此權杖已不存在。"
     },
     "AccountLifecycle": {
       "loading": "正在載入帳號設定…",

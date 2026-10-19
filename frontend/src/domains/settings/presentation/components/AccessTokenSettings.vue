@@ -16,10 +16,13 @@ const selected = ref<Set<string>>(new Set(['read:accounts', 'read:statuses']))
 const password = ref(''), otp = ref('')
 const isAdmin = computed(() => auth.currentUser?.is_admin === true || (auth.currentUser?.admin_permissions?.length ?? 0) > 0)
 const chosen = computed(() => collapseScopes(selected.value))
-const reauth = computed(() => needsReauth(chosen.value))
+// Editing: the row being edited. Only newly added admin write scopes need
+// the password again.
+const editing = ref<AccessToken | null>(null)
+const reauth = computed(() => needsReauth(chosen.value.filter(s => !editing.value?.scopes.includes(s) && !(s.startsWith('admin:write:') && editing.value?.scopes.includes('admin:write')))))
 const canSubmit = computed(() => !busy.value && !!name.value.trim() && chosen.value.length > 0 && (!reauth.value || !!password.value))
 
-function reset() { name.value = ''; password.value = ''; otp.value = ''; formError.value = ''; selected.value = new Set(['read:accounts', 'read:statuses']); expires.value = 30 }
+function reset() { editing.value = null; name.value = ''; password.value = ''; otp.value = ''; formError.value = ''; selected.value = new Set(['read:accounts', 'read:statuses']); expires.value = 30 }
 const scope = useSettingsScope(() => { loading.value = false; rows.value = []; secret.value = ''; error.value = ''; busy.value = false; creating.value = false; reset() })
 
 function toggle(key: string, on: boolean) { const next = new Set(selected.value); if (on) next.add(key); else next.delete(key); selected.value = next }
@@ -27,6 +30,32 @@ function toggle(key: string, on: boolean) { const next = new Set(selected.value)
 function enableAll() { const next = new Set([...selected.value].filter(s => s.startsWith('admin:'))); userScopeRows.forEach(r => next.add(r.scope)); selected.value = next }
 function disableAll() { selected.value = new Set() }
 function open() { reset(); creating.value = true }
+/** Opens the sheet prefilled with a token's name and permissions. */
+function openEdit(row: AccessToken) {
+  reset(); editing.value = row; name.value = row.name
+  const next = new Set<string>()
+  for (const s of row.scopes) {
+    if (s === 'read' || s === 'write') userScopeRows.filter(r => r.scope.startsWith(`${s}:`)).forEach(r => next.add(r.scope))
+    else next.add(s)
+  }
+  selected.value = next; creating.value = true
+}
+function submit() { if (editing.value) void update(); else void create() }
+async function update() {
+  const row = editing.value
+  if (!row || !canSubmit.value) return
+  const current = scope(); busy.value = true; formError.value = ''
+  try {
+    const item = await connectionsApi.updateToken(row.id, { name: name.value.trim(), scopes: chosen.value, ...(reauth.value ? { password: password.value, otp: otp.value.trim() || undefined } : {}) })
+    if (!current()) return
+    rows.value = rows.value.map(r => r.id === row.id ? { ...r, ...item } : r); creating.value = false; reset()
+  } catch (e) {
+    if (!current()) return
+    const status = isAxiosError(e) ? e.response?.status : undefined
+    const code = isAxiosError(e) ? (e.response?.data as { error?: string } | undefined)?.error : undefined
+    formError.value = t(code === 'admin_scope_forbidden' ? 'settings.Connections.adminForbidden' : status === 404 ? 'settings.Connections.editGone' : status === 422 && reauth.value && code !== 'invalid_scope' ? 'settings.Connections.passwordError' : 'settings.Connections.saveError')
+  } finally { if (current()) { busy.value = false; password.value = '' } }
+}
 
 async function load() {
   const current = scope(); loading.value = true; error.value = ''
@@ -75,14 +104,15 @@ onMounted(load)
       <div v-if="secret" class="connection-secret" role="status"><strong>{{ $t('settings.Connections.saveSecret') }}</strong><textarea :value="secret" readonly :aria-label="$t('settings.Connections.token')" spellcheck="false" /><div class="connection-actions"><button class="btn btn--primary" @click="copy">{{ $t(copied ? 'settings.Connections.copied' : 'settings.Connections.copy') }}</button><button class="btn btn--ghost" @click="secret = ''">{{ $t('settings.Connections.close') }}</button></div></div>
       <p v-if="loading" class="connection-note" role="status">{{ $t('settings.Connections.loading') }}</p>
       <p v-else-if="!rows.length && !error" class="connection-note">{{ $t('settings.Connections.noTokens') }}</p>
-      <ul v-else class="connection-list"><li v-for="row in rows" :key="row.id"><div class="connection-row"><div><strong>{{ row.name }}</strong><small class="token-meta" :title="row.scopes.join(' ')">{{ scopeSummary(row.scopes) }} · {{ row.expires_at ? new Date(row.expires_at).toLocaleDateString() : $t('settings.Connections.never') }}</small><small class="token-meta" :class="{ 'connection-error': row.revoked_reason }">{{ row.revoked_reason === 'inactive' ? $t('settings.Connections.expiredInactive') : lastUsed(row) }}</small></div><button class="btn btn--ghost" :disabled="busy" @click="revoke(row.id)">{{ $t('settings.Connections.revoke') }}</button></div></li></ul>
+      <ul v-else class="connection-list"><li v-for="row in rows" :key="row.id"><div class="connection-row"><div><strong>{{ row.name }}</strong><small class="token-meta" :title="row.scopes.join(' ')">{{ scopeSummary(row.scopes) }} · {{ row.expires_at ? new Date(row.expires_at).toLocaleDateString() : $t('settings.Connections.never') }}</small><small class="token-meta" :class="{ 'connection-error': row.revoked_reason }">{{ row.revoked_reason === 'inactive' ? $t('settings.Connections.expiredInactive') : lastUsed(row) }}</small></div><div class="connection-actions token-row-actions"><button v-if="!row.revoked_reason" class="btn btn--ghost" :disabled="busy" data-action="edit" @click="openEdit(row)">{{ $t('settings.Connections.edit') }}</button><button class="btn btn--ghost" :disabled="busy" @click="revoke(row.id)">{{ $t('settings.Connections.revoke') }}</button></div></div></li></ul>
     </div>
-    <BottomSheet v-model="creating" size="large" :title="$t('settings.Connections.generate')">
+    <BottomSheet v-model="creating" size="large" :title="$t(editing ? 'settings.Connections.editTitle' : 'settings.Connections.generate')">
       <template #trailing><button type="submit" form="token-form" class="btn btn--primary token-done" :disabled="!canSubmit" :aria-busy="busy">{{ $t(busy ? 'settings.Connections.saving' : 'settings.Connections.done') }}</button></template>
-      <form id="token-form" class="connection-form token-form" @submit.prevent="create">
+      <form id="token-form" class="connection-form token-form" @submit.prevent="submit">
         <p v-if="formError" class="connection-error" role="alert">{{ formError }}</p>
         <label>{{ $t('settings.Connections.name') }}<input v-model="name" required maxlength="100" autocomplete="off" :disabled="busy" /></label>
-        <label>{{ $t('settings.Connections.expiry') }}<select v-model="expires" :disabled="busy"><option v-for="days in [7, 30, 90, 365]" :key="days" :value="days">{{ $t('settings.Connections.days', { count: days }) }}</option><option :value="0">{{ $t('settings.Connections.never') }}</option></select></label>
+        <p v-if="editing" class="connection-note token-expiry-readonly">{{ $t('settings.Connections.expiry') }}: {{ editing.expires_at ? new Date(editing.expires_at).toLocaleDateString() : $t('settings.Connections.never') }} · {{ $t('settings.Connections.editKeepsToken') }}</p>
+        <label v-else>{{ $t('settings.Connections.expiry') }}<select v-model="expires" :disabled="busy"><option v-for="days in [7, 30, 90, 365]" :key="days" :value="days">{{ $t('settings.Connections.days', { count: days }) }}</option><option :value="0">{{ $t('settings.Connections.never') }}</option></select></label>
         <fieldset :disabled="busy" class="token-perms">
           <legend>{{ $t('settings.Connections.permissions') }}</legend>
           <div class="connection-actions"><button type="button" class="btn btn--secondary" @click="disableAll">{{ $t('settings.Connections.disableAll') }}</button><button type="button" class="btn btn--secondary" @click="enableAll">{{ $t('settings.Connections.enableAll') }}</button></div>
@@ -111,6 +141,7 @@ onMounted(load)
 .connection-form fieldset.token-perms--admin { border: 1px solid var(--color-danger); border-radius: 12px; padding: 12px 16px; margin-top: 8px; }
 .connection-form fieldset.token-perms--admin legend { color: var(--color-danger); padding: 0 6px; }
 .token-meta { display: block; }
+.token-row-actions { flex-wrap: nowrap; gap: 4px; }
 .token-done { min-height: 36px; padding-inline: 16px; }
 .token-perms .connection-toggle input { appearance: none; flex: 0 0 38px; width: 38px; height: 22px; border: 1px solid var(--color-separator); border-radius: 20px; background: var(--color-fill); position: relative; margin: 0; cursor: pointer; }
 .token-perms .connection-toggle input::after { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--color-label-secondary); transition: transform .15s; }

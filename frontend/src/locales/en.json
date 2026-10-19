@@ -2891,7 +2891,10 @@
       "expiredInactive": "Expired: unused for 180 days",
       "allRead": "All read",
       "allWrite": "All write",
-      "scopeCount": "{count} permissions"
+      "scopeCount": "{count} permissions",
+      "editTitle": "Edit access token",
+      "editKeepsToken": "The token string stays the same; apps using it get the new permissions on their next request.",
+      "editGone": "This token no longer exists."
     },
     "AccountLifecycle": {
       "loading": "Loading account settings…",

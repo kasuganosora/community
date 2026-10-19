@@ -2891,7 +2891,10 @@
       "expiredInactive": "Abgelaufen: 180 Tage nicht verwendet",
       "allRead": "Alles lesen",
       "allWrite": "Alles schreiben",
-      "scopeCount": "{count} Berechtigungen"
+      "scopeCount": "{count} Berechtigungen",
+      "editTitle": "Zugriffstoken bearbeiten",
+      "editKeepsToken": "Die Token-Zeichenfolge bleibt gleich; Apps erhalten die neuen Berechtigungen bei ihrer nächsten Anfrage.",
+      "editGone": "Dieses Token existiert nicht mehr."
     },
     "AccountLifecycle": {
       "loading": "Kontoeinstellungen werden geladen…",

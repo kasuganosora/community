@@ -2891,7 +2891,10 @@
       "expiredInactive": "Expiré : inutilisé depuis 180 jours",
       "allRead": "Lecture complète",
       "allWrite": "Écriture complète",
-      "scopeCount": "{count} autorisations"
+      "scopeCount": "{count} autorisations",
+      "editTitle": "Modifier le jeton d’accès",
+      "editKeepsToken": "Le jeton reste identique ; les applis qui l’utilisent obtiennent les nouvelles autorisations à leur prochaine requête.",
+      "editGone": "Ce jeton n’existe plus."
     },
     "AccountLifecycle": {
       "loading": "Chargement des paramètres du compte…",

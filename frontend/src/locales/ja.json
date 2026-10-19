@@ -2891,7 +2891,10 @@
       "expiredInactive": "期限切れ：180日間未使用",
       "allRead": "すべて読み取り",
       "allWrite": "すべて書き込み",
-      "scopeCount": "{count} 件の権限"
+      "scopeCount": "{count} 件の権限",
+      "editTitle": "アクセストークンを編集",
+      "editKeepsToken": "トークン文字列は変わりません。使用中のアプリは次のリクエストから新しい権限になります。",
+      "editGone": "このトークンはもう存在しません。"
     },
     "AccountLifecycle": {
       "loading": "アカウント設定を読み込み中…",

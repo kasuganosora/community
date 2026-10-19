@@ -2891,7 +2891,10 @@
       "expiredInactive": "已过期：180 天未使用",
       "allRead": "全部读取",
       "allWrite": "全部写入",
-      "scopeCount": "{count} 项权限"
+      "scopeCount": "{count} 项权限",
+      "editTitle": "编辑访问令牌",
+      "editKeepsToken": "令牌字符串不变；使用它的应用会在下一次请求时获得新的权限。",
+      "editGone": "该令牌已不存在。"
     },
     "AccountLifecycle": {
       "loading": "正在加载账号设置…",
