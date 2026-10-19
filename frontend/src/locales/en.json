@@ -280,7 +280,7 @@
     },
     "PostPoll": {
       "s1": "Poll options",
-      "s2": "Poll",
+      "s2": "Vote",
       "s3": "{0} participant | {0} participants",
       "s4": "· Ended",
       "s5": "left",

@@ -125,9 +125,10 @@ function onClick(e: MouseEvent) {
   content: '…';
 }
 
-/* Long bare URLs wrap instead of pushing the column wider. */
+/* Long bare URLs wrap instead of pushing the column wider; link text made of
+   words (hashtags, titled links) still wraps at spaces. */
 .rich-text :deep(a:not(.mention)) {
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .rich-text :deep(code) {

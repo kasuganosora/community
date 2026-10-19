@@ -280,7 +280,7 @@
     },
     "PostPoll": {
       "s1": "Options du sondage",
-      "s2": "Sondage",
+      "s2": "Voter",
       "s3": "{0} participant | {0} participants",
       "s4": "· terminé",
       "s5": "restant",

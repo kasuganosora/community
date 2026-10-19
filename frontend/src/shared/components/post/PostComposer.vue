@@ -1125,7 +1125,7 @@ defineExpose({ focus, reset })
   padding: var(--space-1);
   font-size: var(--text-caption);
   color: var(--color-label-secondary);
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 /* Small glyph on a dark translucent disc, 44pt hit area. */
