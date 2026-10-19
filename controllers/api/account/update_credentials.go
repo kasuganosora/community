@@ -5,6 +5,7 @@ import (
 	"github.com/kasuganosora/community/profileverify"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"maps"
 	"net/http"
 	"time"
 
@@ -30,8 +31,14 @@ type UpdateCredentialsRequest struct {
 	HideCollections *bool   `form:"hide_collections" json:"hide_collections"`
 	Indexable       *bool   `form:"indexable" json:"indexable"`
 	// RequireSigninToView is an extension; Mastodon clients never send it.
-	RequireSigninToView *bool   `form:"require_signin_to_view" json:"require_signin_to_view"`
-	IsCat               *bool   `form:"is_cat" json:"is_cat"`
+	RequireSigninToView *bool `form:"require_signin_to_view" json:"require_signin_to_view"`
+	IsCat               *bool `form:"is_cat" json:"is_cat"`
+	// Misskey account settings (extensions).
+	FollowingVisibility *string `form:"following_visibility" json:"following_visibility"`
+	FollowersVisibility *string `form:"followers_visibility" json:"followers_visibility"`
+	AutoAcceptFollowed  *bool   `form:"auto_accept_followed" json:"auto_accept_followed"`
+	HideOnlineStatus    *bool   `form:"hide_online_status" json:"hide_online_status"`
+	SpeakAsCat          *bool   `form:"speak_as_cat" json:"speak_as_cat"`
 	Location            *string `form:"location" json:"location"`
 	Birthday            *string `form:"birthday" json:"birthday"`
 	Language            *string `form:"language" json:"language"`
@@ -99,8 +106,32 @@ func UpdateCredentials(c *gin.Context) {
 		updates["discoverable"] = *req.Discoverable
 	}
 
+	// hide_collections=true hides both lists; false makes both public. The
+	// per-list values win when both are sent.
+	following, followers := account.FollowingVisibilityValue(), account.FollowersVisibilityValue()
 	if req.HideCollections != nil {
-		updates["hide_collections"] = *req.HideCollections
+		following, followers = models.CollectionPublic, models.CollectionPublic
+		if *req.HideCollections {
+			following, followers = models.CollectionPrivate, models.CollectionPrivate
+		}
+	}
+	if req.FollowingVisibility != nil {
+		following = *req.FollowingVisibility
+	}
+	if req.FollowersVisibility != nil {
+		followers = *req.FollowersVisibility
+	}
+	if !models.ValidCollectionVisibility(following) || !models.ValidCollectionVisibility(followers) {
+		c.AbortWithStatusJSON(422, gin.H{"error": "invalid collection visibility"})
+		return
+	}
+	if req.HideCollections != nil || req.FollowingVisibility != nil || req.FollowersVisibility != nil {
+		maps.Copy(updates, models.CollectionVisibilityUpdates(following, followers))
+	}
+	for column, value := range map[string]*bool{"auto_accept_followed": req.AutoAcceptFollowed, "hide_online_status": req.HideOnlineStatus, "speak_as_cat": req.SpeakAsCat} {
+		if value != nil {
+			updates[column] = *value
+		}
 	}
 
 	if req.RequireSigninToView != nil {
@@ -196,6 +227,11 @@ func GetAccountSettings(c *gin.Context) {
 		"bot":                    account.Bot,
 		"discoverable":           account.Discoverable,
 		"hide_collections":       account.HideCollections,
+		"following_visibility":   account.FollowingVisibilityValue(),
+		"followers_visibility":   account.FollowersVisibilityValue(),
+		"auto_accept_followed":   account.AutoAcceptFollowed,
+		"hide_online_status":     account.HideOnlineStatus,
+		"speak_as_cat":           account.SpeakAsCat,
 		"indexable":              !account.NoIndex,
 		"require_signin_to_view": account.RequireSigninToView,
 	}

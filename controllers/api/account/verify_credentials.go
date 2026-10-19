@@ -54,6 +54,11 @@ func VerifyCredentials(c *gin.Context) {
 			HideCollections:     account.HideCollections,
 			Discoverable:        account.Discoverable,
 			Indexable:           !account.NoIndex,
+			FollowingVisibility: account.FollowingVisibilityValue(),
+			FollowersVisibility: account.FollowersVisibilityValue(),
+			AutoAcceptFollowed:  account.AutoAcceptFollowed,
+			HideOnlineStatus:    account.HideOnlineStatus,
+			SpeakAsCat:          account.SpeakAsCat,
 		},
 		Role: roleFor(currentUser),
 	})
@@ -71,6 +76,12 @@ type AccountSource struct {
 	HideCollections     bool `json:"hide_collections"`
 	Discoverable        bool `json:"discoverable"`
 	Indexable           bool `json:"indexable"`
+	// Misskey account settings (extensions).
+	FollowingVisibility string `json:"following_visibility"`
+	FollowersVisibility string `json:"followers_visibility"`
+	AutoAcceptFollowed  bool   `json:"auto_accept_followed"`
+	HideOnlineStatus    bool   `json:"hide_online_status"`
+	SpeakAsCat          bool   `json:"speak_as_cat"`
 }
 
 // AccountRole mirrors Mastodon's Role entity (CredentialAccount#role).

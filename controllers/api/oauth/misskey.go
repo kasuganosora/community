@@ -513,16 +513,20 @@ func misskeyUser(account *models.Account) gin.H {
 	}
 
 	return gin.H{
-		"id":          strconv.FormatUint(account.Id, 10),
-		"username":    account.Username,
-		"name":        name,
-		"host":        nil,
-		"avatarUrl":   account.Avatar,
-		"isBot":       account.Bot,
-		"isLocked":    account.Locked,
-		"isCat":       account.IsCat,
-		"isAdmin":     false,
-		"isModerator": false,
+		"id":                  strconv.FormatUint(account.Id, 10),
+		"username":            account.Username,
+		"name":                name,
+		"host":                nil,
+		"avatarUrl":           account.Avatar,
+		"isBot":               account.Bot,
+		"isLocked":            account.Locked,
+		"isCat":               account.IsCat,
+		"speakAsCat":          account.SpeakAsCat,
+		"onlineStatus":        account.OnlineStatus(time.Now()),
+		"followingVisibility": account.FollowingVisibilityValue(),
+		"followersVisibility": account.FollowersVisibilityValue(),
+		"isAdmin":             false,
+		"isModerator":         false,
 	}
 }
 

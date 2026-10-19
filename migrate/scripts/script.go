@@ -70,6 +70,7 @@ var ScripsType = []MigrationScript{
 	ImportColumnWidthsScript{},
 	RelayActorURIScript{},
 	TokenLastUsedScript{},
+	AccountPrivacyScript{},
 }
 
 type MigrationScript interface {

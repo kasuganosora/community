@@ -277,6 +277,8 @@ func createUserAndAccount(c *gin.Context, req RegisterRequest, code *models.Invi
 		DisplayName: req.DisplayName,
 		Website:     req.Website,
 		Username:    req.UserName,
+		// Misskey turns autoAcceptFollowed on for new accounts.
+		AutoAcceptFollowed: true,
 	}
 
 	err = db.GetDB().Transaction(func(tx *gorm.DB) error {

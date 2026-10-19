@@ -12,6 +12,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // AvatarDecoration is one decoration in Misskey's geometry (see
@@ -68,6 +69,12 @@ type Account struct {
 	// RequireSigninToView (extension, Misskey requireSigninToViewContents):
 	// logged-out visitors see the profile but not its posts.
 	RequireSigninToView bool `json:"require_signin_to_view,omitempty"`
+	// Misskey extensions: speak_as_cat asks clients to nyaize a cat's posts
+	// at display time; online_status is Misskey's onlineStatus.
+	SpeakAsCat          bool   `json:"speak_as_cat"`
+	OnlineStatus        string `json:"online_status"`
+	FollowingVisibility string `json:"following_visibility"`
+	FollowersVisibility string `json:"followers_visibility"`
 	// Roles is always an array in Mastodon >= 4.3 (empty for plain users).
 	Roles []any `json:"roles"`
 
@@ -165,7 +172,11 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 		HeaderStatic:        mediaOrDefault(proxiedAccountMedia(account, mediaproxy.KindHeader, account.HeaderStatic), "header.png"),
 		LastStatusAt:        newAPIDate(account.LastStatusAt),
 		Roles:               []any{},
-		HideCollections:     account.HideCollections,
+		HideCollections:     account.FollowingVisibilityValue() != models.CollectionPublic || account.FollowersVisibilityValue() != models.CollectionPublic,
+		SpeakAsCat:          account.SpeakAsCat,
+		OnlineStatus:        account.OnlineStatus(time.Now()),
+		FollowingVisibility: account.FollowingVisibilityValue(),
+		FollowersVisibility: account.FollowersVisibilityValue(),
 		NoIndex:             account.NoIndex,
 		RequireSigninToView: account.RequireSigninToView,
 		Emoji:               emojis,

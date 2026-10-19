@@ -872,7 +872,9 @@ func handleFollowActivity(ctx context.Context, c *gin.Context, activity map[stri
 	}
 	// If target account is locked, create follow request. Like Misskey,
 	// follows from a silenced instance always need approval.
-	if targetAccount.Locked || (remoteAccount.Domain != nil && moderation.Current().IsSilencedHost(*remoteAccount.Domain)) {
+	// autoAcceptFollowed approves accounts the target already follows, even
+	// from a silenced instance (Misskey behaviour).
+	if (targetAccount.Locked || (remoteAccount.Domain != nil && moderation.Current().IsSilencedHost(*remoteAccount.Domain))) && !targetAccount.AutoAcceptsFollowFrom(activityDB(ctx), remoteAccount) {
 		follow := models.Follow{
 			AccountId:  remoteAccount.Id,
 			FollowId:   targetAccount.Id,

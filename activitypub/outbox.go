@@ -139,14 +139,24 @@ func Followers(c *gin.Context) {
 
 	db.GetDB().Model(&models.Follow{}).Where("follow_id = ?", account.Id).Count(&count)
 
-	if !page {
-		c.JSON(200, Collection{
+	// A non-public list exposes only its size, as Mastodon does for
+	// hide_collections: no first page, and page requests are refused.
+	public := account.CanFollowersPublic()
+	if !page || !public {
+		if page {
+			c.JSON(403, gin.H{"error": "collection is not public"})
+			return
+		}
+		collection := Collection{
 			Context:    []string{"https://www.w3.org/ns/activitystreams"},
 			ID:         followersURL,
 			Type:       "OrderedCollection",
 			TotalItems: int(count),
-			First:      followersURL + "?page=true",
-		})
+		}
+		if public {
+			collection.First = followersURL + "?page=true"
+		}
+		c.JSON(200, collection)
 
 		return
 	}
@@ -205,14 +215,24 @@ func Following(c *gin.Context) {
 
 	db.GetDB().Model(&models.Follow{}).Where("account_id = ?", account.Id).Count(&count)
 
-	if !page {
-		c.JSON(200, Collection{
+	// A non-public list exposes only its size, as Mastodon does for
+	// hide_collections: no first page, and page requests are refused.
+	public := account.CanFollowingPublic()
+	if !page || !public {
+		if page {
+			c.JSON(403, gin.H{"error": "collection is not public"})
+			return
+		}
+		collection := Collection{
 			Context:    []string{"https://www.w3.org/ns/activitystreams"},
 			ID:         followingURL,
 			Type:       "OrderedCollection",
 			TotalItems: int(count),
-			First:      followingURL + "?page=true",
-		})
+		}
+		if public {
+			collection.First = followingURL + "?page=true"
+		}
+		c.JSON(200, collection)
 
 		return
 	}

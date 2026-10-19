@@ -184,6 +184,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		// was previously set by CheckAuthMiddleware alone.
 		c.Set("authenticated", true)
 		touchTokenLastUsed(c.Request.Context(), token, time.Now())
+		touchAccountActive(c.Request.Context(), account, time.Now())
 		c.Next()
 	}
 }
@@ -437,4 +438,21 @@ func touchTokenLastUsed(ctx context.Context, token *models.AuthToken, now time.T
 
 func isTranslatePath(path string) bool {
 	return strings.HasPrefix(path, "/api/v1/statuses/") && strings.HasSuffix(path, "/translate")
+}
+
+// accountActiveInterval throttles accounts.last_active_at writes.
+const accountActiveInterval = 5 * time.Minute
+
+// touchAccountActive records Misskey's lastActiveDate for a local account
+// at most every accountActiveInterval. Failures never fail the request.
+func touchAccountActive(ctx context.Context, account *models.Account, now time.Time) {
+	if account == nil || account.Id == 0 || account.Domain != nil || (account.LastActiveAt != nil && now.Sub(*account.LastActiveAt) < accountActiveInterval) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 500*time.Millisecond)
+	defer cancel()
+	_ = db.GetDB().WithContext(ctx).Model(&models.Account{}).
+		Where("id = ? AND (last_active_at IS NULL OR last_active_at < ?)", account.Id, now.Add(-accountActiveInterval)).
+		UpdateColumn("last_active_at", now).Error
+	account.LastActiveAt = &now
 }

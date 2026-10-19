@@ -134,7 +134,8 @@ func Follow(c *gin.Context) {
 		follow.Properties[models.FollowPropertyKeyReblogs] = reblogs
 		// 如果目标账户设置了关注保护，那么直接设置为请求状态
 		// Remote accounts have no local User.
-		if targetAccount.Domain != nil || targetAccount.Locked || (targetAccount.User != nil && targetAccount.User.Settings.IsFollowProtect()) {
+		// autoAcceptFollowed: a locked account approves accounts it already follows.
+		if targetAccount.Domain != nil || ((targetAccount.Locked || (targetAccount.User != nil && targetAccount.User.Settings.IsFollowProtect())) && !targetAccount.AutoAcceptsFollowFrom(db.GetDB(), account)) {
 			follow.Status = models.FollowStatusRequested
 		}
 

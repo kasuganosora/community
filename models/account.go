@@ -63,6 +63,22 @@ type Account struct { //nolint:recvcheck
 	Group                      bool                       `gorm:"default:false"                             json:"group"`
 	NoIndex                    bool                       `gorm:"default:false"                             json:"noindex"`
 	HideCollections            bool                       `gorm:"default:false"                             json:"hide_collections"`
+	// FollowingVisibility / FollowersVisibility are Misskey's per-list
+	// visibility: public, followers or private. HideCollections is kept in
+	// sync as "either list is not public" for Mastodon compatibility.
+	FollowingVisibility string `gorm:"size:16;not null;default:'public'" json:"following_visibility"`
+	FollowersVisibility string `gorm:"size:16;not null;default:'public'" json:"followers_visibility"`
+	// AutoAcceptFollowed approves follow requests to a locked account from
+	// accounts it already follows (Misskey autoAcceptFollowed).
+	AutoAcceptFollowed bool `gorm:"not null;default:false" json:"auto_accept_followed"`
+	// HideOnlineStatus makes OnlineStatus report "unknown" to others.
+	HideOnlineStatus bool `gorm:"not null;default:false" json:"hide_online_status"`
+	// LastActiveAt is Misskey's lastActiveDate: refreshed (throttled) on
+	// authenticated requests for local accounts, imported for remote ones.
+	LastActiveAt *time.Time `json:"last_active_at,omitempty"`
+	// SpeakAsCat (Misskey speakAsCat) asks clients to nyaize the posts of a
+	// cat account at display time. Stored content is never changed.
+	SpeakAsCat bool `gorm:"not null;default:true" json:"speak_as_cat"`
 	// RequireSigninToView hides the account's posts from logged-out visitors
 	// and unsigned ActivityPub fetches (Misskey requireSigninToViewContents).
 	RequireSigninToView bool       `gorm:"not null;default:false" json:"require_signin_to_view"`

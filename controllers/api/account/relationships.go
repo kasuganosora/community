@@ -54,13 +54,12 @@ func Followers(c *gin.Context) {
 		currentAccount = c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	}
 
-	// If hide_collections is true, only allow self to view
-	if targetAccount.HideCollections {
-		if currentAccount == nil || currentAccount.Id != targetAccount.Id {
-			c.JSON(200, []*serializer.Account{})
+	// Followers-list visibility (public / followers / private); the owner
+	// always sees it. Hidden lists answer an empty page, as Mastodon does.
+	if !targetAccount.CanViewCollection(db.GetDB(), currentAccount, true) {
+		c.JSON(200, []*serializer.Account{})
 
-			return
-		}
+		return
 	}
 
 	// Query followers (accounts that follow this account)
@@ -150,13 +149,11 @@ func Following(c *gin.Context) {
 		currentAccount = c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	}
 
-	// If hide_collections is true, only allow self to view
-	if targetAccount.HideCollections {
-		if currentAccount == nil || currentAccount.Id != targetAccount.Id {
-			c.JSON(200, []*serializer.Account{})
+	// Following-list visibility (public / followers / private).
+	if !targetAccount.CanViewCollection(db.GetDB(), currentAccount, false) {
+		c.JSON(200, []*serializer.Account{})
 
-			return
-		}
+		return
 	}
 
 	// Query following (accounts that this account follows)

@@ -202,9 +202,13 @@ func UpdateAccount(c *gin.Context) {
 	}
 
 	if req.HideCollections != nil {
-		account.HideCollections = *req.HideCollections
+		visibility := models.CollectionPublic
+		if *req.HideCollections {
+			visibility = models.CollectionPrivate
+		}
+		account.SetCollectionVisibility(visibility, visibility)
 
-		updateFields = append(updateFields, "hide_collections")
+		updateFields = append(updateFields, "hide_collections", "following_visibility", "followers_visibility")
 	}
 
 	err = db.GetDB().Transaction(func(tx *gorm.DB) (err error) {
