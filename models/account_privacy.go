@@ -18,24 +18,35 @@ func ValidCollectionVisibility(v string) bool {
 	return v == CollectionPublic || v == CollectionFollowers || v == CollectionPrivate
 }
 
-func normalizedVisibility(v string, legacyHidden bool) string {
+func validOr(v, fallback string) string {
 	if ValidCollectionVisibility(v) {
 		return v
 	}
-	if legacyHidden {
-		return CollectionPrivate
+	return fallback
+}
+
+// collectionVisibilities returns the effective (following, followers)
+// visibility. A row whose legacy hide_collections is set while both lists
+// still say public (written by code or imports that only know the Mastodon
+// flag) hides both lists.
+func (a *Account) collectionVisibilities() (string, string) {
+	following, followers := validOr(a.FollowingVisibility, CollectionPublic), validOr(a.FollowersVisibility, CollectionPublic)
+	if a.HideCollections && following == CollectionPublic && followers == CollectionPublic {
+		return CollectionPrivate, CollectionPrivate
 	}
-	return CollectionPublic
+	return following, followers
 }
 
 // FollowingVisibilityValue returns the effective following-list visibility.
 func (a *Account) FollowingVisibilityValue() string {
-	return normalizedVisibility(a.FollowingVisibility, a.HideCollections)
+	v, _ := a.collectionVisibilities()
+	return v
 }
 
 // FollowersVisibilityValue returns the effective followers-list visibility.
 func (a *Account) FollowersVisibilityValue() string {
-	return normalizedVisibility(a.FollowersVisibility, a.HideCollections)
+	_, v := a.collectionVisibilities()
+	return v
 }
 
 // SetCollectionVisibility updates both visibilities and keeps the legacy

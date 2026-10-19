@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/glebarez/sqlite"
-	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
