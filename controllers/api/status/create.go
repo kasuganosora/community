@@ -1,6 +1,8 @@
 package status
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -37,6 +39,38 @@ type CreatePollContent struct {
 	ExpiresIn  uint64   `binding:"required,numeric" json:"expires_in"`
 	Multiple   bool     `json:"multiple"`
 	HideTotals bool     `json:"hide_totals"`
+}
+
+// UnmarshalJSON accepts expires_in as a number or a numeric string, as
+// Mastodon does (its web client sends "604800"); a string used to fail the
+// whole status with 400.
+func (p *CreatePollContent) UnmarshalJSON(data []byte) error {
+	type plain CreatePollContent
+	var aux struct {
+		*plain
+		ExpiresIn json.RawMessage `json:"expires_in"`
+	}
+	aux.plain = (*plain)(p)
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	raw := bytes.TrimSpace(aux.ExpiresIn)
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	if raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return err
+		}
+		raw = []byte(strings.TrimSpace(s))
+	}
+	n, err := strconv.ParseUint(string(raw), 10, 64)
+	if err != nil {
+		return fmt.Errorf("poll.expires_in must be a non-negative integer")
+	}
+	p.ExpiresIn = n
+	return nil
 }
 
 func Create(c *gin.Context) {
