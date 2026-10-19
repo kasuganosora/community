@@ -27,32 +27,33 @@ import (
 )
 
 type direct struct {
-	dsn, baseURL, idMethod, version, workDir, sslmode, exporterDir    *string
-	objectMode, objectBaseURL, objectDir, sourceDir, mediaDir, python *string
-	fetchOnly, finalSync, includeRemote, reuseSpool, keepSecretSpool  *bool
-	batchSize                                                         *int
-	maxRowsPerSec, batchSleep                                         *float64
+	dsn, baseURL, idMethod, version, workDir, sslmode, exporterDir                   *string
+	objectMode, objectBaseURL, objectDir, sourceDir, mediaDir, python                *string
+	fetchOnly, finalSync, includeRemote, reuseSpool, keepSecretSpool, skipUnattached *bool
+	batchSize                                                                        *int
+	maxRowsPerSec, batchSleep                                                        *float64
 }
 
 func directFlags() direct {
 	return direct{
-		dsn:           flag.String("source-dsn", "", "direct mode: libpq connection string of the source Misskey/Mastodon PostgreSQL (read-only role; no password, use PGPASSFILE)"),
-		baseURL:       flag.String("source-base-url", "", "direct mode: public origin of the source server, e.g. https://maid.lat"),
-		idMethod:      flag.String("id-method", "aidx", "direct mode (misskey): config.id of the source; mixed historical formats are detected per ID"),
-		version:       flag.String("source-version", "unknown", "direct mode: source software version"),
-		workDir:       flag.String("work-dir", "", "direct mode: private directory for fetch state, spool and copied media (reuse it to resume and for --final-sync)"),
-		sslmode:       flag.String("sslmode", "", "direct mode: libpq sslmode added to --source-dsn when it has none (disable, require, verify-full, ...)"),
-		exporterDir:   flag.String("exporter-dir", "", "direct mode: directory containing export_misskey.py / export_mastodon_db.py (default: ./scripts/migration or next to the binary)"),
-		python:        flag.String("python", "python3", "direct mode: Python 3 interpreter for the source reader"),
-		objectMode:    flag.String("object-storage-mode", "", "direct mode: error, copy or reference for media in object storage"),
-		objectBaseURL: flag.String("object-base-url", "", "direct mode: public URL prefix of the source bucket"),
-		objectDir:     flag.String("object-storage-dir", "", "direct mode: local mirror of the source bucket (copy mode)"),
-		sourceDir:     flag.String("source-files-dir", "", "direct mode (misskey): local drive files directory snapshot"),
-		mediaDir:      flag.String("media-dir", "", "direct mode (mastodon): public/system directory"),
-		fetchOnly:     flag.Bool("fetch-only", false, "direct mode: bulk read into --work-dir and stop; the source may stay live"),
-		finalSync:     flag.Bool("final-sync", false, "direct mode: after source writes are stopped, read new/updated/deleted rows, then import"),
-		includeRemote: flag.Bool("include-remote-cache", false, "direct mode: also migrate the remote-content cache (default: local data and what it references)"),
-		reuseSpool:    flag.Bool("reuse-spool", false, "direct mode: skip reading the source and import the existing spool again (resume an interrupted import)"),
+		dsn:            flag.String("source-dsn", "", "direct mode: libpq connection string of the source Misskey/Mastodon PostgreSQL (read-only role; no password, use PGPASSFILE)"),
+		baseURL:        flag.String("source-base-url", "", "direct mode: public origin of the source server, e.g. https://maid.lat"),
+		idMethod:       flag.String("id-method", "aidx", "direct mode (misskey): config.id of the source; mixed historical formats are detected per ID"),
+		version:        flag.String("source-version", "unknown", "direct mode: source software version"),
+		workDir:        flag.String("work-dir", "", "direct mode: private directory for fetch state, spool and copied media (reuse it to resume and for --final-sync)"),
+		sslmode:        flag.String("sslmode", "", "direct mode: libpq sslmode added to --source-dsn when it has none (disable, require, verify-full, ...)"),
+		exporterDir:    flag.String("exporter-dir", "", "direct mode: directory containing export_misskey.py / export_mastodon_db.py (default: ./scripts/migration or next to the binary)"),
+		python:         flag.String("python", "python3", "direct mode: Python 3 interpreter for the source reader"),
+		objectMode:     flag.String("object-storage-mode", "", "direct mode: error, copy or reference for media in object storage"),
+		objectBaseURL:  flag.String("object-base-url", "", "direct mode: public URL prefix of the source bucket"),
+		skipUnattached: flag.Bool("skip-unattached-drive-files", false, "direct mode (misskey): do not migrate local drive files that no note, avatar, banner or chat message references (default: import them as unattached media of their owner)"),
+		objectDir:      flag.String("object-storage-dir", "", "direct mode: local mirror of the source bucket (copy mode)"),
+		sourceDir:      flag.String("source-files-dir", "", "direct mode (misskey): local drive files directory snapshot"),
+		mediaDir:       flag.String("media-dir", "", "direct mode (mastodon): public/system directory"),
+		fetchOnly:      flag.Bool("fetch-only", false, "direct mode: bulk read into --work-dir and stop; the source may stay live"),
+		finalSync:      flag.Bool("final-sync", false, "direct mode: after source writes are stopped, read new/updated/deleted rows, then import"),
+		includeRemote:  flag.Bool("include-remote-cache", false, "direct mode: also migrate the remote-content cache (default: local data and what it references)"),
+		reuseSpool:     flag.Bool("reuse-spool", false, "direct mode: skip reading the source and import the existing spool again (resume an interrupted import)"),
 		// keepSecretSpool is registered in run() (shared with the streamed bundle path).
 		batchSize:     flag.Int("batch-size", 5000, "direct mode: rows per keyset page / read-only source transaction"),
 		maxRowsPerSec: flag.Float64("max-rows-per-sec", 0, "direct mode: throttle source reads (0 = unlimited)"),
@@ -112,6 +113,9 @@ func exporterArgs(d direct, source, script, state, out string) []string {
 			mode = "error"
 		}
 		args = append(args, "--object-storage-mode", mode)
+		if d.skipUnattached != nil && *d.skipUnattached {
+			args = append(args, "--skip-unattached-drive-files")
+		}
 	} else {
 		if *d.mediaDir != "" {
 			args = append(args, "--media-dir", *d.mediaDir)

@@ -175,6 +175,8 @@ type Media struct {
 	// source's object storage: RemoteURL is the original object URL and the
 	// target keeps serving it (no copy). Only valid in site scope.
 	StorageReference bool `json:"storage_reference,omitempty"`
+	// Unattached marks a source drive file no post or profile references.
+	Unattached bool `json:"unattached,omitempty"`
 }
 
 type Relation struct {

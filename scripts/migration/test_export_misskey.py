@@ -267,6 +267,32 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(posts[ident(23)]["quote_id"], ident(21))
         self.assertEqual(posts[ident(23)]["quote_uri"], "https://source.test/notes/" + ident(21), "local target URI")
 
+    def test_unattached_drive_files_exported_unless_skipped(self):
+        self.tables["drive_file"] = [
+            {"id": ident(50), "userId": self.a, "name": "used.png", "type": "image/png", "url": "https://h/u", "isLink": True},
+            {"id": ident(51), "userId": self.a, "name": "drive.png", "type": "image/png", "url": "https://h/d", "isLink": True},
+        ]
+        self.tables["note"] = [{"id": ident(52), "userId": self.a, "visibility": "public", "text": "x", "fileIds": [ident(50)]}]
+        media = {m["id"]: m for m in self.converter().convert()["media"]}
+        self.assertTrue(media[ident(51)]["unattached"])
+        self.assertNotIn("unattached", media[ident(50)])
+        conv = self.converter()
+        conv.skip_unattached = True
+        b = conv.convert()
+        self.assertEqual([m["id"] for m in b["media"]], [ident(50)])
+        self.assertIn("unattached_drive_files_skipped", [i["code"] for i in b["issues"]])
+
+    def test_quote_of_target_outside_export_keeps_quote_id(self):
+        self.tables["note"] = [{"id": ident(60), "userId": self.a, "visibility": "public", "text": "q", "renoteId": ident(61), "renoteUserHost": None},
+                               {"id": ident(62), "userId": self.a, "visibility": "public", "text": "q2", "renoteId": ident(63), "renoteUserHost": "remote.test"}]
+        sink = m.FileSink(self.output, {"schema": m.SCHEMA})
+        self.converter(sink=sink).convert()
+        sink.finish()
+        posts = {p["id"]: p for p in json.loads((self.output / "bundle.json").read_text())["posts"]}
+        self.assertEqual(posts[ident(60)]["quote_id"], ident(61), "importer reports it as target_missing")
+        self.assertEqual(posts[ident(60)]["quote_uri"], "https://source.test/notes/" + ident(61))
+        self.assertEqual(posts[ident(62)]["quote_id"], ident(63))
+
     def test_system_actors_and_relays(self):
         ia, ra = ident(30), ident(31)
         self.tables["user"] += [{"id": ia, "username": "instance.actor", "host": None}, {"id": ra, "username": "relay.actor", "host": None}]

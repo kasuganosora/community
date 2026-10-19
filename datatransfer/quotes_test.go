@@ -80,7 +80,7 @@ func checkQuotes(t *testing.T, conn *gorm.DB) {
 	require.NoError(t, conn.Model(&models.StatusReaction{}).Where("status_id = ?", q1.Id).Count(&reactions).Error)
 	require.EqualValues(t, 1, reactions, "reaction on a quote is imported")
 	var pending int64
-	require.NoError(t, conn.Model(&models.Status{}).Where(dialect.JSONText(conn, "properties", quotePendingProperty) + " IS NOT NULL").Count(&pending).Error)
+	require.NoError(t, conn.Model(&models.Status{}).Where(dialect.JSONText(conn, "properties", quotePendingProperty)+" IS NOT NULL").Count(&pending).Error)
 	require.Zero(t, pending)
 }
 

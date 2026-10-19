@@ -211,6 +211,10 @@ tootctl two-factor scrub-preserved     # 清除旧导入归档里的明文 secre
 13. **引用帖（quote）以前全部被归档。** 第四次演练 317 条 `post:quote_note` 被归档（其中 314 条的目标在源库里），连带 49 条转发（`boost_of_archived_post`）和 137 个回应（`post_not_published`）。现在带内容的 renote（`renoteId` 且有 text / cw / 文件 / 投票）作为普通帖子导入，并用 `statuses.quote_id` 指向导入后的目标（本地或远端），与站内自己发的引用一致；纯 renote 仍是转发。链接在帖子写入之后进行，所以顺序无关：同一分块内在帖子阶段之后立即链接，目标在后面分块的，在流式导入的帖子阶段结束后再统一补链一次（帖子属性 `import_quote_pending` 在补链后删除）。和站内引用规则一致，只链接**公开或不公开（unlisted）**的目标，仅关注者 / 私信目标绝不通过引用暴露。没能链接的引用仍作为普通帖子导入（不归档），目标 URI 保存在 `properties.import_quote_uri`，原因记在 `properties.import_quote_unlinked`，报告里是非阻断警告 `quote_unlinked`，按原因汇总：`post:target_missing`（目标不在导出里）、`post:target_not_quotable`（目标是仅关注者 / 私信）、`post:target_archived`（目标在私有归档里）。预检对这三类给出与导入一致的数量和样例。转发和回应随之正常导入。
 14. **实例 Actor / 中继 Actor 以前没有迁移身份。** 核对第 5 项报 `db account=None`：Misskey 的 `instance.actor`、`relay.actor` 虽作为本地账号导入，但 Community 仍以新生成的 `<base>/actor` 身份签名。现在导出器把这两个用户标为 `system_role`（`instance_actor` / `relay_actor`），导入时保留原 actor URI `https://maid.lat/users/<id>`、keyId `<uri>#main-key` 和密钥对，并写入 `system_settings`：`federation.instance_actor_uri`、`federation.relay_actor_uri`。服务端（**需要部署新版本**）据此：实例 Actor 就是该账号，签名用原 keyId；`/users/<id>` 和 `/actor` 都返回同一个文档（id 为原 URI）；WebFinger `acct:instance.actor@maid.lat`、原 URI 均可解析；设置存在但账号缺失时报错而不是另生成新身份。Misskey 的 `relay` 表也会迁移：每个中继以 `relay.actor` 为订阅者（`relays.actor_uri`，新迁移 `RelayActorURIScript`），Follow id 保留 Misskey 的 `https://maid.lat/activities/follow-relay/<relay id>`，状态（accepted / requesting / rejected）照搬，中继无需重新订阅，之后的 Undo 也用同一 actor 和 id。新加的中继同样由 `relay.actor` 订阅。核对脚本第 5 项现在检查：账号存在、密钥与 Misskey 相同、keyId 为 `<uri>#main-key`、设置指向原 URI、`/users/<id>` 与 `/actor` 都返回原 id 和密钥；5b 检查 relay.actor，5c 检查中继订阅数量。
 
+15. **引用目标不在导出范围内时 URI 丢失（第五次演练 156 条）。** 原因：导出器在裁剪超出范围的引用时把 `renoteId` 清空，`quote_id` 随之消失，导入端把它当普通帖子，既没写 `import_quote_uri` 也没报 `quote_unlinked`。现在：(a) 读取阶段对已读入的帖子继续追 renote / 引用目标直到不再增加（最多 8 轮），回复父帖追 3 层，所以远端回复父帖本身是引用等“两跳”目标也会导入并链接；(b) 引用即使目标不在导出中也保留 `quote_id`，本地目标的 URI 为 `https://maid.lat/notes/<id>`，导入时一律写 `import_quote_uri`（已知时）并报 `quote_unlinked/target_missing`，预检数量一致。远端目标若已从 Misskey 删除，URI 无从得知，只保留 `import_quote_source_id`。
+16. **纯转发的 `/notes/<id>` 返回 404。** 服务端（**需要部署**）现在对导入的转发（保留了 `local_object_uri` 的 reblog）在 `/notes/<id>` 和 `/notes/<id>/activity` 返回 Misskey 当初发布的 `Announce`（id 为 `<uri>/activity`，与 Misskey 投递时一致，object 为原帖 URI），仅限公开 / 不公开的转发且原帖可见。站内自己的转发没有 `local_object_uri`，不受影响。核对第 3 项接受 `type: Announce` 且 id 为 `<uri>/activity`。
+17. **仅在网盘里的文件（没有被帖子、头像、横幅、聊天引用）。** 默认作为原用户的未附加媒体导入（导出记录标 `unattached`，报告 `created.unattached_media` 计数）；加 `--skip-unattached-drive-files`（community-transfer 和 export_misskey.py 都有）则不导出，报 info `unattached_drive_files_skipped`。核对脚本加同名参数后，6b 只比较被引用的本地文件。Community 没有自动清理未附加本地媒体的任务（`tootctl media remove` 只清远端缓存，`remove-orphans` 只删数据库里没有记录的存储对象），所以这些文件不会被自动删掉。普通用户在 c.hime.at 界面里**看不到也无法管理**未附加媒体（没有网盘 / 媒体库页面）；只有管理员的「文件」页（`/admin/files`，可按“未附加”筛选、删除）。
+
 ## 重新执行 maid.lat 演练（隔离网络、只读源）
 
 前提：一台**不能访问公网**的演练机；源库是 maid.lat 的只读副本或恢复出来的快照，使用上面的只读角色；目标是一个空的 Community 数据库。
@@ -249,6 +253,10 @@ COMMUNITY_DB_DSN='postgresql://community@127.0.0.1:5432/community_rehearsal' \
 COMMUNITY_BASE='http://127.0.0.1:8080' HOST_HEADER=maid.lat SAMPLE=200 \
 python3 scripts/migration/verify_misskey_import.py --seed 42 -v
 ```
+
+### 全量重跑（第五次演练之后）
+
+先部署新版本服务端（`/notes/<id>` 转发的 Announce），再换空库全量重跑，步骤同下一节；如果 Sion 决定不迁移网盘文件，`community-transfer` 和核对脚本都加 `--skip-unattached-drive-files`。期望：`statuses.quote_id` 非空约 308+（只剩真正缺失的约 3 条为 `quote_unlinked/target_missing`，且带 `import_quote_uri`）；核对 3 为 50/50；6b 本地媒体约 1274（默认）。
 
 ### 全量重跑（第四次演练之后：引用帖、实例 / 中继 Actor）
 

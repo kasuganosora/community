@@ -120,6 +120,9 @@ func (i *importer) importMedia() error {
 			}
 			err = tx.Create(&target).Error
 			created = err == nil
+			if created && m.Unattached {
+				i.report.Created["unattached_media"]++
+			}
 			return target.Id, err
 		})
 		if err != nil {

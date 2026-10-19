@@ -866,7 +866,7 @@ class Fetcher:
 
 class Converter:
     def __init__(self, tables, base_url, method, source_dir, output, version="", snapshot="", max_media_bytes=8 << 30,
-                 object_mode="error", object_dir=None, object_base_url="", sink=None, progress=QUIET):
+                 object_mode="error", object_dir=None, object_base_url="", sink=None, progress=QUIET, skip_unattached=False):
         # tables: a Staging store (streaming export) or a {table: [rows]} dict (tests).
         self.staging = tables if isinstance(tables, Staging) else Staging.from_dict(tables)
         self.tables = StagingTables(self.staging)
@@ -884,6 +884,9 @@ class Converter:
         if object_mode not in ("error", "copy", "reference"):
             raise ExportError("unsupported object storage mode")
         self.object_mode = object_mode
+        # Local drive files no note / avatar / banner / chat references are
+        # exported as unattached media (default) unless skip_unattached.
+        self.skip_unattached = skip_unattached
         self.object_dir = Path(object_dir).resolve(strict=True) if object_dir else None
         if object_mode == "copy" and not self.object_dir:
             raise ExportError("object storage copy mode requires a bucket mirror directory")
@@ -1125,15 +1128,35 @@ class Converter:
             raise ExportError("Local asset URL requires an explicit storage snapshot mapping.")
         return unquote(u.path[len("/files/"):])
 
+    def referenced_files(self):
+        refs = set()
+        for r in self.tables.get("note", []):
+            refs.update(sid(x) for x in r.get("fileIds") or [])
+        for r in self.tables.get("user", []):
+            refs.update(sid(r.get(k)) for k in ("avatarId", "bannerId") if r.get(k))
+        for table in ("chat_message", "messaging_message"):
+            for r in self.tables.get(table, []):
+                if r.get("fileId"):
+                    refs.add(sid(r["fileId"]))
+        return refs
+
     def media(self):
         self.stage("files", "drive_file")
+        referenced = self.referenced_files()
+        skipped = 0
         for r in self.tables.get("drive_file", []):
             self.progress.advance()
             id_ = sid(r["id"])
+            unattached = bool(r.get("userId")) and self.is_local(r["userId"]) and id_ not in referenced
+            if unattached and self.skip_unattached:
+                skipped += 1
+                continue
             props = r.get("properties") or {}
             m = {"id": id_, "owner_id": sid(r.get("userId")), "name": r.get("name") or "", "content_type": r.get("type") or "application/octet-stream",
                  "size": r.get("size") or 0, "remote_url": r.get("url") or "", "description": r.get("comment") or "", "blurhash": r.get("blurhash") or "",
                  "width": dim(props.get("width")), "height": dim(props.get("height")), "created_at": self.time(r)}
+            if unattached:
+                m["unattached"] = True
             local_owner = r.get("userId") and self.is_local(r["userId"])
             if r.get("userId") and not self.known("user", sid(r["userId"])):
                 m["owner_id"] = ""
@@ -1175,6 +1198,8 @@ class Converter:
             for col in ("url", "webpublicUrl", "thumbnailUrl"):
                 if r.get(col) and r[col] in self.emoji_urls:
                     self.media_urls[r[col]] = id_
+        if skipped:
+            self.issue("info", "unattached_drive_files_skipped", "media", "", "%d local drive file(s) referenced by no note, avatar, banner or chat message were not exported (--skip-unattached-drive-files)." % skipped)
 
     def note_emoji_ids(self, row, kind="note"):
         result = []
@@ -1210,10 +1235,13 @@ class Converter:
             # A renote with its own content is a quote, not a boost.
             is_quote = bool(renote_id) and bool(r.get("text") or r.get("cw") or r.get("fileIds") or r.get("hasPoll"))
             quote_uri = ""
+            quote_id = renote_id if is_quote else ""
             if is_quote:
                 target = self.staging.get("note", renote_id)
                 if target:
                     quote_uri = target.get("uri") or (self.base + "/notes/" + renote_id if target.get("userHost") is None else "")
+                elif self.is_local(r.get("renoteUserId")) or r.get("renoteUserHost", "x") is None:
+                    quote_uri = self.base + "/notes/" + renote_id
             recipients = [sid(x) for x in r.get("visibleUserIds") or []]
             if self.trim_references:
                 for ref, what in ((reply_id, "a reply target"), (renote_id, "a renote/quote target")):
@@ -1243,7 +1271,9 @@ class Converter:
             if is_quote:
                 # Imported as a normal post linked to its target (quote_id);
                 # quote_uri is the fallback link when the target is not imported.
-                p["quote_id"] = renote_id
+                # Kept even when the target is outside the export: the importer
+                # then reports quote_unlinked/target_missing with this URI.
+                p["quote_id"] = quote_id
                 if quote_uri:
                     p["quote_uri"] = quote_uri
             self.bundle["posts"].append(p)
@@ -1470,6 +1500,17 @@ def misskey_plan(f, include_remote_cache=False):
                           ("note_reaction", "noteId", False, ""), ("note_favorite", "noteId", False, ""),
                           ("user_note_pining", "noteId", False, ""), ("poll_vote", "noteId", False, ""),
                           ("clip_note", "noteId", False, "")])
+    # Notes pulled in above may themselves quote / renote or reply to notes
+    # outside the scope (e.g. a remote reply parent that is a quote). Follow
+    # renote/quote targets to a fixed point (bounded) and reply parents a
+    # few hops, so quotes and boosts import linked instead of trimmed.
+    for hop in range(8):
+        before = f.s.count("note")
+        f.refs("note", "id", [("note", "renoteId", False, "")], name="ref:note.renote_targets")
+        if hop < 3:
+            f.refs("note", "id", [("note", "replyId", False, "")], name="ref:note.reply_parents")
+        if f.s.count("note") == before:
+            break
     f.refs("poll", "noteId", [("note", "id", False, "")])
     f.refs("user", "id", [("note", "userId", False, ""), ("note", "visibleUserIds", True, ""),
                           ("following", "followerId", False, ""), ("following", "followeeId", False, ""),
@@ -1602,6 +1643,8 @@ def main(argv=None):
                     help="media stored in object storage: refuse (default), copy from --object-storage-dir, or keep original URLs")
     ap.add_argument("--object-storage-dir", type=Path, help="local mirror of the source bucket, keyed by object key (copy mode)")
     ap.add_argument("--object-base-url", default="", help="public URL prefix of the source bucket (Misskey objectStorageBaseUrl)")
+    ap.add_argument("--skip-unattached-drive-files", action="store_true",
+                    help="do not export local drive files that no note, avatar, banner or chat message references (default: export them as unattached media)")
     add_common_args(ap)
     args = ap.parse_args(argv)
     run = Run(args, "misskey")
@@ -1619,7 +1662,7 @@ def main(argv=None):
         run.stage = "build"
         conv = Converter(run.staging, args.base_url, args.id_method, args.source_dir, args.output, args.source_version, run.snapshot_id(),
                          args.max_media_bytes, args.object_storage_mode, args.object_storage_dir, args.object_base_url,
-                         sink=None, progress=run.progress)
+                         sink=None, progress=run.progress, skip_unattached=args.skip_unattached_drive_files)
         sink = make_sink(args, args.output, {k: v for k, v in conv.bundle.items() if k not in SECTIONS})
         conv.sink, conv.bundle, conv.trim_references = sink, sink.bundle, True
         conv.convert()

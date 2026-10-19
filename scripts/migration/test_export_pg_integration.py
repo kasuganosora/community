@@ -77,11 +77,17 @@ class MisskeyPG(unittest.TestCase):
         polls = sorted(r["id"] for r in b["records"] if r["kind"] == "misskey:poll")
         self.assertEqual(polls, ["0000000200000050", "0000000200000100", "0000000200000150"])  # noteId, not the shared userId
         self.assertEqual(sorted(v["option"] for v in b["poll_votes"]), [0, 1])
+        drive_only = [m for m in b["media"] if m["id"].startswith("00000009500")]
+        self.assertEqual(len(drive_only), 5, "local drive-only files are exported")
+        self.assertTrue(all(m.get("unattached") for m in drive_only))
         roles = {a.get("system_role"): a for a in b["accounts"] if a.get("system_role")}
         self.assertEqual(roles["instance_actor"]["actor_uri"], "https://src.test/users/0000000000000060")
         self.assertEqual(roles["relay_actor"]["actor_uri"], "https://src.test/users/0000000000000061")
         self.assertEqual([(r["inbox"], r["state"], r["actor_uri"]) for r in b["relays"]], [("https://relay.test/inbox", "accepted", "https://src.test/users/0000000000000061")])
         quotes = [p for p in b["posts"] if p.get("quote_id")]
+        ids = {p["id"] for p in b["posts"]}
+        self.assertTrue(all(p["quote_id"] in ids for p in quotes), "quote targets two hops away are fetched")
+        self.assertTrue(any(not p["id"].startswith("00000002") for p in quotes), "remote quotes in scope")
         self.assertTrue(quotes)
         self.assertFalse(any(p.get("archive_only") for p in quotes))
         ids = [(r["kind"], r["id"]) for r in b["records"]]

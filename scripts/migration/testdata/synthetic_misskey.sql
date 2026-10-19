@@ -53,6 +53,8 @@ INSERT INTO instance SELECT mkid(800000000 + n), 'host' || n || '.test', 'misske
 INSERT INTO meta VALUES ('x', 'Synthetic', '{}');
 INSERT INTO emoji SELECT mkid(700000000 + n), 'local_e' || n, NULL, 'https://src.test/files/e' || n, 'https://src.test/files/e' || n, 'image/png' FROM generate_series(1, 20) n;
 INSERT INTO emoji SELECT mkid(710000000 + n), 'remote_e' || n, 'host' || (n % 200) || '.test', 'https://h/e' || n, 'https://h/e' || n, 'image/png' FROM generate_series(1, 4000) n;
+-- local drive-only files (not attached to any note/avatar/banner)
+INSERT INTO drive_file(id, "userId", "userHost", name, url, "isLink", type) SELECT mkid(950000000 + n), mkid(n), NULL, 'drive only ' || n, 'https://h/drive/' || n, false, 'image/png' FROM generate_series(1, 5) n;
 -- remote avatars (linked)
 INSERT INTO drive_file(id, "userId", "userHost", name, url, "isLink") SELECT mkid(900000000 + n), mkid(n), 'host' || (n % 100) || '.test', 'avatar', 'https://h/a' || n, true FROM generate_series(1001, 6000) n WHERE n % 10 = 0;
 -- remote notes 100000001.. (the remote cache), every 4th has a linked file
@@ -69,6 +71,8 @@ SELECT mkid(200000000 + n), mkid(1 + n % 50), NULL, 'local note ' || n || ' :loc
        CASE WHEN n % 7 = 0 THEN mkid(100000000 + n * 13 % :remote_notes + 1) END,
        now() - interval '1 hour' * n, 'public'
 FROM generate_series(1, :local_notes) n;
+-- remote reply parents that quote another remote note (two hops from local)
+UPDATE note SET "renoteId" = mkid(100000000 + 2999 - (id::text::bigint % 7)) WHERE id IN (SELECT "replyId" FROM note WHERE "userHost" IS NULL AND "replyId" IS NOT NULL LIMIT 3);
 UPDATE note SET "threadId" = "replyId" WHERE "replyId" IS NOT NULL AND "userHost" IS NULL;
 -- remote replies to local notes
 INSERT INTO note(id, "userId", "userHost", text, "replyId", "threadId", uri)

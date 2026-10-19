@@ -143,6 +143,7 @@ func SetRouter(app gin.IRouter) {
 	app.GET("/actor/collections/featured", activitypub.Featured)
 	app.GET("/users/:username/statuses/:id", activitypub.StatusObject)
 	app.GET("/notes/:id", activitypub.ImportedStatusObject)
+	app.GET("/notes/:id/activity", activitypub.ImportedStatusActivity)
 	app.GET("/ap/statuses/:id", activitypub.ImportedStatusObject)
 	app.GET("/ap/users/:username", activitypub.ActorProfile)
 	app.GET("/ap/users/:username/outbox", activitypub.Outbox)

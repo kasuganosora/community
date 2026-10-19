@@ -242,7 +242,8 @@ def run(args):
             fails.append("%r: unsafe note id, cannot verify" % nid[:40]); continue
         st, obj = http.json("/notes/" + nid)
         want = "%s/notes/%s" % (origin, nid)
-        if st == 200 and isinstance(obj, dict) and obj.get("id") == want:
+        # Pure renotes are served as the Announce Misskey published (id <uri>/activity).
+        if st == 200 and isinstance(obj, dict) and (obj.get("id") == want or (obj.get("type") == "Announce" and obj.get("id") == want + "/activity")):
             ok_n += 1
         else:
             fails.append("%s: %s id=%r" % (nid, http.describe(st), (obj or {}).get("id") if isinstance(obj, dict) else None))
@@ -306,7 +307,12 @@ def run(args):
     mk_emoji = int(mk.scalar("SELECT count(*) FROM emoji WHERE host IS NULL"))
     cm_emoji = int(cm.scalar("SELECT count(*) FROM emojis WHERE (domain = '' OR domain IS NULL) AND deleted_at IS NULL"))
     rep.add("6a local custom emoji count", within(mk_emoji, cm_emoji, args.tolerance) and not (mk_emoji and not cm_emoji), "misskey=%d community=%d (tolerance %.0f%%)" % (mk_emoji, cm_emoji, args.tolerance * 100))
-    mk_files = int(mk.scalar('SELECT count(*) FROM drive_file WHERE "userHost" IS NULL'))
+    if getattr(args, "skip_unattached_drive_files", False):
+        # Drive-only files were not migrated: compare referenced local files only.
+        mk_files = int(mk.scalar('SELECT count(*) FROM drive_file f WHERE f."userHost" IS NULL AND (EXISTS (SELECT 1 FROM note n WHERE f.id = ANY(n."fileIds")) '
+                                 'OR EXISTS (SELECT 1 FROM "user" u WHERE u."avatarId" = f.id OR u."bannerId" = f.id))'))
+    else:
+        mk_files = int(mk.scalar('SELECT count(*) FROM drive_file WHERE "userHost" IS NULL'))
     mk_files_all = int(mk.scalar("SELECT count(*) FROM drive_file"))
     cm_files = int(cm.scalar("SELECT count(*) FROM media_attachments m JOIN accounts a ON a.id = m.account_id WHERE a.domain IS NULL"))
     cm_files_all = int(cm.scalar("SELECT count(*) FROM media_attachments"))
@@ -339,6 +345,7 @@ def main():
     ap.add_argument("--sample", type=int, default=int(os.environ.get("SAMPLE", "50")), help="sample size for users and notes (env SAMPLE, default 50)")
     ap.add_argument("--seed", type=int, default=None, help="random seed for reproducible user sampling")
     ap.add_argument("--tolerance", type=float, default=0.02, help="relative tolerance for emoji/file counts (default 0.02)")
+    ap.add_argument("--skip-unattached-drive-files", action="store_true", help="the import ran with --skip-unattached-drive-files: 6b compares only files a note/avatar/banner references")
     ap.add_argument("--forwarded-proto", default="https", help="X-Forwarded-Proto to send ('' to omit; default https)")
     ap.add_argument("--timeout", type=int, default=30, help="per query/request timeout seconds")
     ap.add_argument("-v", "--verbose", action="store_true", help="list every failure")

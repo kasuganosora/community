@@ -169,5 +169,51 @@ func ImportedStatusObject(c *gin.Context) {
 		return
 	}
 	c.Header("Vary", "Accept")
+	if importedReblogAnnounce(c, strings.TrimRight(systemsettings.GetBaseURL(), "/")+c.Request.URL.Path) {
+		return
+	}
 	StatusObject(c)
+}
+
+// ImportedStatusActivity serves Misskey's /notes/:id/activity for imported
+// boosts (the id Misskey used for their Announce). Only preserved object
+// URIs match, so c.hime.at's own boost URLs are unaffected.
+func ImportedStatusActivity(c *gin.Context) {
+	c.Header("Vary", "Accept")
+	uri := strings.TrimRight(systemsettings.GetBaseURL(), "/") + strings.TrimSuffix(c.Request.URL.Path, "/activity")
+	if !importedReblogAnnounce(c, uri) {
+		c.Status(http.StatusNotFound)
+	}
+}
+
+// importedReblogAnnounce answers with the Announce of an imported local boost
+// whose preserved object URI (Misskey /notes/<id>) is uri. Like Misskey the
+// Announce id is <uri>/activity. Only public/unlisted boosts of a visible
+// original are served; it reports whether it handled the request.
+func importedReblogAnnounce(c *gin.Context, uri string) bool {
+	var boost models.Status
+	err := db.GetDB().Preload("Account").Where("local_object_uri = ? AND reblog_id IS NOT NULL AND reblog_id > 0 AND deleted_at IS NULL AND scheduled_at IS NULL", uri).First(&boost).Error
+	if err != nil {
+		return false
+	}
+	if boost.Account == nil || boost.Account.Domain != nil || boost.LocalOnly ||
+		(boost.Visibility != models.StatusVisibilityPublic && boost.Visibility != models.StatusVisibilityUnlisted) {
+		c.Status(http.StatusNotFound)
+		return true
+	}
+	var original models.Status
+	if err := db.GetDB().Preload("Account").Where("id = ? AND deleted_at IS NULL", *boost.ReblogId).First(&original).Error; err != nil || original.Account == nil || original.LocalOnly ||
+		(original.Visibility != models.StatusVisibilityPublic && original.Visibility != models.StatusVisibilityUnlisted) {
+		c.Status(http.StatusNotFound)
+		return true
+	}
+	if !signedFetchAllowed(c, boost.Account) {
+		return true
+	}
+	boost.Reblog = &original
+	announce, _ := announcePayload(&boost, boost.Account, accountActorURI(boost.Account, systemsettings.GetBaseURL()), "", false)
+	announce["@context"] = "https://www.w3.org/ns/activitystreams"
+	c.Header("Content-Type", "application/activity+json")
+	c.JSON(http.StatusOK, announce)
+	return true
 }
