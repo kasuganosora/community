@@ -73,11 +73,11 @@ environment:
 - `MEILI_LOG_LEVEL=WARN` stops the per-request INFO log lines, which are
   extra writes on the same disk.
 
-The bundled `docker-compose.yml` used to hard-code `MEILI_ENV: development`.
-It now defaults to `MEILI_LOG_LEVEL=WARN` and picks `production` when
-`MEILISEARCH_API_KEY` is at least 16 bytes long (development otherwise, since
-production refuses to start without such a key). Override with `MEILI_ENV`
-or `MEILI_LOG_LEVEL` in the host environment / compose `.env`.
+The bundled `docker-compose.yml` reads `MEILI_ENV` (default `development`)
+and `MEILI_LOG_LEVEL` (default `INFO`) from the compose `.env`, so upgrading
+never changes the mode by itself. To opt in, set `MEILI_ENV=production` (with a
+`MEILISEARCH_API_KEY` of at least 16 bytes) and `MEILI_LOG_LEVEL=WARN`, then
+recreate the container: `docker compose up -d --force-recreate meilisearch`.
 
 These settings only take effect when the container is recreated:
 

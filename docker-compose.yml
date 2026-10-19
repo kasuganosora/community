@@ -181,12 +181,11 @@ services:
       - meili-data:/meili_data
     environment:
       MEILI_NO_ANALYTICS: "true"
-      # WARN keeps Meilisearch from logging every HTTP request (INFO), which
-      # is extra disk I/O on the same volume as the database.
-      MEILI_LOG_LEVEL: ${MEILI_LOG_LEVEL:-WARN}
-      # Optional override; by default the command below picks production when
-      # a master key of at least 16 bytes is set, development otherwise.
-      MEILI_ENV_OVERRIDE: ${MEILI_ENV:-}
+      # Opt-in: set MEILI_ENV=production (needs a master key of at least 16
+      # bytes) and MEILI_LOG_LEVEL=WARN in .env. Defaults keep the previous
+      # behaviour so a plain `docker compose up -d` never switches modes.
+      MEILI_ENV: ${MEILI_ENV:-development}
+      MEILI_LOG_LEVEL: ${MEILI_LOG_LEVEL:-INFO}
       # An empty MEILI_MASTER_KEY makes Meilisearch refuse to start, and
       # production mode needs a master key of at least 16 bytes. Only pass it
       # when MEILISEARCH_API_KEY is set; without a key the engine runs in
@@ -196,11 +195,6 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        env_mode="$$MEILI_ENV_OVERRIDE"
-        if [ -z "$$env_mode" ]; then
-          if [ "$${#MEILISEARCH_API_KEY}" -ge 16 ]; then env_mode=production; else env_mode=development; fi
-        fi
-        export MEILI_ENV="$$env_mode"
         if [ -n "$$MEILISEARCH_API_KEY" ]; then
           exec /bin/meilisearch --master-key "$$MEILISEARCH_API_KEY"
         fi
