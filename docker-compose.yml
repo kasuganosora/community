@@ -161,6 +161,9 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"
+    # Redis only holds caches and short-lived counters (durable state is in
+    # PostgreSQL), so snapshot at most hourly and skip AOF to save disk writes.
+    command: ["redis-server", "--save", "${REDIS_SAVE:-3600 1}", "--appendonly", "no"]
     volumes:
       - redis-data:/data
     healthcheck:
