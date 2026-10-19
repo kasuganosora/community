@@ -77,7 +77,7 @@ func cookieOriginFixture(t *testing.T) (server *httptest.Server, token string) {
 func TestCrossSiteWebSocketHijackingIsRefused(t *testing.T) {
 	server, token := cookieOriginFixture(t)
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/v1/streaming/feed?stream=user"
-	sameOrigin := server.URL // httptest host, i.e. the request Host
+	sameOrigin := server.URL                        // httptest host, i.e. the request Host
 	cookie := "app-token=" + url.QueryEscape(token) // gin unescapes cookie values
 	subprotocol := "community.bearer." + base64.RawURLEncoding.EncodeToString([]byte(token))
 
