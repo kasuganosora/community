@@ -19,3 +19,15 @@ func TestCollectAndApply(t *testing.T) {
 	require.Equal(t, "a [REDACTED] b [REDACTED] c", out)
 	require.Empty(t, Collect(httptest.NewRequest("GET", "/?access_token=short", nil)))
 }
+
+func TestDecodeBearerSubprotocol(t *testing.T) {
+	token, ok := DecodeBearerSubprotocol("community.bearer.YStiL2M9")
+	if !ok || token != "a+b/c=" {
+		t.Fatalf("got %q %v", token, ok)
+	}
+	for _, v := range []string{"community.v1", "community.bearer.", "community.bearer.***", "YStiL2M9"} {
+		if _, ok := DecodeBearerSubprotocol(v); ok {
+			t.Fatalf("%q should not decode", v)
+		}
+	}
+}

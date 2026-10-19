@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/feed"
@@ -324,23 +325,26 @@ func FeedStreaming(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication no longer valid"})
 		return
 	}
-	setSSEHeaders(c.Writer.Header())
-	controller := http.NewResponseController(c.Writer)
-	write := func(payload []byte) error {
-		_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		_, err := c.Writer.Write(payload)
+	var out feedTransport
+	if websocket.IsWebSocketUpgrade(c.Request) {
+		ws, err := upgrade.Upgrade(c.Writer, c.Request, subprotocolResponseHeader(c.Request))
 		if err != nil {
-			return err
+			return
 		}
-		return controller.Flush()
+		defer func() { _ = ws.Close() }()
+		wsOut := &feedWSTransport{ws: ws, closed: make(chan struct{})}
+		go wsOut.readLoop(stopMerge)
+		out = wsOut
+	} else {
+		out = newFeedSSETransport(c)
 	}
-	defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
+	defer out.done()
 	// Every SUBSCRIBE above is confirmed by Redis now, so anything published
 	// from here on reaches this stream. A change committed before that (or
 	// while the client's own on-connect refetch was in flight) would be lost,
 	// so send one hint with a unique revision: the client recounts unread
 	// state and reconciles its window after the subscriptions are live.
-	if write(append(append([]byte{}, sseInitialPadding...), subscribedHintFrame()...)) != nil {
+	if out.open(subscribedHint()) != nil {
 		return
 	}
 	_ = feed.RecordActivity(ctx, account)
@@ -361,10 +365,7 @@ func FeedStreaming(c *gin.Context) {
 					return
 				}
 			}
-			data, _ := json.Marshal(hint)
-			frame := append([]byte("event: feed.changed\ndata: "), data...)
-			frame = append(frame, '\n', '\n')
-			if write(frame) != nil {
+			if out.hint(hint) != nil {
 				return
 			}
 		case <-heartbeat.C:
@@ -378,7 +379,7 @@ func FeedStreaming(c *gin.Context) {
 					return
 				}
 			}
-			if write(sseHeartbeat) != nil {
+			if out.heartbeat() != nil {
 				return
 			}
 			_ = feed.RecordActivity(ctx, account)
@@ -403,7 +404,91 @@ var subscribedHintSeq atomic.Uint64
 
 // subscribedHintFrame is the first frame of every feed stream; its revision is
 // never repeated, so clients that de-duplicate hints always act on it.
-func subscribedHintFrame() []byte {
-	data, _ := json.Marshal(feed.ChangeHint{Epoch: "subscribed", Revision: strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatUint(subscribedHintSeq.Add(1), 10)})
+func subscribedHint() feed.ChangeHint {
+	return feed.ChangeHint{Epoch: "subscribed", Revision: strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatUint(subscribedHintSeq.Add(1), 10)}
+}
+
+func subscribedHintFrame() []byte { return sseHintFrame(subscribedHint()) }
+
+func sseHintFrame(hint feed.ChangeHint) []byte {
+	data, _ := json.Marshal(hint)
 	return append(append([]byte("event: feed.changed\ndata: "), data...), '\n', '\n')
 }
+
+// feedTransport carries feed hints over SSE or WebSocket. Both deliver the
+// same "subscribed" confirmation first, then hints and heartbeats.
+type feedTransport interface {
+	open(first feed.ChangeHint) error
+	hint(feed.ChangeHint) error
+	heartbeat() error
+	done()
+}
+
+type feedSSETransport struct {
+	c          *gin.Context
+	controller *http.ResponseController
+}
+
+func newFeedSSETransport(c *gin.Context) *feedSSETransport {
+	setSSEHeaders(c.Writer.Header())
+	return &feedSSETransport{c: c, controller: http.NewResponseController(c.Writer)}
+}
+
+func (t *feedSSETransport) write(payload []byte) error {
+	_ = t.controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if _, err := t.c.Writer.Write(payload); err != nil {
+		return err
+	}
+	return t.controller.Flush()
+}
+
+func (t *feedSSETransport) open(first feed.ChangeHint) error {
+	return t.write(append(append([]byte{}, sseInitialPadding...), sseHintFrame(first)...))
+}
+func (t *feedSSETransport) hint(h feed.ChangeHint) error { return t.write(sseHintFrame(h)) }
+func (t *feedSSETransport) heartbeat() error             { return t.write(sseHeartbeat) }
+func (t *feedSSETransport) done()                        { _ = t.controller.SetWriteDeadline(time.Time{}) }
+
+// feedWSTransport sends Mastodon-shaped messages:
+// {"stream":["feed"],"event":"feed.changed","payload":"{\"epoch\":...}"}.
+// A heartbeat is an application message too (besides the ping) so browser
+// clients, which cannot see pings, can detect a dead connection.
+type feedWSTransport struct {
+	ws     *websocket.Conn
+	mu     sync.Mutex
+	closed chan struct{}
+}
+
+func (t *feedWSTransport) readLoop(onClose func()) {
+	defer close(t.closed)
+	defer onClose()
+	t.ws.SetReadLimit(4096)
+	for {
+		if _, _, err := t.ws.ReadMessage(); err != nil {
+			return
+		}
+	}
+}
+
+func (t *feedWSTransport) send(event, payload string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	_ = t.ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	return t.ws.WriteJSON(StreamingResponse{Stream: []string{"feed"}, Event: event, Payload: payload})
+}
+
+func (t *feedWSTransport) open(first feed.ChangeHint) error { return t.hint(first) }
+func (t *feedWSTransport) hint(h feed.ChangeHint) error {
+	data, _ := json.Marshal(h)
+	return t.send("feed.changed", string(data))
+}
+func (t *feedWSTransport) heartbeat() error {
+	t.mu.Lock()
+	err := t.ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second))
+	t.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return t.send("heartbeat", "")
+}
+func (t *feedWSTransport) done() {}

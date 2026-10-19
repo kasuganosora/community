@@ -5,6 +5,7 @@
 package secretredact
 
 import (
+	"encoding/base64"
 	"net/http"
 	"strings"
 
@@ -49,6 +50,9 @@ func Collect(r *http.Request) []string {
 	}
 	for _, v := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
 		add(v)
+		if token, ok := DecodeBearerSubprotocol(strings.TrimSpace(v)); ok {
+			add(token)
+		}
 	}
 	return found
 }
@@ -117,3 +121,21 @@ func (w *writer) Write(data []byte) (int, error) {
 }
 
 func (w *writer) WriteString(s string) (int, error) { return w.Write([]byte(s)) }
+
+// BearerSubprotocolPrefix marks a WebSocket subprotocol that carries an
+// access token as unpadded base64url (browsers cannot send Authorization on
+// a WebSocket, and raw tokens are not valid subprotocol tokens).
+const BearerSubprotocolPrefix = "community.bearer."
+
+// DecodeBearerSubprotocol returns the token carried by a
+// "community.bearer.<base64url>" subprotocol.
+func DecodeBearerSubprotocol(v string) (string, bool) {
+	if !strings.HasPrefix(v, BearerSubprotocolPrefix) {
+		return "", false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(v, BearerSubprotocolPrefix))
+	if err != nil || len(raw) == 0 {
+		return "", false
+	}
+	return string(raw), true
+}

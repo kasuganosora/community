@@ -310,6 +310,15 @@ func streamingAccessToken(c *gin.Context) string {
 	}
 	if websocket := strings.EqualFold(c.GetHeader("Upgrade"), "websocket"); websocket {
 		protocols := strings.Split(c.GetHeader("Sec-WebSocket-Protocol"), ",")
+		// Browser clients offer ["community.v1", "community.bearer.<base64url
+		// token>"]: standard-base64 tokens contain '+' and '/', which are not
+		// valid subprotocol characters, and the server echoes only the first
+		// protocol, so the token is not reflected in the response.
+		for _, p := range protocols {
+			if token, ok := secretredact.DecodeBearerSubprotocol(strings.TrimSpace(p)); ok {
+				return token
+			}
+		}
 		return strings.TrimSpace(protocols[0])
 	}
 	return ""
