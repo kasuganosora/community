@@ -250,7 +250,13 @@
       "mention": "Mentionner une personne",
       "pastedImage": "Image collée",
       "retry": "Réessayer",
-      "retryUpload": "Réessayer l’envoi de {0}"
+      "retryUpload": "Réessayer l’envoi de {0}",
+      "pollCustomDuration": "Personnalisée",
+      "pollCustomAmount": "Valeur",
+      "pollCustomUnit": "Unité",
+      "pollCustomApply": "Appliquer",
+      "pollCustomTooShort": "Au moins {0}",
+      "pollCustomTooLong": "Au plus {0}"
     },
     "PostContent": {
       "s1": "Réduire",

@@ -250,7 +250,13 @@
       "mention": "提及用户",
       "pastedImage": "粘贴的图片",
       "retry": "重试",
-      "retryUpload": "重新上传 {0}"
+      "retryUpload": "重新上传 {0}",
+      "pollCustomDuration": "自定义",
+      "pollCustomAmount": "数值",
+      "pollCustomUnit": "单位",
+      "pollCustomApply": "确定",
+      "pollCustomTooShort": "至少 {0}",
+      "pollCustomTooLong": "最多 {0}"
     },
     "PostContent": {
       "s1": "收起",

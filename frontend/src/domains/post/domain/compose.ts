@@ -66,6 +66,28 @@ export const DEFAULT_POLL_LIMITS: PollLimits = {
   maxExpiration: 2629746,
 }
 
+export type PollDurationUnit = 'minute' | 'hour' | 'day'
+export const POLL_DURATION_UNITS: Record<PollDurationUnit, number> = { minute: 60, hour: 3600, day: 86400 }
+
+/** Largest unit that divides the duration evenly (for the custom input). */
+export function splitPollDuration(seconds: number): { amount: number; unit: PollDurationUnit } {
+  for (const unit of ['day', 'hour', 'minute'] as const) {
+    const size = POLL_DURATION_UNITS[unit]
+    if (seconds >= size && seconds % size === 0) return { amount: seconds / size, unit }
+  }
+  return { amount: Math.max(1, Math.round(seconds / 60)), unit: 'minute' }
+}
+
+/** Localized label such as "2 days" for an arbitrary duration. */
+export function formatPollDuration(seconds: number, locale?: string): string {
+  const { amount, unit } = splitPollDuration(seconds)
+  try {
+    return new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: 'long' }).format(amount)
+  } catch {
+    return `${amount} ${unit}`
+  }
+}
+
 /** Seconds until the poll closes, as sent in expires_in. */
 export function pollExpiresIn(poll: PollDraft, now: Date = new Date()): number {
   if (poll.mode === 'none') return POLL_NO_DEADLINE

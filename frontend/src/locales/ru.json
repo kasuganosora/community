@@ -250,7 +250,13 @@
       "mention": "Упомянуть пользователя",
       "pastedImage": "Вставленное изображение",
       "retry": "Повторить",
-      "retryUpload": "Повторить загрузку {0}"
+      "retryUpload": "Повторить загрузку {0}",
+      "pollCustomDuration": "Своё значение",
+      "pollCustomAmount": "Значение",
+      "pollCustomUnit": "Единица",
+      "pollCustomApply": "Задать",
+      "pollCustomTooShort": "Не меньше: {0}",
+      "pollCustomTooLong": "Не больше: {0}"
     },
     "PostContent": {
       "s1": "Свернуть",

@@ -250,7 +250,13 @@
       "mention": "ユーザーをメンション",
       "pastedImage": "貼り付けた画像",
       "retry": "再試行",
-      "retryUpload": "{0} を再アップロード"
+      "retryUpload": "{0} を再アップロード",
+      "pollCustomDuration": "カスタム",
+      "pollCustomAmount": "数値",
+      "pollCustomUnit": "単位",
+      "pollCustomApply": "設定",
+      "pollCustomTooShort": "{0}以上にしてください",
+      "pollCustomTooLong": "{0}以内にしてください"
     },
     "PostContent": {
       "s1": "折りたたむ",

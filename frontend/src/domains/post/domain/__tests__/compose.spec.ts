@@ -150,3 +150,15 @@ describe('poll deadline modes', () => {
     expect(isNoDeadlinePoll(null, now)).toBe(false)
   })
 })
+
+describe('custom poll durations', async () => {
+  const { splitPollDuration, formatPollDuration } = await import('../compose')
+  it('picks the largest even unit', () => {
+    expect(splitPollDuration(172800)).toEqual({ amount: 2, unit: 'day' })
+    expect(splitPollDuration(5400)).toEqual({ amount: 90, unit: 'minute' })
+    expect(splitPollDuration(7200)).toEqual({ amount: 2, unit: 'hour' })
+  })
+  it('formats with Intl units', () => {
+    expect(formatPollDuration(172800, 'en')).toBe('2 days')
+  })
+})

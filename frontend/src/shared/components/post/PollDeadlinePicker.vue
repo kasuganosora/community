@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { useDismiss } from '@/shared/composables/useDismiss'
 import { computed, ref } from 'vue'
-import { POLL_DURATIONS, type PollDeadlineMode, type PollLimits } from '@/domains/post/domain/compose'
-import { t } from '@/shared/i18n'
+import { POLL_DURATIONS, POLL_DURATION_UNITS, formatPollDuration, splitPollDuration, type PollDeadlineMode, type PollDurationUnit, type PollLimits } from '@/domains/post/domain/compose'
+import { currentLocale, t } from '@/shared/i18n'
 
 const props = withDefaults(defineProps<{
   mode?: PollDeadlineMode
@@ -43,8 +43,29 @@ const triggerLabel = computed(() => {
       ? t('shared.PostComposer.pollEndsAtShort', [d.toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })])
       : t('shared.PostComposer.pollModeAt')
   }
-  return POLL_DURATIONS.find(d => d.value === props.expiresIn)?.label ?? t('shared.PostComposer.s16')
+  return POLL_DURATIONS.find(d => d.value === props.expiresIn)?.label ?? formatPollDuration(props.expiresIn, currentLocale())
 })
+
+const isPreset = computed(() => durations.value.some(d => d.value === props.expiresIn))
+const customAmount = ref(splitPollDuration(props.expiresIn).amount)
+const customUnit = ref<PollDurationUnit>(splitPollDuration(props.expiresIn).unit)
+const units = computed(() => (Object.keys(POLL_DURATION_UNITS) as PollDurationUnit[]).map(u => ({
+  value: u,
+  label: new Intl.NumberFormat(currentLocale(), { style: 'unit', unit: u, unitDisplay: 'long' }).formatToParts(2).find(p => p.type === 'unit')?.value.trim() ?? u,
+})))
+const customSeconds = computed(() => Math.floor(Number(customAmount.value) || 0) * POLL_DURATION_UNITS[customUnit.value])
+const customError = computed(() => {
+  const s = customSeconds.value
+  if (s < props.limits.minExpiration) return t('shared.PostComposer.pollCustomTooShort', [formatPollDuration(props.limits.minExpiration, currentLocale())])
+  if (props.limits.maxExpiration > 0 && s > props.limits.maxExpiration) return t('shared.PostComposer.pollCustomTooLong', [formatPollDuration(props.limits.maxExpiration, currentLocale())])
+  return ''
+})
+function applyCustom() {
+  if (customError.value) return
+  emit('update:mode', 'duration')
+  emit('update:expiresIn', customSeconds.value)
+  open.value = false
+}
 
 function selectMode(mode: PollDeadlineMode) {
   emit('update:mode', mode)
@@ -75,6 +96,7 @@ useDismiss(open, () => root.value)
       <span class="deadline__value">{{ triggerLabel }}</span>
       <t-icon name="chevron-down" :size="14" />
     </button>
+    <Transition name="deadline-pop">
     <div v-if="open" class="deadline__panel" role="dialog" :aria-label="$t('shared.PostComposer.s16')">
       <div class="deadline__modes" role="radiogroup" :aria-label="$t('shared.PostComposer.pollDeadlineMode')">
         <button
@@ -106,7 +128,29 @@ useDismiss(open, () => root.value)
           </button>
         </li>
       </ul>
-      <label v-else class="deadline__at">
+      <form v-if="mode === 'duration'" class="deadline__custom" novalidate @submit.prevent="applyCustom">
+        <span class="deadline__custom-label">{{ $t('shared.PostComposer.pollCustomDuration') }}</span>
+        <div class="deadline__custom-row" :class="{ 'deadline__custom-row--active': !isPreset }">
+          <input
+            v-model.number="customAmount"
+            type="number"
+            inputmode="numeric"
+            min="1"
+            step="1"
+            :aria-label="$t('shared.PostComposer.pollCustomAmount')"
+            :aria-invalid="!!customError"
+            data-testid="poll-custom-amount"
+          />
+          <select v-model="customUnit" :aria-label="$t('shared.PostComposer.pollCustomUnit')" data-testid="poll-custom-unit">
+            <option v-for="u in units" :key="u.value" :value="u.value">{{ u.label }}</option>
+          </select>
+          <button type="submit" class="deadline__apply" :disabled="!!customError" data-testid="poll-custom-apply">
+            {{ $t('shared.PostComposer.pollCustomApply') }}
+          </button>
+        </div>
+        <p v-if="customError" class="deadline__error" role="alert">{{ customError }}</p>
+      </form>
+      <label v-else-if="mode === 'at'" class="deadline__at">
         <span>{{ $t('shared.PostComposer.pollEndsAtLabel') }}</span>
         <input
           type="datetime-local"
@@ -117,6 +161,7 @@ useDismiss(open, () => root.value)
         />
       </label>
     </div>
+    </Transition>
   </div>
 </template>
 
@@ -198,8 +243,9 @@ useDismiss(open, () => root.value)
   margin: var(--space-2) 0 0;
   padding: 0;
   list-style: none;
-  max-height: 16rem;
+  max-height: min(12rem, 32dvh);
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .deadline__option {
@@ -238,6 +284,82 @@ useDismiss(open, () => root.value)
   font-size: var(--text-subhead);
 }
 
+.deadline__custom {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-separator);
+}
+
+.deadline__custom-label {
+  display: block;
+  margin: 0 var(--space-1) var(--space-1);
+  font-size: var(--text-footnote);
+  color: var(--color-label-secondary);
+}
+
+.deadline__custom-row {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.deadline__custom-row input,
+.deadline__custom-row select {
+  min-width: 0;
+  min-height: 2.5rem;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-fill);
+  color: var(--color-label);
+  font: inherit;
+  font-size: var(--text-subhead);
+  color-scheme: light dark;
+}
+
+.deadline__custom-row input { flex: 1 1 4rem; font-variant-numeric: tabular-nums; }
+.deadline__custom-row select { flex: 1 1 5rem; cursor: pointer; }
+.deadline__custom-row option { background: var(--color-bg-elevated); color: var(--color-label); }
+.deadline__custom-row input:focus-visible,
+.deadline__custom-row select:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--color-focus-ring); }
+.deadline__custom-row--active input { box-shadow: inset 0 0 0 1px var(--color-accent); }
+
+.deadline__apply {
+  flex: none;
+  min-height: 2.5rem;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+  transition: transform 120ms var(--ease-out), opacity 120ms var(--ease-out);
+}
+
+.deadline__apply:active:not(:disabled) { transform: scale(0.97); }
+.deadline__apply:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.deadline__error {
+  margin: var(--space-1) var(--space-1) 0;
+  font-size: var(--text-caption);
+  color: var(--color-error, var(--color-warning));
+}
+
+.deadline__at input { color-scheme: light dark; }
+
+/* Pop from the trigger; short and ease-out so it never feels sluggish. */
+.deadline__panel { transform-origin: top right; }
+.deadline-pop-enter-active { transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out); }
+.deadline-pop-leave-active { transition: opacity 100ms ease-in, transform 100ms ease-in; }
+.deadline-pop-enter-from,
+.deadline-pop-leave-to { opacity: 0; transform: scale(0.96); }
+
+@media (prefers-reduced-motion: reduce) {
+  .deadline-pop-enter-active,
+  .deadline-pop-leave-active { transition: opacity 100ms linear; }
+  .deadline-pop-enter-from,
+  .deadline-pop-leave-to { transform: none; }
+}
+
 /* Narrow screens: a bottom sheet keeps every choice reachable. */
 @media (max-width: 600px) {
   .deadline__panel {
@@ -252,8 +374,13 @@ useDismiss(open, () => root.value)
     border-width: 1px 0 0;
   }
 
+  .deadline-pop-enter-from,
+  .deadline-pop-leave-to { transform: translateY(16px); }
+
+  .deadline-pop-enter-active { transition-duration: 220ms; }
+
   .deadline__list {
-    max-height: 50dvh;
+    max-height: 40dvh;
   }
 
   .deadline__option {

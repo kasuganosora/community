@@ -250,7 +250,13 @@
       "mention": "Mention someone",
       "pastedImage": "Pasted image",
       "retry": "Retry",
-      "retryUpload": "Retry uploading {0}"
+      "retryUpload": "Retry uploading {0}",
+      "pollCustomDuration": "Custom",
+      "pollCustomAmount": "Amount",
+      "pollCustomUnit": "Unit",
+      "pollCustomApply": "Set",
+      "pollCustomTooShort": "At least {0}",
+      "pollCustomTooLong": "At most {0}"
     },
     "PostContent": {
       "s1": "Collapse",

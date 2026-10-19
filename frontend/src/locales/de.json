@@ -250,7 +250,13 @@
       "mention": "Person erwähnen",
       "pastedImage": "Eingefügtes Bild",
       "retry": "Erneut versuchen",
-      "retryUpload": "{0} erneut hochladen"
+      "retryUpload": "{0} erneut hochladen",
+      "pollCustomDuration": "Benutzerdefiniert",
+      "pollCustomAmount": "Wert",
+      "pollCustomUnit": "Einheit",
+      "pollCustomApply": "Übernehmen",
+      "pollCustomTooShort": "Mindestens {0}",
+      "pollCustomTooLong": "Höchstens {0}"
     },
     "PostContent": {
       "s1": "Einklappen",
