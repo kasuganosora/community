@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -68,12 +69,25 @@ func queueFederationStatus(tx *gorm.DB, kind string, s *Status) error {
 		}
 		return queueFederationReblog(tx, kind, s)
 	}
-	var snapshot Status
-	if err := StatusLoadAllQuery(tx.Session(&gorm.Session{NewDB: true})).First(&snapshot, s.Id).Error; err != nil {
+	e, err := buildFederationStatusEvent(tx, kind, s.Id)
+	if err != nil || e == nil {
 		return err
 	}
+	return tx.Session(&gorm.Session{NewDB: true}).Create(e).Error
+}
+
+// buildFederationStatusEvent snapshots a local status and resolves its
+// remote recipients (followers, mentioned accounts, remote poll voters). nil
+// means the status does not federate. It reads the author's whole follower
+// list, so hot paths (poll votes) defer it to the outbox worker instead of
+// running it inside their transaction (see QueuePollUpdate).
+func buildFederationStatusEvent(tx *gorm.DB, kind string, statusID uint64) (*FederationOutbox, error) {
+	var snapshot Status
+	if err := StatusLoadAllQuery(tx.Session(&gorm.Session{NewDB: true})).First(&snapshot, statusID).Error; err != nil {
+		return nil, err
+	}
 	if snapshot.LocalOnly || snapshot.Account == nil || snapshot.Account.Domain != nil {
-		return nil
+		return nil, nil
 	}
 	recipients := make(map[uint64]bool)
 	for _, account := range snapshot.ToAccounts {
@@ -83,19 +97,30 @@ func queueFederationStatus(tx *gorm.DB, kind string, s *Status) error {
 	}
 	if snapshot.Visibility != StatusVisibilityDirect {
 		if err := collectFederationFollowers(tx, snapshot.AccountId, recipients); err != nil {
-			return err
+			return nil, err
 		}
 		if (snapshot.Visibility == StatusVisibilityPublic || snapshot.Visibility == StatusVisibilityUnlisted) && snapshot.ReplyAccount != nil && snapshot.ReplyAccount.Domain != nil {
 			recipients[snapshot.ReplyAccount.Id] = true
 		}
 	}
-	if snapshot.Poll != nil && snapshot.Poll.Id != 0 && kind != "Delete" {
+	includeVoters := kind != "Delete"
+	if snapshot.Poll != nil && snapshot.Poll.Id != 0 && kind == "Delete" {
+		// A deferred tally Update not yet expanded by the worker has no
+		// recipients recorded below; reach its remote voters here instead.
+		var deferred int64
+		if err := tx.Session(&gorm.Session{NewDB: true}).Model(&FederationOutbox{}).
+			Where("object_id = ? AND kind = ? AND state IN ?", snapshot.Id, KindPollUpdate, []string{"pending", "processing"}).Count(&deferred).Error; err != nil {
+			return nil, err
+		}
+		includeVoters = deferred > 0
+	}
+	if snapshot.Poll != nil && snapshot.Poll.Id != 0 && includeVoters {
 		// Remote voters need tally/close Updates even when they do not follow.
 		var voterIDs []uint64
 		if err := tx.Session(&gorm.Session{NewDB: true}).Table("poll_option_votes").
 			Joins("JOIN accounts ON accounts.id = poll_option_votes.account_id AND accounts.domain IS NOT NULL").
 			Where("poll_option_votes.poll_id = ?", snapshot.Poll.Id).Distinct().Pluck("poll_option_votes.account_id", &voterIDs).Error; err != nil {
-			return err
+			return nil, err
 		}
 		for _, id := range voterIDs {
 			recipients[id] = true
@@ -106,7 +131,7 @@ func queueFederationStatus(tx *gorm.DB, kind string, s *Status) error {
 		// its Tombstone; the snapshot contains no content in the sent Delete.
 		var previous []FederationOutbox
 		if err := tx.Session(&gorm.Session{NewDB: true}).Where("account_id = ? AND object_id = ? AND kind IN ?", snapshot.AccountId, snapshot.Id, []string{"Create", "Update"}).Find(&previous).Error; err != nil {
-			return err
+			return nil, err
 		}
 		for _, event := range previous {
 			for _, id := range event.RecipientIDs {
@@ -131,9 +156,9 @@ func queueFederationStatus(tx *gorm.DB, kind string, s *Status) error {
 	}
 	payload, err := json.Marshal(&snapshot)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return tx.Session(&gorm.Session{NewDB: true}).Create(&FederationOutbox{ObjectID: snapshot.Id, AccountID: snapshot.AccountId, Kind: kind, Payload: string(payload), RecipientIDs: ids}).Error
+	return &FederationOutbox{ObjectID: snapshot.Id, AccountID: snapshot.AccountId, Kind: kind, Payload: string(payload), RecipientIDs: ids}, nil
 }
 
 func queueFederationFollow(tx *gorm.DB, kind string, f *Follow) error {
@@ -263,10 +288,21 @@ func collectFederationFollowers(tx *gorm.DB, actorID uint64, recipients map[uint
 	}
 }
 
+// KindPollUpdate is a deferred Update(Question) of a local poll: the vote
+// transaction records only the bare status row (no preloads, no recipients;
+// enough for admin webhooks' status.updated filter); the outbox worker snapshots the
+// status and resolves its recipients (MaterializePollUpdate) right before
+// delivery, so a vote never reads the author's follower list while it holds
+// the poll's row lock.
+const KindPollUpdate = "PollUpdate"
+
 // QueuePollUpdate records an Update of a local poll status so peers refresh
 // its tallies or learn that it closed (Mastodon sends Update(Question) for
 // both). Pending Updates for the same status are coalesced: the worker
-// serializes the current snapshot only once per batch of votes.
+// serializes the current tallies once per batch of votes.
+//
+// force=false (a vote) queues a cheap KindPollUpdate row; force=true (the
+// poll closed) snapshots the status and its recipients immediately.
 func QueuePollUpdate(tx *gorm.DB, statusID uint64, force bool) error {
 	if statusID == 0 || !hasFederationOutbox(tx) {
 		return nil
@@ -274,7 +310,7 @@ func QueuePollUpdate(tx *gorm.DB, statusID uint64, force bool) error {
 	if !force {
 		var pending int64
 		if err := tx.Session(&gorm.Session{NewDB: true}).Model(&FederationOutbox{}).
-			Where("object_id = ? AND kind = ? AND state = ?", statusID, "Update", "pending").Count(&pending).Error; err != nil {
+			Where("object_id = ? AND kind IN ? AND state = ?", statusID, []string{"Update", KindPollUpdate}, "pending").Count(&pending).Error; err != nil {
 			return err
 		}
 		if pending > 0 {
@@ -285,7 +321,49 @@ func QueuePollUpdate(tx *gorm.DB, statusID uint64, force bool) error {
 	if err := tx.Session(&gorm.Session{NewDB: true}).First(&s, statusID).Error; err != nil {
 		return err
 	}
-	return queueFederationStatus(tx, "Update", &s)
+	if force {
+		return queueFederationStatus(tx, "Update", &s)
+	}
+	if s.LocalOnly || s.AccountId == 0 || !s.IsLocal() || s.ScheduledAt != nil || (s.ReblogId != nil && *s.ReblogId != 0) {
+		return nil
+	}
+	payload, err := json.Marshal(&s)
+	if err != nil {
+		return err
+	}
+	return tx.Session(&gorm.Session{NewDB: true}).Create(&FederationOutbox{ObjectID: s.Id, AccountID: s.AccountId, Kind: KindPollUpdate, Payload: string(payload)}).Error
+}
+
+// MaterializePollUpdate turns a claimed KindPollUpdate event into a regular
+// "Update" event with the status snapshot and recipients as of now, stored on
+// the same row so later Delete/revocation logic sees its recipients. It
+// returns false when there is nothing to send (status gone or no longer
+// federated); the row is then left as KindPollUpdate for the caller to
+// mark processed.
+func MaterializePollUpdate(conn *gorm.DB, e *FederationOutbox) (bool, error) {
+	if e.Kind != KindPollUpdate {
+		return true, nil
+	}
+	built, err := buildFederationStatusEvent(conn, "Update", e.ObjectID)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil || built == nil {
+		return false, err
+	}
+	if built.AccountID != e.AccountID {
+		return false, fmt.Errorf("poll update %d: status author changed", e.ID)
+	}
+	recipients, err := json.Marshal(built.RecipientIDs)
+	if err != nil {
+		return false, err
+	}
+	if err := conn.Model(&FederationOutbox{}).Where("id = ? AND kind = ?", e.ID, KindPollUpdate).
+		Updates(map[string]any{"kind": "Update", "payload": built.Payload, "recipient_ids": string(recipients)}).Error; err != nil {
+		return false, err
+	}
+	e.Kind, e.Payload, e.RecipientIDs = "Update", built.Payload, built.RecipientIDs
+	return true, nil
 }
 
 // QueuePollVote records the votes of a local account on a remote poll. The

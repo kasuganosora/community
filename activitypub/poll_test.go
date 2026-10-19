@@ -173,9 +173,17 @@ func TestRemoteVoteIsCountedOnceAndQueuesUpdate(t *testing.T) {
 	testDB.GormDB.Model(&models.PollOptionVote{}).Count(&votes)
 	assert.Equal(t, int64(1), votes)
 	var updates []models.FederationOutbox
-	require.NoError(t, testDB.GormDB.Where("kind = ?", "Update").Find(&updates).Error)
+	require.NoError(t, testDB.GormDB.Where("kind IN ?", []string{"Update", models.KindPollUpdate}).Find(&updates).Error)
 	require.Len(t, updates, 1, "pending Updates are coalesced")
-	assert.Contains(t, updates[0].RecipientIDs, bob.Id, "remote voters receive tally updates")
+	require.Equal(t, models.KindPollUpdate, updates[0].Kind, "the vote transaction defers snapshot and recipients")
+	assert.Empty(t, updates[0].RecipientIDs)
+	send, err := models.MaterializePollUpdate(testDB.GormDB, &updates[0])
+	require.NoError(t, err)
+	require.True(t, send)
+	var stored models.FederationOutbox
+	require.NoError(t, testDB.GormDB.First(&stored, updates[0].ID).Error)
+	assert.Equal(t, "Update", stored.Kind)
+	assert.Contains(t, stored.RecipientIDs, bob.Id, "remote voters receive tally updates")
 
 	other := &models.Status{AccountId: author.Id, Visibility: models.StatusVisibilityPublic, Content: models.StatusContent{Content: "plain"}}
 	require.NoError(t, testDB.GormDB.Create(other).Error)
@@ -320,4 +328,38 @@ func TestRemoteMisskeyAnyOfUpdateKeepsTallies(t *testing.T) {
 	require.NoError(t, testDB.GormDB.First(&poll, status.Poll.Id).Error)
 	assert.True(t, poll.Multiple)
 	assert.True(t, poll.IsClosed(time.Now()))
+}
+
+// A vote's deferred tally Update that is still pending when the author deletes
+// the poll: the Delete reaches the remote voters (their Update was never
+// expanded), and the worker drops the orphaned PollUpdate without sending.
+func TestDeferredPollUpdateAfterStatusDelete(t *testing.T) {
+	testDB := setupPollDB(t)
+	author, status := createLocalPoll(t, testDB, time.Now().Add(time.Hour), false)
+	bob := pollRemoteAccount(t, testDB, "bob")
+	pollURI := author.ActorURI(systemsettings.GetBaseURL()) + "/statuses/" + strconv.FormatUint(status.Id, 10)
+	raw, _ := os.ReadFile("testdata/poll/mastodon_vote.json")
+	var activity map[string]any
+	require.NoError(t, json.Unmarshal([]byte(strings.ReplaceAll(string(raw), "POLL_URI", pollURI)), &activity))
+	require.NoError(t, recordRemoteVote(context.Background(), bob, activity["object"].(map[string]any)))
+
+	var pending models.FederationOutbox
+	require.NoError(t, testDB.GormDB.Where("object_id = ? AND kind = ?", status.Id, models.KindPollUpdate).First(&pending).Error)
+	require.NoError(t, testDB.GormDB.Delete(&models.Status{Id: status.Id, AccountId: author.Id}).Error)
+
+	var del models.FederationOutbox
+	require.NoError(t, testDB.GormDB.Where("object_id = ? AND kind = ?", status.Id, "Delete").First(&del).Error)
+	assert.Contains(t, del.RecipientIDs, bob.Id, "remote voters of a not-yet-expanded Update get the Delete")
+
+	require.NoError(t, testDB.GormDB.AutoMigrate(&Delivery{}))
+	// The author's earlier Create is delivered first (per-author ordering).
+	require.NoError(t, testDB.GormDB.Model(&models.FederationOutbox{}).Where("id < ?", pending.ID).Update("state", "processed").Error)
+	(&OutboundWorker{}).process(pending)
+	var after models.FederationOutbox
+	require.NoError(t, testDB.GormDB.First(&after, pending.ID).Error)
+	assert.Equal(t, "processed", after.State, after.LastError)
+	assert.Equal(t, models.KindPollUpdate, after.Kind, "nothing was materialized for a deleted status")
+	var deliveries int64
+	require.NoError(t, testDB.GormDB.Model(&Delivery{}).Count(&deliveries).Error)
+	assert.Zero(t, deliveries)
 }

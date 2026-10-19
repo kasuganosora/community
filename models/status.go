@@ -522,7 +522,10 @@ func (s *Status) deleteDependents(tx *gorm.DB) error {
 
 	if has(&Poll{}) {
 		var pollIds []uint64
-		if err := tx.Unscoped().Model(&Poll{}).Where("status_id = ?", s.Id).Pluck("id", &pollIds).Error; err != nil {
+		// Lock the poll rows before their options and votes: voting locks
+		// polls then poll_options, so the reverse order here could deadlock
+		// a vote racing the author's delete.
+		if err := tx.Unscoped().Model(&Poll{}).Clauses(clause.Locking{Strength: "UPDATE"}).Where("status_id = ?", s.Id).Pluck("id", &pollIds).Error; err != nil {
 			return err
 		}
 

@@ -1,12 +1,15 @@
 package status
 
 import (
+	"errors"
+
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"time"
 )
 
@@ -28,13 +31,18 @@ type VotePollRequest struct {
 	Choices []int `binding:"required" json:"choices"`
 }
 
+var (
+	errPollGone     = errors.New("poll gone")
+	errAlreadyVoted = errors.New("already voted")
+)
+
 func VotePoll(c *gin.Context) {
 	req := &VotePollRequest{}
 	err := controllers.BindBody(c, req)
 
 	controllers.AbortIf(c, err != nil, 400, gin.H{"error": err}) //nolint:goconst
 
-	poll, abort := getPoll(c)
+	poll, status, abort := loadPoll(c)
 	if abort {
 		return
 	}
@@ -71,55 +79,80 @@ func VotePoll(c *gin.Context) {
 
 	currentAccount := controllers.MustGetAccount(c)
 
-	// 判断是否已经投过票
-	var voteCount int64
-
-	err = db.GetDB().Model(&models.PollOptionVote{}).Where("poll_id = ? and account_id = ?", poll.Id, currentAccount.Id).Count(&voteCount).Error
-
-	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, voteCount > 0, 400, gin.H{"error": "already voted"})
-
-	voteOptions := make([]*models.PollOptionVote, 0, len(req.Choices))
-	// 开始投票
+	// A repeated choice would count one voter twice for the same option.
+	choices := make([]int, 0, len(req.Choices))
+	picked := map[int]bool{}
 	for _, choice := range req.Choices {
+		if !picked[choice] {
+			picked[choice] = true
+			choices = append(choices, choice)
+		}
+	}
+
+	voteOptions := make([]*models.PollOptionVote, 0, len(choices))
+	names := make([]string, 0, len(choices))
+	for _, choice := range choices {
 		voteOptions = append(voteOptions, &models.PollOptionVote{
 			PollId:    poll.Id,
 			OptionId:  poll.Options[choice].Id,
 			AccountId: currentAccount.Id,
 		})
+		names = append(names, poll.Options[choice].Content)
 	}
+	remote := status.Account != nil && status.Account.Domain != nil
 
+	// Keep the transaction to a few indexed statements: it holds the poll row
+	// lock that serializes votes on this poll (and its deletion). Federation
+	// is only recorded here; the outbox worker builds the Update snapshot and
+	// its recipient list later (models.QueuePollUpdate).
 	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		// Lock order polls -> poll_options, as in recordRemoteVote, closePoll
+		// and status deletion. The already-voted check runs under the lock
+		// so concurrent requests of one account cannot both vote.
+		var locked models.Poll
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").Where("id = ?", poll.Id).Take(&locked).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errPollGone
+			}
+			return err
+		}
+
+		var voteCount int64
+		if err := tx.Model(&models.PollOptionVote{}).Where("poll_id = ? AND account_id = ?", poll.Id, currentAccount.Id).Count(&voteCount).Error; err != nil {
+			return err
+		}
+		if voteCount > 0 {
+			return errAlreadyVoted
+		}
+
 		// 插入投票记录
-		err = tx.Model(&models.PollOptionVote{}).Create(voteOptions).Error
-		if err != nil {
+		if err := tx.Model(&models.PollOptionVote{}).Create(voteOptions).Error; err != nil {
 			return err
 		}
 
 		// 更新投票数
 		for _, voteOption := range voteOptions {
-			err = tx.Model(&models.PollOption{}).Where("id = ?", voteOption.OptionId).UpdateColumn("votes", gorm.Expr("votes + 1")).Error
-			if err != nil {
+			if err := tx.Model(&models.PollOption{}).Where("id = ?", voteOption.OptionId).UpdateColumn("votes", gorm.Expr("votes + 1")).Error; err != nil {
 				return err
 			}
 		}
 
 		// Federation: a remote poll gets our vote (Create Note per choice);
 		// a local poll sends its new tallies to followers and voters.
-		var status models.Status
-		if err := tx.Preload("Account").First(&status, poll.StatusId).Error; err != nil {
-			return err
-		}
-		if status.Account != nil && status.Account.Domain != nil {
-			names := make([]string, 0, len(req.Choices))
-			for _, choice := range req.Choices {
-				names = append(names, poll.Options[choice].Content)
-			}
-			return models.QueuePollVote(tx, currentAccount, &status, names)
+		if remote {
+			return models.QueuePollVote(tx, currentAccount, status, names)
 		}
 		return models.QueuePollUpdate(tx, status.Id, false)
 	})
 
+	switch {
+	case errors.Is(err, errPollGone):
+		c.JSON(404, gin.H{"error": "Record not found"})
+		return
+	case errors.Is(err, errAlreadyVoted):
+		c.JSON(400, gin.H{"error": "already voted"})
+		return
+	}
 	controllers.AbortIfError(c, err)
 
 	// 重新获取投票信息
@@ -135,11 +168,18 @@ func VotePoll(c *gin.Context) {
 }
 
 func getPoll(c *gin.Context) (poll *models.Poll, abort bool) {
+	poll, _, abort = loadPoll(c)
+	return
+}
+
+// loadPoll resolves :id to a poll the viewer may see, with its status (and
+// the status author) for the vote path.
+func loadPoll(c *gin.Context) (poll *models.Poll, status *models.Status, abort bool) {
 	poll = controllers.GetIdFromContext(&models.Poll{}, c, db.GetDB(), func(db *gorm.DB) *gorm.DB {
 		return db.Preload("Options")
 	})
 
-	status := &models.Status{}
+	status = &models.Status{}
 	query := models.StatusLoadAllQuery(db.GetDB().Model(&models.Status{}))
 	err := query.First(status, poll.StatusId).Error
 	controllers.AbortIfError(c, err)

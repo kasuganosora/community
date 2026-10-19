@@ -229,7 +229,8 @@ func updateRemotePoll(tx *gorm.DB, statusID, accountID uint64, object map[string
 		return nil
 	}
 	var poll models.Poll
-	err := tx.Preload("Options").Where("status_id = ?", statusID).First(&poll).Error
+	// Lock order polls -> poll_options, like votes and status deletion.
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Preload("Options").Where("status_id = ?", statusID).First(&poll).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		parsed.StatusId = statusID
 		return tx.Create(parsed).Error

@@ -117,7 +117,7 @@ func eventName(kind string) string {
 	switch kind {
 	case "Create":
 		return "status.created"
-	case "Update":
+	case "Update", models.KindPollUpdate:
 		return "status.updated"
 	case "Delete":
 		return "status.deleted"

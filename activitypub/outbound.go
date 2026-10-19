@@ -87,7 +87,13 @@ func (w *OutboundWorker) process(e models.FederationOutbox) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	deliveries, err := w.expand(ctx, &e)
+	var deliveries []Delivery
+	// A vote's deferred poll Update gets its snapshot and recipients here,
+	// outside the vote transaction (models.QueuePollUpdate).
+	send, err := models.MaterializePollUpdate(db.GetDB().WithContext(ctx), &e)
+	if err == nil && send {
+		deliveries, err = w.expand(ctx, &e)
+	}
 	if err == nil {
 		err = db.GetDB().Transaction(func(tx *gorm.DB) error {
 			if len(deliveries) > 0 {
