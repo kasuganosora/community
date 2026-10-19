@@ -12,14 +12,15 @@ import (
 
 type memFailures struct {
 	mu   sync.Mutex
-	keys map[string]bool
+	keys map[string]failureRecord
 }
 
-func (m *memFailures) mark(k string) { m.mu.Lock(); m.keys[k] = true; m.mu.Unlock() }
-func (m *memFailures) failed(k string) bool {
+func (m *memFailures) mark(k string, rec failureRecord) { m.mu.Lock(); m.keys[k] = rec; m.mu.Unlock() }
+func (m *memFailures) failed(k string) (failureRecord, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.keys[k]
+	rec, ok := m.keys[k]
+	return rec, ok
 }
 
 func withSharedFailures(t *testing.T, store failureStore) {
@@ -36,11 +37,14 @@ func TestSharedFailureMemo(t *testing.T) {
 		hits.Add(1)
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
-	store := &memFailures{keys: map[string]bool{}}
+	store := &memFailures{keys: map[string]failureRecord{}}
 	withSharedFailures(t, store)
 	raw := srv.URL + "/down.mp4"
 	require.Equal(t, 502, do(r, "GET", proxyPath("media", raw), nil).Code)
-	require.True(t, store.failed(failureKey(raw)), "failure published to the shared memo")
+	rec, ok := store.failed(failureKey(raw))
+	require.True(t, ok, "failure published to the shared memo")
+	require.Equal(t, classUpstream, rec.class)
+	require.Equal(t, 503, rec.upstream)
 
 	// Fresh process: empty local memo, shared memo still knows.
 	failures.Range(func(k, _ any) bool { failures.Delete(k); return true })

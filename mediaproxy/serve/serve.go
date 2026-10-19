@@ -11,7 +11,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -33,11 +33,9 @@ import (
 
 const (
 	connectTimeout = 5 * time.Second
-	headerTimeout  = 10 * time.Second // connect + TLS + response headers
 	maxRedirects   = 3
 	maxConcurrent  = 32
 	acquireWait    = 3 * time.Second
-	failureTTL     = 5 * time.Minute
 	hostRate       = rate.Limit(20)
 	hostBurst      = 40
 	maxAge         = 86400 // seconds, capped by the token's remaining life
@@ -51,8 +49,9 @@ const (
 
 // Overridable in tests.
 var (
-	fetchTimeout = 15 * time.Second // whole download of a cached avatar
-	stallTimeout = 15 * time.Second // relay: no upstream bytes for this long
+	fetchTimeout  = 15 * time.Second // whole download of a cached avatar
+	headerTimeout = 10 * time.Second // relay: connect + TLS + response headers
+	stallTimeout  = 15 * time.Second // relay: no upstream bytes for this long
 
 	// NewClient builds the outbound client; it must pin dialing to public
 	// addresses, bound redirects and check every redirect target.
@@ -69,7 +68,7 @@ var (
 
 var (
 	slots    = make(chan struct{}, maxConcurrent)
-	failures sync.Map // cache key -> time.Time (expiry)
+	failures sync.Map // cache key -> failureRecord
 	failN    int64
 	failMu   sync.Mutex
 	limiters sync.Map // host -> *rate.Limiter
@@ -81,19 +80,40 @@ func hostAllowed(host string) bool {
 	return l.(*rate.Limiter).Allow()
 }
 
-func markFailed(key string) {
-	if f := sharedFailures(); f != nil {
-		f.mark(key)
-	}
-	markFailedLocal(key)
+// failureRecord is a memoised failure: the answer to repeat and when the
+// origin may be tried again.
+type failureRecord struct {
+	status   int
+	class    string
+	upstream int
+	expires  time.Time
 }
 
-func markFailedLocal(key string) {
+func (r failureRecord) ttlLeft() time.Duration { return max(r.expires.Sub(now()), 0) }
+
+func (r failureRecord) failure() failure {
+	return failure{status: r.status, class: r.class, upstream: r.upstream}
+}
+
+// markFailed remembers f for its ttl (locally and in the shared memo), so
+// repeated requests are answered the same way without contacting the origin.
+func markFailed(key string, f failure) {
+	if f.ttl <= 0 {
+		return
+	}
+	rec := failureRecord{status: f.status, class: f.class, upstream: f.upstream, expires: now().Add(f.ttl)}
+	if s := sharedFailures(); s != nil {
+		s.mark(key, rec)
+	}
+	markFailedLocal(key, rec)
+}
+
+func markFailedLocal(key string, rec failureRecord) {
 	failMu.Lock()
 	defer failMu.Unlock()
 	if failN >= maxFailureKeys {
 		failures.Range(func(k, v any) bool {
-			if now().After(v.(time.Time)) {
+			if now().After(v.(failureRecord).expires) {
 				failures.Delete(k)
 				failN--
 			}
@@ -103,36 +123,39 @@ func markFailedLocal(key string) {
 			return
 		}
 	}
-	if _, loaded := failures.LoadOrStore(key, now().Add(failureTTL)); !loaded {
+	if _, loaded := failures.Swap(key, rec); !loaded {
 		failN++
 	}
 }
 
-func recentlyFailed(key string) bool {
-	if recentlyFailedLocal(key) {
-		return true
+func recentlyFailed(key string) (failureRecord, bool) {
+	if rec, ok := recentlyFailedLocal(key); ok {
+		return rec, true
 	}
-	if f := sharedFailures(); f != nil && f.failed(key) {
-		markFailedLocal(key)
-		return true
+	if s := sharedFailures(); s != nil {
+		if rec, ok := s.failed(key); ok {
+			markFailedLocal(key, rec)
+			return rec, true
+		}
 	}
-	return false
+	return failureRecord{}, false
 }
 
-func recentlyFailedLocal(key string) bool {
+func recentlyFailedLocal(key string) (failureRecord, bool) {
 	v, ok := failures.Load(key)
 	if !ok {
-		return false
+		return failureRecord{}, false
 	}
-	if now().After(v.(time.Time)) {
+	rec := v.(failureRecord)
+	if now().After(rec.expires) {
 		failMu.Lock()
 		if _, ok := failures.LoadAndDelete(key); ok {
 			failN--
 		}
 		failMu.Unlock()
-		return false
+		return failureRecord{}, false
 	}
-	return true
+	return rec, true
 }
 
 // failureKey identifies a source URL in the in-memory failure memo.
@@ -151,21 +174,27 @@ func Serve(c *gin.Context) {
 	// is the only authorisation. Responses carry no credentials.
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Cross-Origin-Resource-Policy", "cross-origin")
+	started := now()
 	claims, err := mediaproxy.Open(c.Param("token"))
 	switch {
 	case errors.Is(err, mediaproxy.ErrExpired):
 		c.Header("Cache-Control", "no-store")
+		c.Header("X-Media-Proxy-Error", classExpired)
 		c.String(http.StatusGone, "media link expired; reload the post to get a new one")
+		logFailure(hostOf(claims.URL), claims.Kind, started, failure{status: http.StatusGone, class: classExpired}, nil)
 		return
 	case err != nil:
+		// Nothing in an unopened token is trusted, not even the kind byte.
 		c.Header("Cache-Control", "no-store")
+		c.Header("X-Media-Proxy-Error", classDecrypt)
 		c.String(http.StatusForbidden, "invalid media link")
+		logFailure("", "", started, failure{status: http.StatusForbidden, class: classDecrypt}, nil)
 		return
 	}
 	kind, rawURL := claims.Kind, claims.URL
 	u, err := url.Parse(rawURL)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
-		c.Status(http.StatusBadRequest)
+		answerFailure(c, hostOf(rawURL), kind, started, failure{status: http.StatusBadRequest, class: classBadURL}, nil)
 		return
 	}
 	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
@@ -173,45 +202,60 @@ func Serve(c *gin.Context) {
 		c.Status(http.StatusMethodNotAllowed)
 		return
 	}
+	host := strings.ToLower(u.Hostname())
 	key := failureKey(rawURL)
-	if recentlyFailed(key) {
-		c.Status(http.StatusBadGateway)
+	if rec, ok := recentlyFailed(key); ok {
+		answerFailure(c, host, kind, started, rec.failure(), &rec)
 		return
 	}
 	if err := Validate(rawURL); err != nil {
-		c.Status(http.StatusBadRequest)
+		f := classifyFetchError(err, false)
+		if f.class != classDNS && f.class != classTimeout {
+			// The SSRF guard refused the address itself: the link is not
+			// proxyable, which is the client's request, not a gateway error.
+			f = failure{status: http.StatusBadRequest, class: classBlocked}
+		}
+		markFailed(key, f)
+		answerFailure(c, host, kind, started, f, nil)
 		return
 	}
 	ip := c.ClientIP()
 	if !ipAllowed(ip) {
-		c.Header("Retry-After", "5")
-		c.Status(http.StatusTooManyRequests)
+		answerFailure(c, host, kind, started, failure{status: http.StatusTooManyRequests, class: classRateLimited}, nil)
 		return
 	}
-	if kind == mediaproxy.KindAvatar && serveCachedAvatar(c, key, rawURL, strings.ToLower(u.Host), claims) {
+	if kind == mediaproxy.KindAvatar && serveCachedAvatar(c, key, rawURL, host, claims, started) {
 		return
 	}
-	if !hostAllowed(strings.ToLower(u.Host)) {
-		c.Header("Retry-After", "5")
-		c.Status(http.StatusTooManyRequests)
+	if !hostAllowed(host) {
+		answerFailure(c, host, kind, started, failure{status: http.StatusTooManyRequests, class: classRateLimited}, nil)
 		return
 	}
 	release, ok := acquire(c.Request.Context())
 	if !ok {
 		c.Header("Retry-After", "2")
-		c.Status(http.StatusServiceUnavailable)
+		answerFailure(c, host, kind, started, failure{status: http.StatusServiceUnavailable, class: classBusy}, nil)
 		return
 	}
 	defer release()
 	releaseIP, ok := ipAcquire(ip)
 	if !ok {
 		c.Header("Retry-After", "2")
-		c.Status(http.StatusTooManyRequests)
+		answerFailure(c, host, kind, started, failure{status: http.StatusTooManyRequests, class: classRateLimited}, nil)
 		return
 	}
 	defer releaseIP()
 
-	relay(c, key, rawURL, kind, claims)
+	relay(c, key, rawURL, host, kind, claims, started)
+}
+
+// hostOf returns the lower-case hostname of raw (no port, path or query).
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
 }
 
 func acquire(ctx context.Context) (func(), bool) {
@@ -310,14 +354,19 @@ func upstreamType(h http.Header) string {
 }
 
 // relay fetches the source and streams it to the client.
-func relay(c *gin.Context, key, rawURL, kind string, claims mediaproxy.Claims) {
+func relay(c *gin.Context, key, rawURL, host, kind string, claims mediaproxy.Claims, started time.Time) {
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
-	timer := time.AfterFunc(headerTimeout, cancel)
+	var timedOut atomic.Bool
+	timer := time.AfterFunc(headerTimeout, func() { timedOut.Store(true); cancel() })
+	fail := func(f failure) {
+		markFailed(key, f)
+		answerFailure(c, host, kind, started, f, nil)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		timer.Stop()
-		c.Status(http.StatusBadRequest)
+		answerFailure(c, host, kind, started, failure{status: http.StatusBadRequest, class: classBadURL}, nil)
 		return
 	}
 	// Nothing about the visitor is forwarded except cache validators and
@@ -335,8 +384,13 @@ func relay(c *gin.Context, key, rawURL, kind string, claims mediaproxy.Claims) {
 	resp, err := NewClient().Do(req)
 	timer.Stop()
 	if err != nil {
-		markFailed(key)
-		c.Status(http.StatusBadGateway)
+		if c.Request.Context().Err() != nil && !timedOut.Load() {
+			// The visitor went away: not the origin's fault, remember nothing.
+			log.Debug("media proxy: client gone before the origin answered host=%s", host)
+			c.Status(http.StatusBadGateway)
+			return
+		}
+		fail(classifyFetchError(err, timedOut.Load()))
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -351,17 +405,16 @@ func relay(c *gin.Context, key, rawURL, kind string, claims mediaproxy.Claims) {
 		c.Header("Cache-Control", cacheControlFor(claims))
 		c.Status(http.StatusNotModified)
 		return
-	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
-		markFailed(key)
-		c.Status(http.StatusNotFound)
-		return
 	case resp.StatusCode == http.StatusRequestedRangeNotSatisfiable:
 		c.Header("Content-Range", resp.Header.Get("Content-Range"))
 		c.Status(http.StatusRequestedRangeNotSatisfiable)
 		return
 	case resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent:
-		markFailed(key)
-		c.Status(http.StatusBadGateway)
+		f := upstreamFailure(resp.StatusCode)
+		if f.status == http.StatusServiceUnavailable {
+			c.Header("Retry-After", retryAfter(resp.Header.Get("Retry-After")))
+		}
+		fail(f)
 		return
 	}
 
@@ -371,9 +424,16 @@ func relay(c *gin.Context, key, rawURL, kind string, claims mediaproxy.Claims) {
 		// Without a length the cap cannot be enforced after the headers are
 		// sent, so such (rare) images are read in full, bounded, first.
 		data, err := io.ReadAll(io.LimitReader(resp.Body, mediaproxy.MaxBytes()+1))
-		if err != nil || int64(len(data)) > mediaproxy.MaxBytes() {
-			markFailed(key)
-			c.Status(http.StatusRequestEntityTooLarge)
+		if err != nil {
+			if c.Request.Context().Err() != nil && !timedOut.Load() {
+				c.Status(http.StatusBadGateway)
+				return
+			}
+			fail(classifyFetchError(err, timedOut.Load()))
+			return
+		}
+		if int64(len(data)) > mediaproxy.MaxBytes() {
+			fail(failure{status: http.StatusRequestEntityTooLarge, class: classSizeLimit, ttl: permanentFailureTTL})
 			return
 		}
 		src = bytes.NewReader(data)
@@ -394,8 +454,7 @@ func relay(c *gin.Context, key, rawURL, kind string, claims mediaproxy.Claims) {
 	case strings.HasPrefix(declared, "image/"):
 		limit = mediaproxy.MaxBytes()
 		if strings.Contains(declared, "svg") {
-			markFailed(key)
-			c.Status(http.StatusUnsupportedMediaType)
+			fail(failure{status: http.StatusUnsupportedMediaType, class: classContentType, ttl: permanentFailureTTL})
 			return
 		}
 		// The first bytes must be a raster image; a body that merely claims
@@ -404,20 +463,17 @@ func relay(c *gin.Context, key, rawURL, kind string, claims mediaproxy.Claims) {
 		if resp.StatusCode == http.StatusOK || strings.HasPrefix(resp.Header.Get("Content-Range"), "bytes 0-") {
 			head, _ := body.Peek(512)
 			if ctype = sniffImage(head); ctype == "" {
-				markFailed(key)
-				c.Status(http.StatusUnsupportedMediaType)
+				fail(failure{status: http.StatusUnsupportedMediaType, class: classContentType, ttl: permanentFailureTTL})
 				return
 			}
 		}
 	case strings.HasPrefix(declared, "video/") || strings.HasPrefix(declared, "audio/"):
 	default:
-		markFailed(key)
-		c.Status(http.StatusUnsupportedMediaType)
+		fail(failure{status: http.StatusUnsupportedMediaType, class: classContentType, ttl: permanentFailureTTL})
 		return
 	}
 	if resp.ContentLength > limit {
-		markFailed(key)
-		c.Status(http.StatusRequestEntityTooLarge)
+		fail(failure{status: http.StatusRequestEntityTooLarge, class: classSizeLimit, ttl: permanentFailureTTL})
 		return
 	}
 
@@ -444,6 +500,14 @@ func relay(c *gin.Context, key, rawURL, kind string, claims mediaproxy.Claims) {
 	}
 }
 
+// retryAfter relays a short numeric Retry-After of a rate-limited origin.
+func retryAfter(v string) string {
+	if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 && n <= 60 {
+		return strconv.Itoa(n)
+	}
+	return "30"
+}
+
 // cacheControlFor lets browsers cache for a day, but never past the moment
 // the token stops working.
 func cacheControlFor(claims mediaproxy.Claims) string {
@@ -463,16 +527,13 @@ func cacheControlFor(claims mediaproxy.Claims) string {
 // errBusy marks a fetch refused by the local host/concurrency limits.
 var errBusy = errors.New("media proxy busy")
 
-// errUpstreamGone marks a source that answered 404/410.
-var errUpstreamGone = errors.New("media proxy: source gone")
-
 // avatarCache is the cache used for avatars; overridable in tests.
 var avatarCache = avatarcache.Default
 
 // serveCachedAvatar answers an avatar from the resized disk cache (fetching
 // it on a miss). It returns false when the cache is unavailable so the
 // caller relays the original instead.
-func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediaproxy.Claims) bool {
+func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediaproxy.Claims, started time.Time) bool {
 	cache := avatarCache()
 	if cache == nil {
 		return false
@@ -490,23 +551,23 @@ func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediapro
 		return fetchImage(ctx, rawURL)
 	})
 	if err != nil {
+		var f failure
 		switch {
 		case errors.Is(err, errBusy):
 			c.Header("Retry-After", "2")
-			c.Status(http.StatusServiceUnavailable)
-		case errors.Is(err, errUpstreamGone):
-			markFailed(key)
-			c.Status(http.StatusNotFound)
+			answerFailure(c, host, mediaproxy.KindAvatar, started, failure{status: http.StatusServiceUnavailable, class: classBusy}, nil)
+			return true
 		case errors.Is(err, avatarcache.ErrTooLarge):
-			markFailed(key)
-			c.Status(http.StatusRequestEntityTooLarge)
+			f = failure{status: http.StatusRequestEntityTooLarge, class: classSizeLimit, ttl: permanentFailureTTL}
 		case errors.Is(err, avatarcache.ErrInvalidType):
-			markFailed(key)
-			c.Status(http.StatusUnsupportedMediaType)
+			f = failure{status: http.StatusUnsupportedMediaType, class: classContentType, ttl: permanentFailureTTL}
 		default:
-			markFailed(key)
-			c.Status(http.StatusBadGateway)
+			// The fetch is detached from this request, so a cancellation
+			// here is the fetch deadline, not the visitor leaving.
+			f = classifyFetchError(err, errors.Is(err, context.Canceled))
 		}
+		markFailed(key, f)
+		answerFailure(c, host, mediaproxy.KindAvatar, started, f, nil)
 		return true
 	}
 	f, err := os.Open(entry.Path)
@@ -536,11 +597,8 @@ func fetchImage(ctx context.Context, rawURL string) ([]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
-		return nil, errUpstreamGone
-	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("upstream status %d", resp.StatusCode)
+		return nil, upstreamStatusError{code: resp.StatusCode}
 	}
 	limit := min(mediaproxy.MaxBytes(), int64(avatarcache.MaxSourceBytes))
 	if resp.ContentLength > limit {

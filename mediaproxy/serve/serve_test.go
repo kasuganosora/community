@@ -186,7 +186,9 @@ func TestNothingIsPersistedAndFailuresAreMemoised(t *testing.T) {
 	}))
 	p := proxyPath("avatar", srv.URL+"/gone.png")
 	require.Equal(t, 404, do(r, "GET", p, nil).Code)
-	require.Equal(t, 502, do(r, "GET", p, nil).Code, "second request is answered from the failure memo")
+	w := do(r, "GET", p, nil)
+	require.Equal(t, 404, w.Code, "the failure memo repeats the original answer, not a 502")
+	require.Equal(t, "negative_cache; upstream_status", w.Header().Get("X-Media-Proxy-Error"))
 	require.EqualValues(t, 1, hits.Load())
 
 	png := pngBytes()
