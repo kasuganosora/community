@@ -13,12 +13,11 @@ import (
 // but still used by clients): the status's link preview, or null.
 func Card(c *gin.Context) {
 	status := controllers.GetIdFromContext(&models.Status{}, c, db.GetDB(), models.StatusLoadAllQuery)
-	controllers.AbortIf(c, status.DeletedAt != nil || status.ScheduledAt != nil, 404, gin.H{"error": "not found"})
+	if status.ScheduledAt != nil {
+		controllers.AbortRecordNotFound(c)
+	}
 	account := controllers.GetAccount(c)
-
-	allowed, err := status.CanViewEx(db.GetDB(), account)
-	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !allowed, 403, gin.H{"error": "has no permission"})
+	abortUnlessVisible(c, db.GetDB(), status, account)
 
 	// Missing previews are repaired asynchronously only after authorization.
 	// The endpoint never fetches a remote page on the HTTP request goroutine.

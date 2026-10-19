@@ -88,6 +88,20 @@ func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 	}
 }
 
+// CheckScopeIfTokenMiddleware is Mastodon's authorize_if_got_token!: an
+// anonymous request passes (the handler decides what it may see), while a
+// request carrying a token must hold the scopes like CheckScopeMiddleware.
+func CheckScopeIfTokenMiddleware(scopes ...Scope) gin.HandlerFunc {
+	check := CheckScopeMiddleware(scopes...)
+	return func(c *gin.Context) {
+		if _, exists := c.Get("token_data"); !exists {
+			c.Next()
+			return
+		}
+		check(c)
+	}
+}
+
 func returnUnauthorized(c *gin.Context) {
 	c.JSON(401, gin.H{
 		"code":    401, //nolint:goconst

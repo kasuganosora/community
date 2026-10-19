@@ -166,7 +166,8 @@ func Replace(c *gin.Context) {
 				return err
 			}
 			if !visible {
-				return replacementError{403, "Reply target is not visible"}
+				// Same answer as a missing reply target: do not confirm it exists.
+				return invalidReplacement("Reply target no longer exists")
 			}
 			if !models.ValidateReplyVisibility(&parent, next.Visibility) {
 				return invalidReplacement("Reply visibility cannot be broader than its parent")

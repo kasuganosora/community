@@ -79,7 +79,8 @@ func TestStatusActionsAreIdempotent(t *testing.T) {
 	}
 }
 
-// The idempotent no-op paths must not reveal statuses the caller cannot see.
+// The idempotent no-op paths must not reveal statuses the caller cannot see:
+// like Mastodon they answer the same 404 as a missing status.
 func TestIdempotentNoOpsStillCheckVisibility(t *testing.T) {
 	ts := newTestSetup(t)
 	require.NoError(t, ts.db.Model(&models.Status{}).Where("id = ?", ts.status.Id).Update("visibility", models.StatusVisibilityDirect).Error)
@@ -90,6 +91,6 @@ func TestIdempotentNoOpsStillCheckVisibility(t *testing.T) {
 		c, w := newGinContextPost(t, params, nil)
 		setAccount(c, other)
 		safeHandler(c, f)
-		require.Equal(t, 403, w.Code, "%s: %s", name, w.Body.String())
+		require.Equal(t, 404, w.Code, "%s: %s", name, w.Body.String())
 	}
 }

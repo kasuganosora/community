@@ -32,8 +32,8 @@ func TestCardEndpointAuthorizationAndCanonicalPreview(t *testing.T) {
 		safeHandler(c, Card)
 		return w
 	}
-	require.Equal(t, 403, call(other).Code)
-	require.Equal(t, 403, call(nil).Code)
+	require.Equal(t, 404, call(other).Code)
+	require.Equal(t, 404, call(nil).Code)
 	w := call(owner)
 	require.Equal(t, 200, w.Code)
 	require.Contains(t, w.Body.String(), `"type":"link"`)

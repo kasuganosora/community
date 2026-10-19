@@ -287,7 +287,7 @@ func TestShow_PrivateStatus_NoAccount(t *testing.T) {
 
 	safeHandler(c, Show)
 
-	assert.Equal(t, 403, w.Code)
+	assert.Equal(t, 404, w.Code)
 }
 
 func TestShow_InvalidID(t *testing.T) {
@@ -1070,7 +1070,7 @@ func TestGetHistory_PrivateStatus_NoAccount(t *testing.T) {
 
 	safeHandler(c, GetHistory)
 
-	assert.Equal(t, 403, w.Code)
+	assert.Equal(t, 404, w.Code)
 }
 
 // ============== Source Tests ==============
@@ -1142,7 +1142,7 @@ func TestContext_NoAccount(t *testing.T) {
 	assert.Equal(t, 200, w.Code)
 }
 
-func TestContext_PrivateStatus_Forbidden(t *testing.T) {
+func TestContext_PrivateStatus_NotFound(t *testing.T) {
 	ts := newTestSetup(t)
 	privateStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
 		s.Visibility = models.StatusVisibilityPrivate
@@ -1152,10 +1152,10 @@ func TestContext_PrivateStatus_Forbidden(t *testing.T) {
 
 	safeHandler(c, Context)
 
-	assert.Equal(t, 403, w.Code)
+	assert.Equal(t, 404, w.Code)
 }
 
-func TestContext_DirectStatus_Forbidden(t *testing.T) {
+func TestContext_DirectStatus_NotFound(t *testing.T) {
 	ts := newTestSetup(t)
 	directStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
 		s.Visibility = models.StatusVisibilityDirect
@@ -1165,7 +1165,7 @@ func TestContext_DirectStatus_Forbidden(t *testing.T) {
 
 	safeHandler(c, Context)
 
-	assert.Equal(t, 403, w.Code)
+	assert.Equal(t, 404, w.Code)
 }
 
 // Context serialization executes the production UNION ALL batch query, which
@@ -1232,7 +1232,7 @@ func TestTranslate_NoLangParam(t *testing.T) {
 	assert.Equal(t, 400, w.Code)
 }
 
-func TestTranslate_PrivateStatus_Forbidden(t *testing.T) {
+func TestTranslate_PrivateStatus_NotFound(t *testing.T) {
 	ts := newTestSetup(t)
 	privateStatus := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
 		s.Visibility = models.StatusVisibilityPrivate
@@ -1245,7 +1245,7 @@ func TestTranslate_PrivateStatus_Forbidden(t *testing.T) {
 
 	safeHandler(c, Translate)
 
-	assert.Equal(t, 403, w.Code)
+	assert.Equal(t, 404, w.Code)
 }
 
 func TestTranslate_DirectStatus_NoAccount(t *testing.T) {
@@ -1261,7 +1261,7 @@ func TestTranslate_DirectStatus_NoAccount(t *testing.T) {
 
 	safeHandler(c, Translate)
 
-	assert.Equal(t, 403, w.Code)
+	assert.Equal(t, 404, w.Code)
 }
 
 // ============== Scheduled Status Tests ==============
@@ -2224,7 +2224,7 @@ func TestDelete_ResponseNoBody(t *testing.T) {
 
 // ============== Additional edge case tests ==============
 
-func TestFavourite_PrivateStatus_Forbidden(t *testing.T) {
+func TestFavourite_PrivateStatus_NotFound(t *testing.T) {
 	ts := newTestSetup(t)
 
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "favoother" })
@@ -2239,10 +2239,10 @@ func TestFavourite_PrivateStatus_Forbidden(t *testing.T) {
 
 	safeHandler(c, Favourite)
 
-	assert.Equal(t, 403, w.Code)
+	assert.Equal(t, 404, w.Code)
 }
 
-func TestBookmark_PrivateStatus_Forbidden(t *testing.T) {
+func TestBookmark_PrivateStatus_NotFound(t *testing.T) {
 	ts := newTestSetup(t)
 
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "bookother" })
@@ -2257,10 +2257,10 @@ func TestBookmark_PrivateStatus_Forbidden(t *testing.T) {
 
 	safeHandler(c, Bookmark)
 
-	assert.Equal(t, 403, w.Code)
+	assert.Equal(t, 404, w.Code)
 }
 
-func TestReblog_PrivateStatus_Forbidden(t *testing.T) {
+func TestReblog_PrivateStatus_NotFound(t *testing.T) {
 	ts := newTestSetup(t)
 
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "reblother" })
@@ -2277,10 +2277,10 @@ func TestReblog_PrivateStatus_Forbidden(t *testing.T) {
 
 	safeHandler(c, Reblog)
 
-	assert.Equal(t, 403, w.Code)
+	assert.Equal(t, 404, w.Code)
 }
 
-func TestFavouritedBy_PrivateStatus_Forbidden(t *testing.T) {
+func TestFavouritedBy_PrivateStatus_NotFound(t *testing.T) {
 	ts := newTestSetup(t)
 
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "favoother2" })
@@ -2295,10 +2295,10 @@ func TestFavouritedBy_PrivateStatus_Forbidden(t *testing.T) {
 
 	safeHandler(c, FavouritedBy)
 
-	assert.Equal(t, 403, w.Code)
+	assert.Equal(t, 404, w.Code)
 }
 
-func TestRebloggedBy_PrivateStatus_Forbidden(t *testing.T) {
+func TestRebloggedBy_PrivateStatus_NotFound(t *testing.T) {
 	ts := newTestSetup(t)
 
 	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "reblother2" })
@@ -2313,7 +2313,7 @@ func TestRebloggedBy_PrivateStatus_Forbidden(t *testing.T) {
 
 	safeHandler(c, RebloggedBy)
 
-	assert.Equal(t, 403, w.Code)
+	assert.Equal(t, 404, w.Code)
 }
 
 // ============== Tests for request/response types ==============
@@ -2958,7 +2958,7 @@ func TestShow_DirectStatus_NoAccount(t *testing.T) {
 
 	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(directStatus.Id, 10)}})
 	safeHandler(c, Show)
-	assert.Equal(t, 403, w.Code, "direct status should not be visible without account")
+	assert.Equal(t, 404, w.Code, "direct status should not be visible without account")
 }
 
 func TestShow_DirectStatus_NotParticipant(t *testing.T) {
@@ -2973,7 +2973,7 @@ func TestShow_DirectStatus_NotParticipant(t *testing.T) {
 	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(directStatus.Id, 10)}})
 	setAccount(c, otherAcct)
 	safeHandler(c, Show)
-	assert.Equal(t, 403, w.Code, "non-participant should not see direct status")
+	assert.Equal(t, 404, w.Code, "non-participant should not see direct status")
 }
 
 // ============== Visibility Matrix: Private Status Follower ==============
@@ -3017,7 +3017,7 @@ func TestShow_PrivateStatus_NonFollower(t *testing.T) {
 	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(privateStatus.Id, 10)}})
 	setAccount(c, otherAcct)
 	safeHandler(c, Show)
-	assert.Equal(t, 403, w.Code, "non-follower should not see private status")
+	assert.Equal(t, 404, w.Code, "non-follower should not see private status")
 }
 
 // ============== Content Edge Cases ==============

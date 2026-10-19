@@ -193,20 +193,9 @@ func loadPoll(c *gin.Context) (poll *models.Poll, status *models.Status, abort b
 	err := query.First(status, poll.StatusId).Error
 	controllers.AbortIfError(c, err)
 
-	// Mastodon hides private polls the viewer cannot see (404, not 403).
-	currentAccount := controllers.GetAccount(c)
-	if currentAccount == nil {
-		// Public status can be viewed without account
-		if status.Visibility != models.StatusVisibilityPublic && status.Visibility != models.StatusVisibilityUnlisted {
-			c.JSON(404, gin.H{"error": "Record not found"})
-			abort = true
-			return
-		}
-	} else {
-		canView, err := status.CanViewEx(db.GetDB(), currentAccount)
-		controllers.AbortIfError(c, err)
-		controllers.AbortIf(c, !canView, 404, gin.H{"error": "Record not found"})
-	}
+	// Mastodon hides polls the viewer cannot see (404, not 403), for
+	// anonymous viewers as well as signed-in ones.
+	abortUnlessVisible(c, db.GetDB(), status, controllers.GetAccount(c))
 
 	return
 }

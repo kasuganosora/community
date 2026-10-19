@@ -22,15 +22,8 @@ func Context(c *gin.Context) {
 	account := controllers.GetAccount(c)
 
 	// Thread membership is not authorization for any individual message.
-	allowed, err := status.CanViewEx(db.GetDB(), account)
-	if err != nil {
-		controllers.AbortIfError(c, err)
-		return
-	}
-	if !allowed {
-		c.JSON(403, gin.H{"error": "has no permission"})
-		return
-	}
+	abortUnlessVisible(c, db.GetDB(), status, account)
+	var err error
 
 	// Get ancestors (parent statuses in the thread)
 	ancestors := make([]*models.Status, 0)

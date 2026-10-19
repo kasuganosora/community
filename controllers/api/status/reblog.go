@@ -33,9 +33,7 @@ func Reblog(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 
 	// 判断当前用户有没权限转发这条 status, 只要能看到这条 status 就可以转发
-	canView, err := status.CanViewEx(dbConn, currentAccount)
-	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"}) //nolint:goconst
+	abortUnlessVisible(c, dbConn, status, currentAccount)
 
 	// 判断当前用户有没有转发过这条 status
 	isRelogged, err := status.IsReblogged(dbConn, currentAccount)
@@ -104,9 +102,7 @@ func Unreblog(c *gin.Context) {
 	// Mastodon: unreblogging a status that is not reblogged is a no-op that
 	// returns the original status (reblogged: false).
 	if !isRelogged {
-		canView, err := status.CanViewEx(dbConn, currentAccount)
-		controllers.AbortIfError(c, err)
-		controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+		abortUnlessVisible(c, dbConn, status, currentAccount)
 		returnFullSingleStatus(c, status, currentAccount)
 
 		return
@@ -173,10 +169,7 @@ func RebloggedBy(c *gin.Context) {
 
 	dbConn := db.GetDB()
 	// 只有能看到这条 status 的人才能看到收藏列表
-	canView, err := status.CanViewEx(dbConn, currentAccount)
-
-	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+	abortUnlessVisible(c, dbConn, status, currentAccount)
 
 	accounts := make([]*models.Account, 0)
 

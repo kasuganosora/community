@@ -23,27 +23,7 @@ func Translate(c *gin.Context) {
 	status := controllers.GetIdFromContext(&models.Status{}, c, db.GetDB(), models.StatusLoadAllQuery)
 	account := controllers.GetAccount(c)
 
-	// Check permission
-	if status.Visibility == models.StatusVisibilityPrivate || status.Visibility == models.StatusVisibilityDirect {
-		if account == nil {
-			c.JSON(403, gin.H{"error": "has no permission"}) //nolint:goconst
-
-			return
-		}
-
-		canView, err := status.CanViewEx(db.GetDB(), account)
-		if err != nil {
-			controllers.AbortIfError(c, err)
-
-			return
-		}
-
-		if !canView {
-			c.JSON(403, gin.H{"error": "has no permission"})
-
-			return
-		}
-	}
+	abortUnlessVisible(c, db.GetDB(), status, account)
 
 	// Get target language from URL parameter
 	targetLang := c.Param("lang")

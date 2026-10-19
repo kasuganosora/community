@@ -139,7 +139,8 @@ func Create(c *gin.Context) {
 			return
 		}
 		if !allowed {
-			c.JSON(403, gin.H{"error": "reply target is not visible"})
+			// Mastodon answers a hidden reply target exactly like a missing one.
+			c.JSON(404, gin.H{"error": "reply target not found"})
 			return
 		}
 		if !models.ValidateReplyVisibility(&parent, status.Visibility) {
@@ -172,7 +173,8 @@ func Create(c *gin.Context) {
 			return
 		}
 		if !allowed {
-			c.JSON(http.StatusForbidden, gin.H{"error": "quote target is not visible"})
+			// Mastodon answers a hidden quote target exactly like a missing one.
+			c.JSON(http.StatusNotFound, gin.H{"error": "quote target not found"})
 			return
 		}
 		switch quoted.Visibility {

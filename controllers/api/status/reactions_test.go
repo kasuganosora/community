@@ -35,8 +35,8 @@ func TestReactionAPIVisibilityIdempotenceAndList(t *testing.T) {
 		safeHandler(c, handler)
 		return w
 	}
-	require.Equal(t, 403, call(outsider, "😀", AddReaction).Code)
-	require.Equal(t, 403, call(nil, "", Reactions).Code)
+	require.Equal(t, 404, call(outsider, "😀", AddReaction).Code)
+	require.Equal(t, 404, call(nil, "", Reactions).Code)
 	for i := 0; i < 2; i++ {
 		w := call(bob, "😀", AddReaction)
 		require.Equal(t, 200, w.Code, w.Body.String())

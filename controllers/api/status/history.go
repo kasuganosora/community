@@ -14,17 +14,7 @@ func GetHistory(c *gin.Context) {
 	dbConn := db.GetDB()
 	currentAccount := controllers.GetAccount(c)
 
-	// Check permission for private/direct statuses
-	if status.Visibility == models.StatusVisibilityPrivate || status.Visibility == models.StatusVisibilityDirect {
-		if currentAccount == nil {
-			c.JSON(403, gin.H{"error": "has no permission"}) //nolint:goconst
-			return
-		}
-
-		canView, err := status.CanViewEx(dbConn, currentAccount)
-		controllers.AbortIfError(c, err)
-		controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"}) //nolint:goconst
-	}
+	abortUnlessVisible(c, dbConn, status, currentAccount)
 
 	history := []*models.StatusHistory{}
 	err := dbConn.Model(&models.StatusHistory{}).Preload("Account").Where("status_id = ?", status.Id).Order("id desc").Find(&history).Error

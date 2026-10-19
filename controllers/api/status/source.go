@@ -19,14 +19,11 @@ func GetSource(c *gin.Context) {
 		status.Reblog = &models.Status{}
 		err = dbConn.Model(status).Association("Reblog").Find(status.Reblog)
 		controllers.AbortIfError(c, err)
-		controllers.AbortIf(c, status.Reblog == nil || status.Reblog.Id == 0, 404, gin.H{"error": "status not found"}) //nolint:goconst
+		controllers.AbortIf(c, status.Reblog == nil || status.Reblog.Id == 0, 404, gin.H{"error": controllers.RecordNotFoundMessage})
 	}
 
 	currentAccount := controllers.MustGetAccount(c)
-
-	canView, err := status.CanViewEx(dbConn, currentAccount)
-	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"}) //nolint:goconst
+	abortUnlessVisible(c, dbConn, status, currentAccount)
 
 	content := &models.StatusContent{}
 	err = dbConn.Model(status).Association("Content").Find(content)

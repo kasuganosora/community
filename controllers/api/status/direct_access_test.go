@@ -50,7 +50,7 @@ func TestDirectThreadAuthorizesEachBranchAndReply(t *testing.T) {
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "only alice")
 	w = call(outsider, child.Id, Create, map[string]any{"status": "guess", "visibility": "direct", "in_reply_to_id": strconv.FormatUint(child.Id, 10)})
-	require.Equal(t, 403, w.Code, w.Body.String())
+	require.Equal(t, 404, w.Code, w.Body.String())
 	w = call(alice, child.Id, Create, map[string]any{"status": "leak", "visibility": "public", "in_reply_to_id": strconv.FormatUint(child.Id, 10)})
 	require.Equal(t, 422, w.Code, w.Body.String())
 	// Both directions of a block revoke an existing direct grant.
@@ -61,7 +61,7 @@ func TestDirectThreadAuthorizesEachBranchAndReply(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, allowed)
 		w = call(alice, child.Id, Show, nil)
-		require.Equal(t, 403, w.Code, w.Body.String())
+		require.Equal(t, 404, w.Code, w.Body.String())
 		require.NoError(t, conn.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&models.Block{}).Error)
 	}
 }

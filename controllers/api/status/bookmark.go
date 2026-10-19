@@ -12,14 +12,7 @@ func Bookmark(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 	// 判断用户是否有权限收藏这条 status， 能看到都能收藏
-	canView, err := status.CanViewEx(dbConn, currentAccount)
-	controllers.AbortIfError(c, err)
-
-	if !canView {
-		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"}) //nolint:goconst
-
-		return
-	}
+	abortUnlessVisible(c, dbConn, status, currentAccount)
 
 	// 是否已经收藏
 	isBookmarked, err := status.IsBookmarked(dbConn, currentAccount)
@@ -49,14 +42,7 @@ func Unbookmark(c *gin.Context) {
 	dbConn := db.GetDB()
 
 	// 判断用户是否有权限收藏这条 status， 能看到都能收藏
-	canView, err := status.CanViewEx(dbConn, currentAccount)
-	controllers.AbortIfError(c, err)
-
-	if !canView {
-		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
-
-		return
-	}
+	abortUnlessVisible(c, dbConn, status, currentAccount)
 
 	// 是否已经收藏
 	isBookmarked, err := status.IsBookmarked(dbConn, currentAccount)

@@ -11,6 +11,9 @@ func MuteStatus(c *gin.Context) {
 	status := getRealStatus(c)
 
 	currentAccount := controllers.MustGetAccount(c)
+	if status.AccountId != currentAccount.Id {
+		abortUnlessVisible(c, db.GetDB(), status, currentAccount)
+	}
 	// 只能自己 mute 自己的 status
 	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 400, gin.H{"error": "forbidden"}) //nolint:goconst
 
@@ -44,6 +47,9 @@ func UnmuteStatus(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 
+	if status.AccountId != currentAccount.Id {
+		abortUnlessVisible(c, db.GetDB(), status, currentAccount)
+	}
 	//  只能 自己 mute 自己的
 	controllers.AbortIf(c, status.AccountId != currentAccount.Id, 400, gin.H{"error": "forbidden"})
 

@@ -23,9 +23,7 @@ func Show(c *gin.Context) {
 		status.Reblog = reblog
 	}
 
-	allowed, err := status.CanViewEx(db.GetDB(), account)
-	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !allowed, 403, gin.H{"error": "has no permission"})
+	abortUnlessVisible(c, db.GetDB(), status, account)
 
 	returnFullSingleStatus(c, status, account)
 }

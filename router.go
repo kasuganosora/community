@@ -191,6 +191,9 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroupV1.GET("/statuses/:id/context", status.Context)
 	maybeAuthGroupV1.GET("/statuses/:id/card", status.Card)
 	maybeAuthGroupV1.GET("/statuses/:id/reactions", status.Reactions)
+	// Mastodon: GET /polls/:id is public (authorize_if_got_token!); a token
+	// still needs read:statuses. Hidden polls answer 404 in the handler.
+	maybeAuthGroupV1.GET("/polls/:id", middleware.CheckScopeIfTokenMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses}), status.ViewPoll)
 	maybeAuthGroupV1.GET("/timelines/public", timelines.Public)
 	maybeAuthGroupV1.GET("/timelines/list/:id", timelines.List)
 	maybeAuthGroupV1.GET("/timelines/tag/:tag", timelines.Tag)
@@ -415,7 +418,6 @@ func SetRouter(app gin.IRouter) {
 		GET("/statuses/:id/history", status.GetHistory).
 		GET("/statuses/:id/favourited_by", status.FavouritedBy).
 		GET("/statuses/:id/reblogged_by", status.RebloggedBy).
-		GET("/polls/:id", status.ViewPoll).
 		GET("/scheduled_statuses/:id", status.ViewSingleScheduledStatus).
 		GET("/scheduled_statuses", status.ListScheduledStatuses).
 		GET("/timelines/home", timelines.Home).
@@ -615,6 +617,7 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroup.GET("/accounts/:id/following", account.Following)
 	maybeAuthGroup.GET("/statuses/:id", status.Show)
 	maybeAuthGroup.GET("/statuses/:id/context", status.Context)
+	maybeAuthGroup.GET("/polls/:id", middleware.CheckScopeIfTokenMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses}), status.ViewPoll)
 	maybeAuthGroup.GET("/timelines/public", timelines.Public)
 	maybeAuthGroup.GET("/timelines/list/:id", timelines.List)
 	maybeAuthGroup.GET("/timelines/tag/:tag", timelines.Tag)
@@ -693,7 +696,6 @@ func SetRouter(app gin.IRouter) {
 		GET("/statuses/:id/history", status.GetHistory).
 		GET("/statuses/:id/favourited_by", status.FavouritedBy).
 		GET("/statuses/:id/reblogged_by", status.RebloggedBy).
-		GET("/polls/:id", status.ViewPoll).
 		GET("/scheduled_statuses/:id", status.ViewSingleScheduledStatus).
 		GET("/scheduled_statuses", status.ListScheduledStatuses).
 		GET("/timelines/home", timelines.Home).

@@ -16,9 +16,7 @@ func Favourite(c *gin.Context) {
 	dbConn := db.GetDB()
 
 	// 判断用户是否有权限收藏这条 status， 能看到都能收藏
-	canView, err := status.CanViewEx(dbConn, currentAccount)
-	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"}) //nolint:goconst
+	abortUnlessVisible(c, dbConn, status, currentAccount)
 
 	isFavourited, err := status.IsFavourited(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
@@ -58,9 +56,7 @@ func Unfavourite(c *gin.Context) {
 	// Mastodon: unfavouriting a status that is not favourited is a no-op
 	// that returns the status (if the caller can see it).
 	if !isFavourited {
-		canView, err := status.CanViewEx(dbConn, currentAccount)
-		controllers.AbortIfError(c, err)
-		controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+		abortUnlessVisible(c, dbConn, status, currentAccount)
 		returnFullSingleStatus(c, status, currentAccount)
 
 		return
@@ -112,10 +108,7 @@ func FavouritedBy(c *gin.Context) {
 
 	dbConn := db.GetDB()
 	// 只有能看到这条 status 的人才能看到收藏列表
-	canView, err := status.CanViewEx(dbConn, currentAccount)
-
-	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+	abortUnlessVisible(c, dbConn, status, currentAccount)
 
 	var accounts []*models.Account
 

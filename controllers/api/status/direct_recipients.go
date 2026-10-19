@@ -275,7 +275,8 @@ func prepareReplacementDirectRecipients(ctx context.Context, id uint64, owner *m
 			return nil, nil, err
 		}
 		if !allowed {
-			return nil, nil, replacementError{403, "Reply target is not visible"}
+			// Same answer as a missing reply target: do not confirm it exists.
+			return nil, nil, gorm.ErrRecordNotFound
 		}
 		if !models.ValidateReplyVisibility(&parent, visibility) {
 			return nil, nil, invalidReplacement("Reply visibility cannot be broader than its parent")

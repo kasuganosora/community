@@ -34,8 +34,7 @@ func GetIdFromContext[T model](t *T, c *gin.Context, db *gorm.DB, appendQuery ..
 	err = query.First(t).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.AbortWithStatusJSON(404, gin.H{"error": "not found"})
-			AbortPanic()
+			AbortRecordNotFound(c)
 		}
 
 		_ = c.Error(err)
@@ -72,8 +71,7 @@ func AbortIfError(c *gin.Context, err error) {
 			AbortPanic()
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.AbortWithStatusJSON(404, gin.H{"error": "not found"})
-			AbortPanic()
+			AbortRecordNotFound(c)
 		}
 
 		var httpError *apierrors.HttpError
@@ -120,5 +118,17 @@ func AbortIfNotFoundAndOtherError(c *gin.Context, err error, notFoundMessage str
 		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
 	}
 
+	AbortPanic()
+}
+
+// RecordNotFoundMessage is Mastodon's error body for a record that does not
+// exist, and for one the viewer may not see: answering 403 there would
+// confirm that a private or direct record exists.
+const RecordNotFoundMessage = "Record not found"
+
+// AbortRecordNotFound answers Mastodon's 404 {"error":"Record not found"}
+// and stops the handler.
+func AbortRecordNotFound(c *gin.Context) {
+	c.AbortWithStatusJSON(404, gin.H{"error": RecordNotFoundMessage})
 	AbortPanic()
 }

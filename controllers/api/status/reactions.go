@@ -17,6 +17,9 @@ func mutateReaction(c *gin.Context, remove bool) {
 	name := c.Param("name")
 	var emoji *models.Emoji
 	var err error
+	// A hidden status is 404; 403 below is kept for a visible status whose
+	// author does not accept this reaction.
+	abortUnlessVisible(c, db.GetDB(), s, actor)
 	if !remove {
 		emoji, err = models.ResolveReaction(db.GetDB(), name, actor)
 		if err != nil {
@@ -42,9 +45,7 @@ func Reactions(c *gin.Context) {
 	if a, ok := c.Get("account"); ok {
 		actor, _ = a.(*models.Account)
 	}
-	allowed, err := s.CanViewEx(db.GetDB(), actor)
-	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !allowed, 403, gin.H{"error": "forbidden"})
+	abortUnlessVisible(c, db.GetDB(), s, actor)
 	result, err := serializer.StatusReactions(s.Id, actor, true)
 	controllers.AbortIfError(c, err)
 	c.JSON(200, result)

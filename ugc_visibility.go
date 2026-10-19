@@ -72,6 +72,10 @@ func UGCVisitorGuard() gin.HandlerFunc {
 			c.Next() // stream events are filtered per event
 			return
 		}
+		if mode == moderation.UGCLocal && trimmed == "/polls/:id" && remotePollTarget(c) {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": controllers.RecordNotFoundMessage})
+			return
+		}
 		if mode == moderation.UGCLocal && (trimmed == "/timelines/public" || trimmed == "/timelines/tag/:tag" || trimmed == "/directory" || trimmed == "/explore/groups") {
 			q := c.Request.URL.Query()
 			q.Set("local", "true")
@@ -118,8 +122,27 @@ func signinRequiredTarget(c *gin.Context, path string) bool {
 			return false
 		}
 		return models.StatusRequiresSignin(db.GetDB(), id)
+	case trimmed == "/polls/:id":
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil {
+			return false
+		}
+		statusID := models.PollStatusID(db.GetDB(), id)
+		return statusID != 0 && models.StatusRequiresSignin(db.GetDB(), statusID)
 	}
 	return false
+}
+
+// remotePollTarget reports whether a /polls/:id request addresses a poll of
+// a remote status (hidden from visitors in "local" mode; the poll JSON has
+// no account the response filter could recognise).
+func remotePollTarget(c *gin.Context) bool {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		return false
+	}
+	statusID := models.PollStatusID(db.GetDB(), id)
+	return statusID != 0 && models.StatusIsRemote(db.GetDB(), statusID)
 }
 
 type bufferedWriter struct {
