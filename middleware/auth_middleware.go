@@ -11,6 +11,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/secretredact"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
@@ -100,11 +101,16 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Enforce them even on legacy routes without a granular scope guard.
 		if token.ExternalClient == models.PersonalTokenClient {
 			reading := c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead || c.Request.Method == http.MethodOptions
-			if tokenData.Scopes == nil || (reading && tokenData.Scopes.ReadScope == 0) || (!reading && tokenData.Scopes.WriteScope == 0) {
+			s := tokenData.Scopes
+			if s == nil || (reading && s.ReadScope == 0 && s.AdminScope&models.AppScopeAdminRead == 0) || (!reading && !oauthTokenMayWrite(c.Request, tokenData)) {
 				returnInsufficientScope(c)
 				return
 			}
 		} else if !oauthTokenMayWrite(c.Request, tokenData) {
+			returnInsufficientScope(c)
+			return
+		}
+		if !granularWriteAllowed(c.Request, tokenData) {
 			returnInsufficientScope(c)
 			return
 		}
@@ -177,6 +183,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		// only run AuthMiddleware and check GetBool("authenticated"), which
 		// was previously set by CheckAuthMiddleware alone.
 		c.Set("authenticated", true)
+		touchTokenLastUsed(c.Request.Context(), token, time.Now())
 		c.Next()
 	}
 }
@@ -292,6 +299,10 @@ func getTokenWithCacheContext(requestContext context.Context, tokenStr string) (
 	if err := db.GetDB().WithContext(requestContext).Where("token = ?", digest).First(token).Error; err != nil {
 		return nil, errors.Wrap(err, "get token by token str error")
 	}
+	if token.Revoke == nil && tokenInactive(token, time.Now()) {
+		expireInactiveToken(requestContext, token)
+		return nil, errors.New("token inactive")
+	}
 	if canWriteCache && cacheContext.Err() == nil {
 		if token.Revoke != nil || (token.ExpiredAt != nil && token.ExpiredAt.Unix() > 0 && token.ExpiredAt.Unix() < time.Now().Unix()) {
 			_ = redisClient.Set(cacheContext, cacheKey, "revoked", revokedTokenCacheTTL).Err()
@@ -368,9 +379,62 @@ func oauthTokenMayWrite(r *http.Request, td *models.AuthTokenData) bool {
 		return true
 	}
 	// Mastodon grants translation with read:statuses even though it is a POST.
-	if strings.HasPrefix(r.URL.Path, "/api/v1/statuses/") && strings.HasSuffix(r.URL.Path, "/translate") {
+	if isTranslatePath(r.URL.Path) {
 		return true
 	}
 	s := td.Scopes
 	return s != nil && (s.WriteScope != 0 || s.AdminScope&models.AppScopeAdminWrite != 0 || s.OtherScope&(models.AppScopeFollow|models.AppScopePush) != 0)
+}
+
+// tokenLastUsedInterval throttles last_used_at writes per token.
+const tokenLastUsedInterval = time.Hour
+
+// tokenInactive applies the optional inactivity rule to API tokens: idle
+// time is measured from the later of created_at and last_used_at.
+func tokenInactive(token *models.AuthToken, now time.Time) bool {
+	if token.Type == models.AuthTokenTypeWeb || !systemsettings.APITokenInactivityExpiry() {
+		return false
+	}
+	var since time.Time
+	if token.CreatedAt != nil {
+		since = *token.CreatedAt
+	}
+	if token.LastUsedAt != nil && token.LastUsedAt.After(since) {
+		since = *token.LastUsedAt
+	}
+	return !since.IsZero() && now.Sub(since) > systemsettings.APITokenInactivityLimit
+}
+
+// expireInactiveToken soft-revokes an inactive token (the row is kept) so it
+// stays invalid even if the rule is later turned off. The conditional UPDATE
+// is idempotent under concurrent requests.
+func expireInactiveToken(ctx context.Context, token *models.AuthToken) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer cancel()
+	err := db.GetDB().WithContext(ctx).Model(&models.AuthToken{}).
+		Where("token = ? AND revoke IS NULL", token.Token).
+		Updates(map[string]any{"revoke": time.Now(), "revoke_reason": models.RevokeReasonInactive}).Error
+	if err != nil {
+		log.Warn("expire inactive token: %v", err)
+	}
+	InvalidateTokenCacheHash(token.Token)
+}
+
+// touchTokenLastUsed records use of an authenticated token. It runs only when
+// the row was read from the database (cache hits carry no row) and the stored
+// value is older than tokenLastUsedInterval, so at most one small UPDATE per
+// token per hour. Failures are ignored: this must never fail the request.
+func touchTokenLastUsed(ctx context.Context, token *models.AuthToken, now time.Time) {
+	if token == nil || token.Token == "" || (token.LastUsedAt != nil && now.Sub(*token.LastUsedAt) < tokenLastUsedInterval) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 500*time.Millisecond)
+	defer cancel()
+	_ = db.GetDB().WithContext(ctx).Model(&models.AuthToken{}).
+		Where("token = ? AND (last_used_at IS NULL OR last_used_at < ?)", token.Token, now.Add(-tokenLastUsedInterval)).
+		Update("last_used_at", now).Error
+}
+
+func isTranslatePath(path string) bool {
+	return strings.HasPrefix(path, "/api/v1/statuses/") && strings.HasSuffix(path, "/translate")
 }

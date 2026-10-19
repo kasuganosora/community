@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/adminwebhook"
 	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/controllers/api/account"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
@@ -52,35 +53,81 @@ func Tokens(c *gin.Context) {
 		failure(c, err)
 		return
 	}
+	if len(rows) > 0 {
+		hashes := make([]string, len(rows))
+		for i, row := range rows {
+			hashes[i] = row.TokenHash
+		}
+		tokens := []models.AuthToken{}
+		if err := conn(c).Select("token", "last_used_at", "revoke_reason").Where("token IN ? AND user_id = ?", hashes, owner(c).UserId).Find(&tokens).Error; err != nil {
+			failure(c, err)
+			return
+		}
+		byHash := map[string]models.AuthToken{}
+		for _, token := range tokens {
+			byHash[token.Token] = token
+		}
+		for i := range rows {
+			token := byHash[rows[i].TokenHash]
+			rows[i].LastUsedAt, rows[i].RevokedReason = token.LastUsedAt, token.RevokeReason
+		}
+	}
 	c.JSON(200, rows)
 }
+
+// canHoldAdminScopes reports whether the user currently has any admin or
+// moderator capability. Admin scopes are re-checked per request as well.
+func canHoldAdminScopes(c *gin.Context, userID uint64) (bool, error) {
+	var user models.User
+	if err := conn(c).First(&user, userID).Error; err != nil {
+		return false, err
+	}
+	if user.IsAdmin {
+		return true, nil
+	}
+	bits, err := models.EffectiveAdminPermissions(conn(c), &user)
+	return bits != 0, err
+}
+
 func CreateToken(c *gin.Context) {
 	var input struct {
 		Name          string   `json:"name"`
 		Scopes        []string `json:"scopes"`
 		ExpiresInDays int      `json:"expires_in_days"`
+		Password      string   `json:"password"`
+		OTP           string   `json:"otp"`
 	}
 	if c.ShouldBindJSON(&input) != nil {
 		invalid(c)
 		return
 	}
 	input.Name = strings.TrimSpace(input.Name)
-	if input.Name == "" || utf8.RuneCountInString(input.Name) > 100 || len(input.Scopes) == 0 || len(input.Scopes) > 2 || (len(input.Scopes) == 2 && input.Scopes[0] == input.Scopes[1]) || !slices.Contains([]int{0, 7, 30, 90, 365}, input.ExpiresInDays) {
+	if input.Name == "" || utf8.RuneCountInString(input.Name) > 100 || len(input.Scopes) > 64 || !slices.Contains([]int{0, 7, 30, 90, 365}, input.ExpiresInDays) {
 		invalid(c)
 		return
 	}
-	scopes := &models.ApplicationScope{}
-	for _, s := range input.Scopes {
-		switch s {
-		case "read":
-			scopes.ReadScope = models.AppScopeRead
-		case "write":
-			scopes.WriteScope = models.AppScopeWrite
-		default:
-			invalid(c)
+	parsed, names, ok := models.ParsePersonalTokenScopes(input.Scopes)
+	if !ok {
+		c.AbortWithStatusJSON(422, gin.H{"error": "invalid_scope"})
+		return
+	}
+	scopes := &parsed
+	if scopes.AdminScope != 0 {
+		allowed, err := canHoldAdminScopes(c, owner(c).UserId)
+		if err != nil {
+			failure(c, err)
+			return
+		}
+		if !allowed {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin_scope_forbidden"})
+			return
+		}
+		if scopes.HasAdminWrite() && !account.ConfirmSensitive(c, owner(c).UserId, input.Password, input.OTP) {
+			c.Abort()
 			return
 		}
 	}
+	input.Scopes = names
 	row, raw := models.NewAuthToken(owner(c).UserId, models.AuthTokenTypeOauth, 0, 0, scopes, input.ExpiresInDays*86400, config.C.EncryptedKey)
 	row.ExternalClient = models.PersonalTokenClient
 	if raw == "" {

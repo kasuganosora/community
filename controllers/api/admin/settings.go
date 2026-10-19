@@ -73,6 +73,9 @@ func settingsSections() map[string]SettingsSection {
 			{Key: systemsettings.KeyDiscoveryTrendsEnabled, Label: "启用热门话题", Type: "boolean", Value: true, Description: "独立控制公开热点和趋势接口，不受用户推荐偏好影响。"},
 		}},
 	}
+	sections["api_tokens"] = SettingsSection{Title: "API 令牌", Description: "访问令牌的安全策略。", Fields: []SettingsField{
+		{Key: systemsettings.KeyAPITokenInactivityExpiry, Label: "自动吊销 6 个月未使用的 API 令牌", Type: "boolean", Value: false, Description: "开启后，最后一次使用（从未使用则为创建时间）超过 180 天的访问令牌会在下次使用时被吊销。"},
+	}}
 	sections["email"] = SettingsSection{Title: "邮件服务器", Description: "保存后立即用于新的邮件连接；.env 和环境变量中的值优先。测试连接不会发送邮件。", Fields: emailSettingsFields()}
 	sections["storage"] = SettingsSection{Title: "对象存储", Description: "修改存储连接需要重启服务器；不会自动迁移已有文件。保存后可测试已保存的目标配置，重启后才切换实际存储。", Fields: storageSettingsFields()}
 	sections["database"] = SettingsSection{Title: "数据库", Description: "数据库连接由部署环境管理，这里仅展示当前连接池诊断，不提供 SQL 执行或凭据。", Fields: databaseSettingsFields()}

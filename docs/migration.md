@@ -191,6 +191,7 @@ tootctl two-factor scrub-preserved     # 清除旧导入归档里的明文 secre
 4. **对象存储 URL 必须保持在线。** `--object-storage-mode reference` 不复制文件，导入后的附件、头像、表情仍指向原 bucket 的公开 URL。迁移完成后**不能删除 bucket、不能改它的域名或访问策略**；要换存储，先用 `copy` 模式（或之后用 `tootctl media` 迁移）把文件搬过来。
 5. **不迁移的内容（用户需要知道）：**
    - 登录会话、OAuth 应用与访问令牌：所有客户端需要重新登录 / 重新授权。
+   - Misskey 的应用访问令牌（`access_token`）只进入加密归档，不会导入为本站令牌：切换后所有第三方应用都必须重新登录（Misskey app tokens are not migrated; third-party apps must log in again after cutover）。
    - TOTP 二步验证（MFA）：**会迁移**，见下文「二步验证（TOTP）与敏感文件」。
    - **通行密钥 / 安全密钥（passkeys / WebAuthn）：不迁移，用户必须在新站重新注册。** `community-transfer` 不导入任何安全密钥；迁移公告里要提前告知用户：迁移后先用密码（以及已迁移的 TOTP）登录，再到「设置 → 安全」重新添加安全密钥 / 通行密钥。只用安全密钥、没有 TOTP 的账号会在预检中报 `passwordless_without_totp`。预检对有安全密钥的账号给出 `security_keys_separate` 警告，可据此统计需要通知的用户。（实验性的 `tootctl passkeys import-misskey` 仍然存在，但不属于本手册的支持流程，不能保证导入的密钥可用；不要以它代替通知用户重新注册。）
    - **引用（quote）笔记**（maid.lat：317 条）和**频道笔记**（5 条）只进入私有归档（archive-only），不作为公开帖子发布。回复它们的笔记照常发布，但不带回复链（帖子属性 `import_reply_parent_archived` 记录原父帖 ID）；转发它们的笔记同样只归档。

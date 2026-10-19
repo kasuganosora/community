@@ -377,17 +377,21 @@ func SetRouter(app gin.IRouter) {
 		POST("/statuses/:id/unpin", status.UnPin).
 		POST("/statuses/:id/reblog", status.Reblog).
 		POST("/statuses/:id/unreblog", status.Unreblog).
-		POST("/statuses/:id/favourite", status.Favourite).
-		POST("/statuses/:id/unfavourite", status.Unfavourite).
 		PUT("/statuses/:id/reactions/:name", status.AddReaction).
 		DELETE("/statuses/:id/reactions/:name", status.RemoveReaction).
 		POST("/statuses/:id/mute", status.MuteStatus).
 		POST("/statuses/:id/unmute", status.UnmuteStatus).
-		POST("/statuses/:id/bookmark", status.Bookmark).
-		POST("/statuses/:id/unbookmark", status.Unbookmark).
 		POST("/polls/:id/votes", status.VotePoll).
 		POST("/scheduled_statuses/:id", status.UpdateStatusScheduledAt).
 		POST("/markers", marker.Save)
+
+	// Favourites and bookmarks use their own Mastodon scopes.
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFavourites})).
+		POST("/statuses/:id/favourite", status.Favourite).
+		POST("/statuses/:id/unfavourite", status.Unfavourite)
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteBookmarks})).
+		POST("/statuses/:id/bookmark", status.Bookmark).
+		POST("/statuses/:id/unbookmark", status.Unbookmark)
 
 	// 媒体上传（写入，需登录 + 媒体写入 scope + 限流：每用户每分钟 30 次）
 	mediaGroup := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(),

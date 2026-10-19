@@ -195,3 +195,10 @@ func RequestAccountDeletion(c *gin.Context) {
 	middleware.SetAppTokenCookie(c, "", -1)
 	c.JSON(202, gin.H{"state": "pending"})
 }
+
+// ConfirmSensitive re-checks the current password, plus the TOTP code when
+// two-factor is enabled, before a sensitive action. It writes the error
+// response and returns false on failure.
+func ConfirmSensitive(c *gin.Context, userID uint64, password, otp string) bool {
+	return lifecyclePassword(c, userID, password, otp)
+}

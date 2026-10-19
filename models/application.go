@@ -16,58 +16,59 @@ import (
 const (
 	// 读取权限单独一组.
 
-	AppScopeRead              = 0xFFFFFFFFFFFFFFFF // 读取你的账户数据
-	AppScopeReadAccounts      = 0x1                // 查看账号信息
-	AppScopeReadBlocks        = 0x3                // 查看你的屏蔽列表
-	AppScopeReadBookmarks     = 0x7                // 查看你的书签
-	AppScopeReadFavourites    = 0xF                // 查看喜欢的嘟文
-	AppScopeReadFilters       = 0x1F               // 查看你的过滤器
-	AppScopeReadFollows       = 0x3F               // 查看你的关注
-	AppScopeReadLists         = 0x7F               // 查看你的列表
-	AppScopeReadMutes         = 0xFF               // 查看你的隐藏列表
-	AppScopeReadNotifications = 0x1FF              // 查看你的通知
-	AppScopeReadSearch        = 0x3FF              // 以你的身份搜索
-	AppScopeReadStatuses      = 0x7FF              // 查看所有嘟文
+	AppScopeRead = 0xFFFFFFFFFFFFFFFF // 读取你的账户数据
+	// Granular scopes are independent bits so that, for example, read:blocks
+	// does not imply read:accounts. Tokens issued with a parent scope carry
+	// all bits (0xFFFF...), which keeps satisfying every granular check.
+	AppScopeReadAccounts      = 1 << 0  // 查看账号信息
+	AppScopeReadBlocks        = 1 << 1  // 查看你的屏蔽列表
+	AppScopeReadBookmarks     = 1 << 2  // 查看你的书签
+	AppScopeReadFavourites    = 1 << 3  // 查看喜欢的嘟文
+	AppScopeReadFilters       = 1 << 4  // 查看你的过滤器
+	AppScopeReadFollows       = 1 << 5  // 查看你的关注
+	AppScopeReadLists         = 1 << 6  // 查看你的列表
+	AppScopeReadMutes         = 1 << 7  // 查看你的隐藏列表
+	AppScopeReadNotifications = 1 << 8  // 查看你的通知
+	AppScopeReadSearch        = 1 << 9  // 以你的身份搜索
+	AppScopeReadStatuses      = 1 << 10 // 查看所有嘟文
 
-	// 写入权限单独一组.
-
+	// 写权限.
 	AppScopeWrite              = 0xFFFFFFFFFFFFFFFF // 写入你的账户数据
-	AppScopeWriteAccounts      = 0x1                // 修改你的个人资料
-	AppScopeWriteBlocks        = 0x3                // 屏蔽账号和域名
-	AppScopeWriteBookmarks     = 0x7                // 为嘟文添加书签
-	AppScopeWriteConversations = 0xF                // 静音并删除会话
-	AppScopeWriteFavourites    = 0x1F               // 喜欢的嘟文
-	AppScopeWriteFilters       = 0x3F               // 创建过滤器
-	AppScopeWriteFollows       = 0x7F               // 关注其他人
-	AppScopeWriteLists         = 0xFF               // 创建列表
-	AppScopeWriteMedia         = 0x1FF              // 上传媒体文件
-	AppScopeWriteMutes         = 0x3FF              // 隐藏用户和对话
-	AppScopeWriteNotifications = 0x7FF              // 清除你的通知
-	AppScopeWriteReports       = 0xFFF              // 举报他人
-	AppScopeWriteStatuses      = 0x1FFF             // 发表嘟文
+	AppScopeWriteAccounts      = 1 << 0             // 修改你的个人资料
+	AppScopeWriteBlocks        = 1 << 1             // 屏蔽账号和域名
+	AppScopeWriteBookmarks     = 1 << 2             // 为嘟文添加书签
+	AppScopeWriteConversations = 1 << 3             // 静音并删除会话
+	AppScopeWriteFavourites    = 1 << 4             // 喜欢的嘟文
+	AppScopeWriteFilters       = 1 << 5             // 创建过滤器
+	AppScopeWriteFollows       = 1 << 6             // 关注其他人
+	AppScopeWriteLists         = 1 << 7             // 创建列表
+	AppScopeWriteMedia         = 1 << 8             // 上传媒体文件
+	AppScopeWriteMutes         = 1 << 9             // 隐藏用户和对话
+	AppScopeWriteNotifications = 1 << 10            // 清除你的通知
+	AppScopeWriteReports       = 1 << 11            // 举报他人
+	AppScopeWriteStatuses      = 1 << 12            // 发表嘟文
 
-	// 管理权限单独一组.
-
+	// 管理权限: read bits in the low 32 bits, write bits in the high 32.
 	AppScopeAdmin                          = 0xFFFFFFFFFFFFFFFF // 管理服务器上的所有数据
 	AppScopeAdminRead                      = 0xFFFFFFFF
-	AppScopeAdminReadAccounts              = 0x1
-	AppScopeAdminReadCanonicalEmailBlocks  = 0x3
-	AppScopeAdminReadDomainAllows          = 0x7
-	AppScopeAdminReadDomainBlocks          = 0xF
-	AppScopeAdminReadEmailDomainBlocks     = 0x1F
-	AppScopeAdminReadIpBlocks              = 0x3F
-	AppScopeAdminReadReports               = 0x7F
+	AppScopeAdminReadAccounts              = 1 << 0
+	AppScopeAdminReadCanonicalEmailBlocks  = 1 << 1
+	AppScopeAdminReadDomainAllows          = 1 << 2
+	AppScopeAdminReadDomainBlocks          = 1 << 3
+	AppScopeAdminReadEmailDomainBlocks     = 1 << 4
+	AppScopeAdminReadIpBlocks              = 1 << 5
+	AppScopeAdminReadReports               = 1 << 6
+	AppScopeAdminReadThumbnails            = 1 << 7
 	AppScopeAdminWrite                     = 0xFFFFFFFF00000000
-	AppScopeAdminWriteAccounts             = 0x100000000
-	AppScopeAdminWriteCanonicalEmailBlocks = 0x300000000
-	AppScopeAdminWriteDomainAllows         = 0x700000000
-	AppScopeAdminWriteDomainBlocks         = 0xF00000000
-	AppScopeAdminWriteEmailDomainBlocks    = 0x1F00000000
-	AppScopeAdminWriteIpBlocks             = 0x3F00000000
-	AppScopeAdminWriteReports              = 0x7F00000000
-	AppScopeAdminWriteRules                = 0xF000000000
-	AppScopeAdminReadThumbnails            = 0x1F000000000
-	AppScopeAdminWriteThumbnails           = 0x3F000000000
+	AppScopeAdminWriteAccounts             = 1 << 32
+	AppScopeAdminWriteCanonicalEmailBlocks = 1 << 33
+	AppScopeAdminWriteDomainAllows         = 1 << 34
+	AppScopeAdminWriteDomainBlocks         = 1 << 35
+	AppScopeAdminWriteEmailDomainBlocks    = 1 << 36
+	AppScopeAdminWriteIpBlocks             = 1 << 37
+	AppScopeAdminWriteReports              = 1 << 38
+	AppScopeAdminWriteRules                = 1 << 39
+	AppScopeAdminWriteThumbnails           = 1 << 40
 
 	// 其他权限单独一组.
 	AppScopeFollow = 0x1

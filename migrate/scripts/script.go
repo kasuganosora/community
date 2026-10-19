@@ -69,6 +69,7 @@ var ScripsType = []MigrationScript{
 	ExploreGroupHotScoresScript{},
 	ImportColumnWidthsScript{},
 	RelayActorURIScript{},
+	TokenLastUsedScript{},
 }
 
 type MigrationScript interface {

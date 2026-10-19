@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { AdminAlert, AdminButton, AdminCheck, AdminEmpty, AdminField, AdminPageHeader, AdminRow } from "../components/ui";
 import { operationsAdminApi as api, type CaptchaConfig, type SiteRule } from "../../infrastructure/operationsAdminApi";
 import { t } from '@/shared/i18n'
+import ApiTokenPolicyCard from '../components/ApiTokenPolicyCard.vue'
 const props = withDefaults(defineProps<{ mode?: 'rules' | 'security' | 'all' }>(), { mode: 'all' })
 const rules = ref<SiteRule[]>([]);
 const config = ref<CaptchaConfig>();
@@ -159,5 +160,6 @@ onUnmounted(() => {
         <div class="admin-form-actions"><AdminButton type="submit" variant="primary" :loading="busy" :disabled="!dirty || config.environment_override">{{ busy ? $t('admin.SettingsAdminPage.s30') : $t('admin.SettingsAdminPage.s31') }}</AdminButton></div>
       </form>
     </template>
+    <ApiTokenPolicyCard v-if="mode === 'security'" />
   </div>
 </template>

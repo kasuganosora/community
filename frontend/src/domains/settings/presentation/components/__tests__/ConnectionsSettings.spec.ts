@@ -1,11 +1,13 @@
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AccessTokenSettings from '../AccessTokenSettings.vue'
 import WebhookSettings from '../WebhookSettings.vue'
 import { connectionsApi, runConsole } from '../../../infrastructure/connectionsApi'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { tokenService } from '@/shared/api/client'
+import { createPinia, setActivePinia } from 'pinia'
 
+beforeEach(() => { setActivePinia(createPinia()); window.matchMedia ??= ((query: string) => ({ matches: false, media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it('lets users select individual triggers, retains an existing secret, and clears drafts on account switch', async () => {
@@ -31,17 +33,31 @@ it('lets users select individual triggers, retains an existing secret, and clear
 it('does not reveal a token that finishes creating after switching accounts', async () => {
   vi.spyOn(connectionsApi, 'tokens').mockResolvedValue([])
   let resolve!: (value: Awaited<ReturnType<typeof connectionsApi.createToken>>) => void
-  vi.spyOn(connectionsApi, 'createToken').mockReturnValue(new Promise(done => { resolve = done }))
-  const wrapper = mount(AccessTokenSettings); await flushPromises()
+  const create = vi.spyOn(connectionsApi, 'createToken').mockReturnValue(new Promise(done => { resolve = done }))
+  const wrapper = mount(AccessTokenSettings, { attachTo: document.body }); await flushPromises()
   await wrapper.findAll('button').find(button => button.text() === '生成访问令牌')!.trigger('click')
-  await wrapper.get('input:not([type="checkbox"])').setValue('My app')
-  await wrapper.get('form').trigger('submit')
+  await flushPromises()
+  const input = document.querySelector<HTMLInputElement>('#token-form input:not([type="checkbox"])')!
+  input.value = 'My app'; input.dispatchEvent(new Event('input'))
+  await flushPromises()
+  document.querySelector<HTMLFormElement>('#token-form')!.dispatchEvent(new Event('submit'))
+  await flushPromises()
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: 'My app', scopes: ['read:accounts', 'read:statuses'] }))
   sessionEpoch.value++
   resolve({ token: 'must-not-leak', item: { id: 'token-1', name: 'My app', scopes: ['read'], created_at: '', expires_at: null } })
   await flushPromises()
   expect(wrapper.find('textarea').exists()).toBe(false)
   expect(wrapper.text()).not.toContain('My app')
   wrapper.unmount()
+})
+
+it('collapses complete scope sets, keeps admin scopes out of enable-all, and asks for re-auth on admin writes', async () => {
+  const { collapseScopes, needsReauth, userScopeRows } = await import('../../../domain/tokenScopes')
+  expect(collapseScopes(userScopeRows.map(r => r.scope))).toEqual(['push', 'read', 'write'])
+  expect(collapseScopes(['write:statuses', 'read:statuses'])).toEqual(['read:statuses', 'write:statuses'])
+  expect(userScopeRows.some(r => r.scope.startsWith('admin:'))).toBe(false)
+  expect(needsReauth(['admin:read:reports'])).toBe(false)
+  expect(needsReauth(['admin:write:reports'])).toBe(true)
 })
 
 it('restricts the API console to this server and validates JSON before sending credentials', async () => {

@@ -1,13 +1,13 @@
 import client, { tokenService } from '@/shared/api/client'
 
-export interface AccessToken { id: string; name: string; scopes: string[]; created_at: string; expires_at: string | null }
+export interface AccessToken { id: string; name: string; scopes: string[]; created_at: string; expires_at: string | null; last_used_at?: string | null; revoked_reason?: string }
 export interface Webhook { id: string; name: string; url: string; events: string[]; enabled: boolean; created_at: string }
 export interface HookDraft { name: string; url: string; secret: string; events: string[]; enabled: boolean }
 export interface Delivery { id: string; event: string; state: 'pending' | 'processing' | 'delivered' | 'failed' | 'cancelled'; attempts: number; last_error: string; created_at: string }
 const path = '/api/v1/settings'
 export const connectionsApi = {
   async tokens() { return (await client.get<AccessToken[]>(`${path}/tokens`)).data },
-  async createToken(input: { name: string; scopes: string[]; expires_in_days: number }) { return (await client.post<{ token: string; item: AccessToken }>(`${path}/tokens`, input)).data },
+  async createToken(input: { name: string; scopes: string[]; expires_in_days: number; password?: string; otp?: string }) { return (await client.post<{ token: string; item: AccessToken }>(`${path}/tokens`, input)).data },
   async revokeToken(id: string) { await client.delete(`${path}/tokens/${encodeURIComponent(id)}`) },
   async hooks() { return (await client.get<Webhook[]>(`${path}/webhooks`)).data },
   async saveHook(input: HookDraft, id?: string) {

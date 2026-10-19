@@ -20,6 +20,10 @@ type PersonalAccessToken struct {
 	Scopes    []string   `gorm:"type:json;serializer:json" json:"scopes"`
 	CreatedAt time.Time  `json:"created_at"`
 	ExpiresAt *time.Time `json:"expires_at"`
+	// LastUsedAt is read from the matching auth_tokens row for display.
+	LastUsedAt *time.Time `gorm:"-" json:"last_used_at"`
+	// RevokedReason is set when the token was revoked automatically.
+	RevokedReason string `gorm:"-" json:"revoked_reason,omitempty"`
 }
 
 type UserWebhook struct {

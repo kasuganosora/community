@@ -86,6 +86,31 @@ func TestReadOnlyTokensGetForbiddenOnWrites(t *testing.T) {
 			}
 		}
 	}
+	// Granular tokens: only the matching Mastodon scope may write.
+	granular := func(write, other uint64) string {
+		return issue(&models.ApplicationScope{ReadScope: models.AppScopeRead, WriteScope: write, OtherScope: other}, true)
+	}
+	r.POST("/api/v1/accounts/:id/block", ok)
+	r.POST("/api/v1/accounts/:id/follow", ok)
+	for _, tc := range []struct {
+		token  string
+		method string
+		path   string
+		want   int
+	}{
+		{granular(models.AppScopeWriteAccounts, 0), "PATCH", "/api/v1/accounts/update_credentials", 204},
+		{granular(models.AppScopeWriteAccounts, 0), "POST", "/api/v1/accounts/1/block", 403},
+		{granular(models.AppScopeWriteAccounts, 0), "POST", "/api/v1/statuses", 403},
+		{granular(models.AppScopeWriteFavourites, 0), "POST", "/api/v1/statuses/1/favourite", 204},
+		{granular(models.AppScopeWriteStatuses, 0), "POST", "/api/v1/statuses", 204},
+		{granular(models.AppScopeWriteStatuses, 0), "POST", "/api/v1/statuses/1/favourite", 403},
+		{granular(models.AppScopeWriteBlocks, 0), "POST", "/api/v1/accounts/1/block", 204},
+		{granular(0, models.AppScopeFollow), "POST", "/api/v1/accounts/1/follow", 204},
+		{granular(0, models.AppScopePush), "POST", "/api/v1/accounts/1/follow", 403},
+	} {
+		code, _ := do(tc.method, tc.path, tc.token)
+		require.Equal(t, tc.want, code, "%s %s", tc.method, tc.path)
+	}
 	for _, bad := range []string{"not-a-token", readPAT[:len(readPAT)-4] + "AAAA"} {
 		code, _ := do("POST", "/api/v1/statuses", bad)
 		require.Equal(t, 401, code)

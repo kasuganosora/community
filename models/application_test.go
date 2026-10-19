@@ -26,9 +26,11 @@ func TestApplicationScope_HasScope(t *testing.T) {
 		assert.True(t, scope.HasScope(AppScopeTypeWrite, AppScopeWriteStatuses))
 	})
 
-	t.Run("cumulative write scope includes lower scopes", func(t *testing.T) {
-		// AppScopeWriteStatuses = 0x1FFF includes all lower write scope bits
-		assert.True(t, scope.HasScope(AppScopeTypeWrite, AppScopeWriteAccounts))
+	t.Run("granular write scopes are independent", func(t *testing.T) {
+		// write:statuses no longer implies write:accounts
+		assert.False(t, scope.HasScope(AppScopeTypeWrite, AppScopeWriteAccounts))
+		full := &ApplicationScope{WriteScope: AppScopeWrite}
+		assert.True(t, full.HasScope(AppScopeTypeWrite, AppScopeWriteAccounts))
 	})
 
 	t.Run("missing higher write scope", func(t *testing.T) {
@@ -77,12 +79,11 @@ func TestApplicationScope_RemoveScope(t *testing.T) {
 		assert.False(t, scope.HasScope(AppScopeTypeRead, AppScopeReadAccounts))
 	})
 
-	t.Run("remove higher bits keeps lower bits", func(t *testing.T) {
-		// 0x7FF = AppScopeReadStatuses, remove 0x400 (bit 10) keeps 0x3FF
-		scope := &ApplicationScope{ReadScope: AppScopeReadStatuses}
-		scope.RemoveScope(AppScopeTypeRead, 0x400)
-		assert.True(t, scope.HasScope(AppScopeTypeRead, AppScopeReadSearch))    // 0x3FF still set
-		assert.False(t, scope.HasScope(AppScopeTypeRead, AppScopeReadStatuses)) // 0x7FF no longer
+	t.Run("removing one granular scope keeps the others", func(t *testing.T) {
+		scope := &ApplicationScope{ReadScope: AppScopeRead}
+		scope.RemoveScope(AppScopeTypeRead, AppScopeReadStatuses)
+		assert.True(t, scope.HasScope(AppScopeTypeRead, AppScopeReadSearch))
+		assert.False(t, scope.HasScope(AppScopeTypeRead, AppScopeReadStatuses))
 	})
 }
 

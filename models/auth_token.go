@@ -30,6 +30,11 @@ type AuthToken struct {
 	ExpiredAt *time.Time `gorm:"column:expired_at;"` // 如果为空则表示永不过期,如果 now > expired_at 则表示已经过期, 会有定时任务定时清理过期的token
 	CreatedAt *time.Time `gorm:"column:created_at;not null;autoCreateTime"`
 	Revoke    *time.Time `gorm:"column:revoke"` // 撤销时间,当撤销时间不为空时候,表示token已经被撤销
+	// LastUsedAt is refreshed by the auth middleware at most once an hour;
+	// NULL means never used since the column was added.
+	LastUsedAt *time.Time `gorm:"column:last_used_at"`
+	// RevokeReason explains an automatic revoke ("inactive"); empty otherwise.
+	RevokeReason string `gorm:"column:revoke_reason;size:32"`
 }
 
 func (AuthToken) TableName() string {
@@ -224,3 +229,6 @@ func GetTokenByTokenStr(tokenStr string) (token *AuthToken, err error) {
 
 	return
 }
+
+// RevokeReasonInactive marks a token expired by the inactivity rule.
+const RevokeReasonInactive = "inactive"
