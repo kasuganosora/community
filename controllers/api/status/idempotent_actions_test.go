@@ -26,10 +26,10 @@ func assertIdempotentStatus(t *testing.T, w *httptest.ResponseRecorder, statusID
 // call answers 200 with the status, and counters change only once.
 func TestStatusActionsAreIdempotent(t *testing.T) {
 	type action struct {
-		name    string
+		name     string
 		do, undo func(*gin.Context)
-		field   string
-		post    bool
+		field    string
+		post     bool
 	}
 	actions := []action{
 		{"favourite", Favourite, Unfavourite, "favourited", false},
