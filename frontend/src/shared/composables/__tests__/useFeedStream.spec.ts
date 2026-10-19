@@ -1,7 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent, ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useFeedStream } from '../useFeedStream'
+import { streamTransport, useFeedStream } from '../useFeedStream'
 import { invalidateSessionData } from '@/shared/api/sessionScope'
 
 let push: ReadableStreamDefaultController<Uint8Array>
@@ -16,11 +16,12 @@ function setup(callback = vi.fn().mockResolvedValue(true)) {
 }
 beforeEach(() => {
   vi.useFakeTimers(); vi.stubGlobal('fetch', fetcher)
+  streamTransport.sseUntil = Number.POSITIVE_INFINITY // these cases cover the SSE transport
   Object.defineProperty(document, 'hidden', { configurable: true, value: false })
   localStorage.setItem('auth_token', 'test-secret')
   fetcher.mockReset().mockImplementation(async () => ({ ok: true, headers: new Headers({ 'Content-Type': 'text/event-stream' }), body: new ReadableStream<Uint8Array>({ start(controller) { push = controller } }) }))
 })
-afterEach(() => { mounted.splice(0).forEach(w => w.unmount()); vi.useRealTimers(); vi.unstubAllGlobals() })
+afterEach(() => { streamTransport.sseUntil = 0; streamTransport.wsFailures = 0; mounted.splice(0).forEach(w => w.unmount()); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('feed invalidation stream', () => {
   it('uses header auth and merges bursts without treating heartbeat or duplicate revisions as content', async () => {
@@ -42,6 +43,9 @@ describe('feed invalidation stream', () => {
     await flushPromises(); await vi.advanceTimersByTimeAsync(250); callback.mockClear()
     push.close(); await flushPromises(); await vi.advanceTimersByTimeAsync(1250)
     expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(callback).not.toHaveBeenCalled() // resync waits for the subscribed confirmation
+    push.enqueue(encode(': padding\n\nevent: feed.changed\ndata: {"epoch":"subscribed","revision":"r2"}\n\n'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
     expect(callback).toHaveBeenCalledTimes(1)
   })
   it('aborts old scopes and suppresses hidden page polling, then rechecks on resume', async () => {

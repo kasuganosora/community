@@ -8,8 +8,8 @@ import type { Plugin } from 'vite'
 /**
  * Build id shared by the client bundle (__BUILD_ID__), /version.json and the
  * service worker: <git sha>-<build time>, so every build is distinct and
- * traceable to a commit. Override with COMMUNITY_BUILD_ID (whole id) or
- * COMMUNITY_BUILD_SHA (sha part, for builds outside a git checkout).
+ * traceable to a commit. Outside a git checkout pass the commit as
+ * COMMUNITY_BUILD_SHA or COMMUNITY_BUILD_ID.
  */
 function gitSha(): string {
   try {
@@ -18,10 +18,12 @@ function gitSha(): string {
     return ''
   }
 }
-export const buildSha = process.env.COMMUNITY_BUILD_SHA?.trim() || gitSha()
+// COMMUNITY_BUILD_SHA and COMMUNITY_BUILD_ID are interchangeable (prod
+// passes the commit as COMMUNITY_BUILD_ID): either names the commit, and the
+// build time is always appended so every build gets a distinct id.
+export const buildSha = (process.env.COMMUNITY_BUILD_SHA || process.env.COMMUNITY_BUILD_ID || '').trim() || gitSha()
 export const builtAt = new Date().toISOString()
-export const buildId = process.env.COMMUNITY_BUILD_ID?.trim()
-  || `${buildSha || 'nogit'}-${Date.now().toString(36)}`
+export const buildId = `${buildSha || 'nogit'}-${Date.now().toString(36)}`
 
 /**
  * Emits /version.json ({ build }) and /sw.js, a service worker that

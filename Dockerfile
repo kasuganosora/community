@@ -35,8 +35,8 @@ RUN npm ci
 COPY frontend/ ./
 # Build id shown in /version.json is <git sha>-<build time>; clients reload
 # when it changes. The image has no .git, so pass the commit
-# (COMMUNITY_BUILD_SHA=$(git rev-parse --short=12 HEAD) docker compose build).
-# COMMUNITY_BUILD_ID still overrides the whole id.
+# as either COMMUNITY_BUILD_SHA or COMMUNITY_BUILD_ID (same meaning), e.g.
+# COMMUNITY_BUILD_ID=$(git rev-parse --short=12 HEAD) docker compose build.
 ARG COMMUNITY_BUILD_SHA=
 ARG COMMUNITY_BUILD_ID=
 ENV COMMUNITY_BUILD_SHA=${COMMUNITY_BUILD_SHA} COMMUNITY_BUILD_ID=${COMMUNITY_BUILD_ID}

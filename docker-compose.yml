@@ -3,8 +3,9 @@ services:
     build:
       context: .
       args:
-        # Frontend build id (/version.json); set it to the commit:
-        # COMMUNITY_BUILD_SHA=$(git rev-parse --short=12 HEAD) docker compose build
+        # Frontend build id (/version.json) = <commit>-<build time>. Pass the
+        # commit as COMMUNITY_BUILD_ID or COMMUNITY_BUILD_SHA (either works):
+        # COMMUNITY_BUILD_ID=$(git rev-parse --short=12 HEAD) docker compose build
         COMMUNITY_BUILD_SHA: ${COMMUNITY_BUILD_SHA:-}
         COMMUNITY_BUILD_ID: ${COMMUNITY_BUILD_ID:-}
     container_name: community
