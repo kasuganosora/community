@@ -71,6 +71,7 @@ var ScripsType = []MigrationScript{
 	RelayActorURIScript{},
 	TokenLastUsedScript{},
 	AccountPrivacyScript{},
+	PersonalTokenScopeBitsScript{},
 }
 
 type MigrationScript interface {

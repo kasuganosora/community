@@ -11,6 +11,7 @@ func registerConnectionsRoutes(auth *gin.RouterGroup) {
 	group.GET("/tokens", connections.Tokens)
 	// Rate limited: creating admin:write tokens re-checks the password.
 	group.POST("/tokens", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/settings/tokens", 30), connections.CreateToken)
+	group.PATCH("/tokens/:id", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/settings/tokens/edit", 30), connections.UpdateToken)
 	group.DELETE("/tokens/:id", connections.RevokeToken)
 	group.GET("/webhooks", connections.Webhooks)
 	group.POST("/webhooks", connections.SaveWebhook)

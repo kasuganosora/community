@@ -18,7 +18,7 @@ import (
 // A valid token that lacks a scope must get 403 (never 401, which clients
 // treat as logout), on both the first request and later cache hits.
 func TestReadOnlyTokensGetForbiddenOnWrites(t *testing.T) {
-	setup := testutil.NewTestSetup(t, testutil.WithModels(&models.User{}, &models.Account{}, &models.AuthToken{}))
+	setup := testutil.NewTestSetup(t, testutil.WithModels(&models.User{}, &models.Account{}, &models.AuthToken{}, &models.PersonalAccessToken{}))
 	database.SetTestMode()
 	database.SetTestDB(setup.GormDB())
 	t.Cleanup(database.ResetTestDB)

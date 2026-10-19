@@ -134,7 +134,7 @@ func CreateToken(c *gin.Context) {
 		failure(c, errors.New("token generation failed"))
 		return
 	}
-	meta := models.PersonalAccessToken{ID: uuid.NewString(), UserID: owner(c).UserId, Name: input.Name, TokenHash: row.Token, Scopes: input.Scopes, ExpiresAt: row.ExpiredAt}
+	meta := models.PersonalAccessToken{ID: uuid.NewString(), UserID: owner(c).UserId, Name: input.Name, TokenHash: row.Token, Scopes: input.Scopes, ScopeBits: (*models.ScopeBits)(scopes), ScopeSource: models.ScopeSourceEdit, ExpiresAt: row.ExpiredAt}
 	err := conn(c).Transaction(func(tx *gorm.DB) error {
 		var user models.User
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, meta.UserID).Error; err != nil {
@@ -167,6 +167,77 @@ func CreateToken(c *gin.Context) {
 }
 
 var errLimit = errors.New("integration limit reached")
+
+// UpdateToken handles PATCH /api/v1/settings/tokens/:id: rename a personal
+// access token and replace its scopes. The token string does not change;
+// the auth middleware reads the new scopes from the database and the auth
+// cache entry is refreshed so they apply on the next request.
+func UpdateToken(c *gin.Context) {
+	var input struct {
+		Name     string   `json:"name"`
+		Scopes   []string `json:"scopes"`
+		Password string   `json:"password"`
+		OTP      string   `json:"otp"`
+	}
+	if c.ShouldBindJSON(&input) != nil {
+		invalid(c)
+		return
+	}
+	input.Name = strings.TrimSpace(input.Name)
+	if input.Name == "" || utf8.RuneCountInString(input.Name) > 100 || len(input.Scopes) > 64 {
+		invalid(c)
+		return
+	}
+	parsed, names, ok := models.ParsePersonalTokenScopes(input.Scopes)
+	if !ok {
+		c.AbortWithStatusJSON(422, gin.H{"error": "invalid_scope"})
+		return
+	}
+	var meta models.PersonalAccessToken
+	if err := conn(c).Where("id = ? AND user_id = ?", c.Param("id"), owner(c).UserId).First(&meta).Error; err != nil {
+		failure(c, err)
+		return
+	}
+	var row models.AuthToken
+	if err := conn(c).Where("token = ? AND user_id = ?", meta.TokenHash, meta.UserID).First(&row).Error; err != nil || row.Revoke != nil {
+		c.AbortWithStatusJSON(404, gin.H{"error": "not_found"})
+		return
+	}
+	previous := meta.ScopeBits.Scope()
+	if previous == nil {
+		if bits, _, ok := models.ParsePersonalTokenScopes(meta.Scopes); ok {
+			previous = &bits
+		} else {
+			previous = &models.ApplicationScope{}
+		}
+	}
+	if parsed.AdminScope != 0 {
+		allowed, err := canHoldAdminScopes(c, owner(c).UserId)
+		if err != nil {
+			failure(c, err)
+			return
+		}
+		if !allowed {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin_scope_forbidden"})
+			return
+		}
+		// Adding any admin write bit needs the password (and 2FA) again.
+		if parsed.AdminScope&models.AppScopeAdminWrite&^previous.AdminScope != 0 && !account.ConfirmSensitive(c, owner(c).UserId, input.Password, input.OTP) {
+			c.Abort()
+			return
+		}
+	}
+	bits := parsed
+	meta.Name, meta.Scopes, meta.ScopeBits, meta.ScopeSource = input.Name, names, (*models.ScopeBits)(&bits), models.ScopeSourceEdit
+	if err := conn(c).Model(&models.PersonalAccessToken{}).Where("id = ? AND user_id = ?", meta.ID, meta.UserID).
+		Select("name", "scopes", "scope_bits", "scope_source").Updates(&meta).Error; err != nil {
+		failure(c, err)
+		return
+	}
+	middleware.RefreshPersonalTokenCache(meta.TokenHash, &bits)
+	meta.LastUsedAt = row.LastUsedAt
+	c.JSON(200, meta)
+}
 
 func RevokeToken(c *gin.Context) {
 	var meta models.PersonalAccessToken

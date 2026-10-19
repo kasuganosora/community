@@ -13,13 +13,22 @@ import (
 const PersonalTokenClient = "community:personal-access-token"
 
 type PersonalAccessToken struct {
-	ID        string     `gorm:"primaryKey;size:36" json:"id"`
-	UserID    uint64     `gorm:"index;not null" json:"-"`
-	Name      string     `gorm:"size:100;not null" json:"name"`
-	TokenHash string     `gorm:"size:128;uniqueIndex;not null" json:"-"`
-	Scopes    []string   `gorm:"type:json;serializer:json" json:"scopes"`
-	CreatedAt time.Time  `json:"created_at"`
-	ExpiresAt *time.Time `json:"expires_at"`
+	ID        string   `gorm:"primaryKey;size:36" json:"id"`
+	UserID    uint64   `gorm:"index;not null" json:"-"`
+	Name      string   `gorm:"size:100;not null" json:"name"`
+	TokenHash string   `gorm:"size:128;uniqueIndex;not null" json:"-"`
+	Scopes    []string `gorm:"type:json;serializer:json" json:"scopes"`
+	// ScopeBits are the authoritative scope bits checked at request time.
+	// NULL only for rows created before editing existed; the auth middleware
+	// fills them once from the token blob (never treated as none or all).
+	ScopeBits *ScopeBits `gorm:"type:text;serializer:json" json:"-"`
+	// ScopeSource records where ScopeBits came from: "migration" (derived
+	// from Scopes by the migration), "blob" (copied from the token on first
+	// use) or "edit" (set by the owner). Only "blob" and "edit" are
+	// authoritative over the token blob; see PersonalTokenEffectiveScopes.
+	ScopeSource string     `gorm:"size:16;not null;default:''" json:"-"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
 	// LastUsedAt is read from the matching auth_tokens row for display.
 	LastUsedAt *time.Time `gorm:"-" json:"last_used_at"`
 	// RevokedReason is set when the token was revoked automatically.
@@ -134,3 +143,10 @@ func (e *FeedEvent) AfterCreate(tx *gorm.DB) error {
 	// Only the author receives post-change events, including private/local posts.
 	return QueueUserWebhook(conn, e.ActorID, source, name, map[string]any{"noteId": fmt.Sprint(e.ObjectID), "userId": fmt.Sprint(e.ActorID)})
 }
+
+// ScopeBits is ApplicationScope stored as JSON (without its SQL Scanner,
+// which rejects NULL).
+type ScopeBits ApplicationScope
+
+// Scope returns the bits as an ApplicationScope (nil when unset).
+func (b *ScopeBits) Scope() *ApplicationScope { return (*ApplicationScope)(b) }

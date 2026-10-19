@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
@@ -17,6 +18,7 @@ import (
 	"gorm.io/gorm"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -100,6 +102,9 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Personal tokens expose only the two explicitly granted coarse scopes.
 		// Enforce them even on legacy routes without a granular scope guard.
 		if token.ExternalClient == models.PersonalTokenClient {
+			if token.EffectiveScopes != nil {
+				tokenData.Scopes = token.EffectiveScopes
+			}
 			reading := c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead || c.Request.Method == http.MethodOptions
 			s := tokenData.Scopes
 			if s == nil || (reading && s.ReadScope == 0 && s.AdminScope&models.AppScopeAdminRead == 0) || (!reading && !oauthTokenMayWrite(c.Request, tokenData)) {
@@ -276,7 +281,7 @@ func getTokenWithCacheContext(requestContext context.Context, tokenStr string) (
 	defer cancel()
 	redisClient := GetRedisClient()
 	cacheKey := tokenCacheKey(tokenStr)
-	canWriteCache := false
+	canWriteCache, upgrade := false, false
 	if redisClient != nil {
 		cached, err := redisClient.Get(cacheContext, cacheKey).Result()
 		if err == nil {
@@ -288,9 +293,15 @@ func getTokenWithCacheContext(requestContext context.Context, tokenStr string) (
 			}
 			// Personal tokens are cached separately so the coarse
 			// read/write scope check still applies on a cache hit.
-			if cached == tokenCacheValidPersonal {
-				return &models.AuthToken{ExternalClient: models.PersonalTokenClient}, nil
+			// Personal tokens cache their current (editable) scopes. The
+			// old scope-less marker is treated as a miss and upgraded.
+			if raw, ok := strings.CutPrefix(cached, tokenCacheValidPersonal+":"); ok {
+				scopes := &models.ApplicationScope{}
+				if json.Unmarshal([]byte(raw), scopes) == nil {
+					return &models.AuthToken{ExternalClient: models.PersonalTokenClient, EffectiveScopes: scopes}, nil
+				}
 			}
+			upgrade = cached == tokenCacheValidPersonal || strings.HasPrefix(cached, tokenCacheValidPersonal+":")
 		}
 		// A Redis outage is not a cache miss. Do not retry it after the SQL fallback.
 		canWriteCache = err == nil || errors.Is(err, redis.Nil)
@@ -304,6 +315,22 @@ func getTokenWithCacheContext(requestContext context.Context, tokenStr string) (
 		expireInactiveToken(requestContext, token)
 		return nil, errors.New("token inactive")
 	}
+	if token.ExternalClient == models.PersonalTokenClient {
+		var blob *models.ApplicationScope
+		if data, err := models.GetAuthTokenData(tokenStr, config.C.EncryptedKey); err == nil {
+			blob = data.Scopes
+		}
+		res, err := models.PersonalTokenEffectiveScopes(db.GetDB().WithContext(requestContext), digest, blob)
+		if err != nil {
+			return nil, errors.Wrap(err, "get personal token scopes error")
+		}
+		token.EffectiveScopes = res.Scopes
+		if res.Mismatch != "" {
+			warnScopeMismatchOnce(digest, "personal token %s user %d: scope mismatch %s", res.TokenID, token.UserId, res.Mismatch)
+		}
+	} else if token.ApplicationId != 0 {
+		checkOAuthScopes(requestContext, tokenStr, digest, token)
+	}
 	if canWriteCache && cacheContext.Err() == nil {
 		if token.Revoke != nil || (token.ExpiredAt != nil && token.ExpiredAt.Unix() > 0 && token.ExpiredAt.Unix() < time.Now().Unix()) {
 			_ = redisClient.Set(cacheContext, cacheKey, "revoked", revokedTokenCacheTTL).Err()
@@ -312,9 +339,18 @@ func getTokenWithCacheContext(requestContext context.Context, tokenStr string) (
 			// logout/revoke between our SQL read and this cache write.
 			value := "valid"
 			if token.ExternalClient == models.PersonalTokenClient {
-				value = tokenCacheValidPersonal
+				value = personalTokenCacheValue(token.EffectiveScopes)
 			}
-			_ = redisClient.SetNX(cacheContext, cacheKey, value, tokenCacheTTL).Err()
+			if upgrade && value != "valid" {
+				// Replace an old scope-less personal marker, but never a
+				// revoke written meanwhile.
+				_ = redisClient.SetXX(cacheContext, cacheKey, value, tokenCacheTTL).Err()
+				if cur, _ := redisClient.Get(cacheContext, cacheKey).Result(); cur == "revoked" {
+					return nil, errors.New("token revoked (cached)")
+				}
+			} else {
+				_ = redisClient.SetNX(cacheContext, cacheKey, value, tokenCacheTTL).Err()
+			}
 		}
 	}
 	return token, nil
@@ -455,4 +491,71 @@ func touchAccountActive(ctx context.Context, account *models.Account, now time.T
 		Where("id = ? AND (last_active_at IS NULL OR last_active_at < ?)", account.Id, now.Add(-accountActiveInterval)).
 		UpdateColumn("last_active_at", now).Error
 	account.LastActiveAt = &now
+}
+
+// personalTokenCacheValue encodes a valid personal token with its current
+// scopes; without parsed scopes it stores the plain marker (blob scopes).
+func personalTokenCacheValue(scopes *models.ApplicationScope) string {
+	if scopes == nil {
+		return tokenCacheValidPersonal
+	}
+	raw, err := json.Marshal(scopes)
+	if err != nil {
+		return tokenCacheValidPersonal
+	}
+	return tokenCacheValidPersonal + ":" + string(raw)
+}
+
+// RefreshPersonalTokenCache stores a personal token's new scopes in the auth
+// cache right after an edit so the next request uses them. An existing
+// "revoked" marker is kept.
+func RefreshPersonalTokenCache(hash string, scopes *models.ApplicationScope) {
+	redisClient := GetRedisClient()
+	if hash == "" || redisClient == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	key := "token_cache:" + hash
+	if cur, err := redisClient.Get(ctx, key).Result(); err == nil && cur == "revoked" {
+		return
+	}
+	if err := redisClient.Set(ctx, key, personalTokenCacheValue(scopes), tokenCacheTTL).Err(); err != nil {
+		// Fall back to dropping the entry; the next request reads SQL.
+		_ = redisClient.Del(ctx, key).Err()
+		log.Warn("failed to refresh personal token cache: %v", err)
+	}
+}
+
+// scopeMismatchWarned dedupes scope mismatch warnings per token digest for
+// the life of the process.
+var scopeMismatchWarned sync.Map
+
+func warnScopeMismatchOnce(digest, format string, args ...any) {
+	if _, seen := scopeMismatchWarned.LoadOrStore(digest, struct{}{}); !seen {
+		log.Warn(format, args...)
+	}
+}
+
+// checkOAuthScopes compares an OAuth / app token's blob scopes with the
+// scopes its application registered and logs, once, a token holding bits the
+// application does not have. The blob stays authoritative for OAuth and web
+// session tokens (they have no per-token DB scopes); nothing is changed.
+func checkOAuthScopes(ctx context.Context, tokenStr, digest string, token *models.AuthToken) {
+	if _, seen := scopeMismatchWarned.Load(digest); seen {
+		return
+	}
+	data, err := models.GetAuthTokenData(tokenStr, config.C.EncryptedKey)
+	if err != nil || data.Scopes == nil {
+		return
+	}
+	var app models.Application
+	if db.GetDB().WithContext(ctx).Select("id", "name", "scopes").Where("id = ?", token.ApplicationId).Limit(1).Find(&app).Error != nil || app.Id == 0 {
+		return
+	}
+	s, a := data.Scopes, app.Scopes
+	if s.ReadScope&^a.ReadScope != 0 || s.WriteScope&^a.WriteScope != 0 || s.AdminScope&^a.AdminScope != 0 || s.OtherScope&^a.OtherScope != 0 {
+		warnScopeMismatchOnce(digest, "oauth token %.12s user %d app %d (%s): token scopes {read=%#x write=%#x admin=%#x other=%#x} exceed app scopes {read=%#x write=%#x admin=%#x other=%#x}; token scopes kept",
+			digest, token.UserId, app.Id, app.Name, s.ReadScope, s.WriteScope, s.AdminScope, s.OtherScope, a.ReadScope, a.WriteScope, a.AdminScope, a.OtherScope)
+	}
 }

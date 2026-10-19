@@ -35,6 +35,9 @@ type AuthToken struct {
 	LastUsedAt *time.Time `gorm:"column:last_used_at"`
 	// RevokeReason explains an automatic revoke ("inactive"); empty otherwise.
 	RevokeReason string `gorm:"column:revoke_reason;size:32"`
+	// EffectiveScopes, set by the auth middleware for personal access tokens,
+	// replaces the scopes baked into the token blob (they can be edited).
+	EffectiveScopes *ApplicationScope `gorm:"-" json:"-"`
 }
 
 func (AuthToken) TableName() string {
