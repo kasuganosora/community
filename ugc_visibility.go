@@ -80,9 +80,20 @@ func UGCVisitorGuard() gin.HandlerFunc {
 		}
 		w := &bufferedWriter{ResponseWriter: c.Writer, remoteHidden: mode == moderation.UGCLocal}
 		c.Writer = w
+		// Handlers stop with controllers.AbortPanic after writing an error
+		// (404 for a missing status, 400 for a bad id). The buffered response
+		// must still be flushed then, or the visitor got an empty 200.
+		defer func() {
+			r := recover()
+			c.Writer = w.ResponseWriter
+			if r == nil || controllers.IsAbortSentinel(r) {
+				w.flush(c)
+			}
+			if r != nil {
+				panic(r)
+			}
+		}()
 		c.Next()
-		c.Writer = w.ResponseWriter
-		w.flush(c)
 	}
 }
 
