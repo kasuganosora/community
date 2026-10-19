@@ -82,7 +82,65 @@ func OpenSpool(path string) (*Spool, error) {
 	if h := s.Meta("header"); h != "" {
 		_ = json.Unmarshal([]byte(h), &s.Header)
 	}
+	if err := s.sealLegacyCredentials(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return s, nil
+}
+
+// sealLegacyCredentials seals credential records a spool written before
+// at-rest sealing still holds in plaintext (e.g. a failed rehearsal's work
+// directory). secure_delete zeroes the freed pages and the WAL is truncated,
+// so the old plaintext does not linger on disk.
+func (s *Spool) sealLegacyCredentials() error {
+	if !SpoolSealingAvailable() {
+		return nil
+	}
+	rows, err := s.db.Query(`SELECT seq, raw FROM rec WHERE section = 'credentials' AND substr(raw, 1, ?) <> ?`, len(sealedSpoolPrefix), sealedSpoolPrefix)
+	if err != nil {
+		return err
+	}
+	type plain struct {
+		seq int64
+		raw []byte
+	}
+	var todo []plain
+	for rows.Next() {
+		var p plain
+		if err := rows.Scan(&p.seq, &p.raw); err != nil {
+			rows.Close()
+			return err
+		}
+		todo = append(todo, p)
+	}
+	rows.Close()
+	if len(todo) == 0 {
+		return nil
+	}
+	if _, err := s.db.Exec(`PRAGMA secure_delete = ON`); err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	for _, p := range todo {
+		sealed, err := sealSpoolRecord(p.raw)
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if _, err := tx.Exec(`UPDATE rec SET raw = ? WHERE seq = ?`, sealed, p.seq); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	return err
 }
 
 func (s *Spool) Close() error { return s.db.Close() }
@@ -170,6 +228,16 @@ func (s *Spool) add(section string, raw []byte) error {
 		if s.ins, err = tx.Prepare(`INSERT INTO rec(section, id, acct, raw) VALUES(?, ?, ?, ?)`); err != nil {
 			return err
 		}
+	}
+	switch section {
+	case "credentials":
+		sealed, err := sealSpoolRecord(raw)
+		if err != nil {
+			return err
+		}
+		raw = sealed
+	case "records":
+		raw = redactPreservedRecord(raw)
 	}
 	if _, err := s.ins.Exec(section, id, acct, raw); err != nil {
 		return err
@@ -346,6 +414,9 @@ func (s *Spool) page(section string, after int64, limit int) ([]int64, []json.Ra
 		if err := rows.Scan(&seq, &raw); err != nil {
 			return nil, nil, err
 		}
+		if raw, err = openSpoolRecord(raw); err != nil {
+			return nil, nil, err
+		}
 		seqs = append(seqs, seq)
 		out = append(out, raw)
 	}
@@ -369,6 +440,10 @@ func (s *Spool) lookup(section, column string, keys []string) ([]json.RawMessage
 		for rows.Next() {
 			var raw []byte
 			if err := rows.Scan(&raw); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if raw, err = openSpoolRecord(raw); err != nil {
 				rows.Close()
 				return nil, err
 			}

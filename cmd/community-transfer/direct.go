@@ -143,6 +143,44 @@ func exporterArgs(d direct, source, script, state, out string) []string {
 // straight into the spool and then the Community database in chunks; no
 // bundle.json is written or loaded.
 func runDirect(d direct, source string, apply bool, reportPath string, chunkSize, maxFiles int, maxBytes int64) int {
+	code := runDirectOnce(d, source, apply, reportPath, chunkSize, maxFiles, maxBytes)
+	if code != 0 && *d.workDir != "" && !*d.fetchOnly && !*d.keepSecretSpool {
+		scrubFailedRun(*d.workDir)
+	}
+	return code
+}
+
+// scrubFailedRun runs after any failed or interrupted direct run (preflight
+// errors, import errors, signals). The spool keeps its credential records
+// sealed (see datatransfer.SpoolSealingAvailable) so --reuse-spool can resume;
+// the exporter's plaintext intermediates are wiped. The fetch state is wiped
+// only once the spool is complete: until then it is the resume checkpoint of
+// the source read and is kept (0700) until the read finishes.
+func scrubFailedRun(workDir string) {
+	complete := false
+	spoolPath := filepath.Join(workDir, "spool.sqlite3")
+	if _, err := os.Stat(spoolPath); err == nil {
+		// Opening re-seals any plaintext credential rows an older run left.
+		if sp, err := datatransfer.OpenSpool(spoolPath); err == nil {
+			complete = sp.Meta("complete") == "1"
+			_ = sp.Close()
+		}
+	}
+	wiped, err := datatransfer.WipeExporterSecrets(workDir, complete)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: could not wipe every plaintext exporter file in %s (%s); remove out-*/.spool, out-*/bundle.json* and (if the spool is complete) state/ by hand.\n", workDir, safeReason(err))
+	} else if len(wiped) > 0 {
+		fmt.Fprintf(os.Stderr, "wiped %d plaintext exporter path(s) in %s after the failed run; rerun with --reuse-spool to resume from the sealed spool\n", len(wiped), workDir)
+	}
+	if !complete {
+		fmt.Fprintf(os.Stderr, "NOTE: the source read did not finish; %s/state still holds plaintext source rows (including TOTP secrets) as the resume checkpoint. Rerun to finish, or wipe the work directory to abandon.\n", workDir)
+	}
+	if !datatransfer.SpoolSealingAvailable() {
+		fmt.Fprintf(os.Stderr, "WARNING: ENCRYPTED_KEY is not set, so %s holds credential records (including TOTP secrets) in plaintext. Wipe it when done.\n", spoolPath)
+	}
+}
+
+func runDirectOnce(d direct, source string, apply bool, reportPath string, chunkSize, maxFiles int, maxBytes int64) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if *d.workDir == "" || *d.baseURL == "" || (*d.fetchOnly && *d.finalSync) || *d.batchSize <= 0 || *d.maxRowsPerSec < 0 || *d.batchSleep < 0 {

@@ -151,3 +151,42 @@ func WipeSecretSpool(workDir string) ([]string, error) {
 	}
 	return wiped, first
 }
+
+// ExporterSecretPaths lists the exporter's plaintext intermediates in a
+// direct-mode work directory: per-run section spools and bundle files under
+// out-*/, plus the fetch state when includeState is set. The spool database
+// is not included (its credential records are sealed at rest).
+func ExporterSecretPaths(workDir string, includeState bool) []string {
+	var paths []string
+	for _, p := range SecretSpoolPaths(workDir) {
+		base := filepath.Base(p)
+		if strings.HasPrefix(base, "spool.sqlite3") || (base == "state" && !includeState) {
+			continue
+		}
+		paths = append(paths, p)
+	}
+	return paths
+}
+
+// WipeExporterSecrets removes ExporterSecretPaths and returns the paths
+// that existed.
+func WipeExporterSecrets(workDir string, includeState bool) ([]string, error) {
+	var wiped []string
+	var first error
+	for _, p := range ExporterSecretPaths(workDir, includeState) {
+		st, err := os.Lstat(p)
+		if err != nil {
+			continue
+		}
+		if st.IsDir() {
+			err = WipeTree(p)
+		} else {
+			err = WipeFile(p)
+		}
+		if err != nil && first == nil {
+			first = err
+		}
+		wiped = append(wiped, p)
+	}
+	return wiped, first
+}
