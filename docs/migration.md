@@ -159,9 +159,11 @@ Misskey `user_profile` 的二步验证会导入到 Community 自己的 TOTP（RF
 
 ### 工作目录与 spool
 
-读取状态（`state/staging.sqlite3`）和 `out-*/.spool`、`bundle.json` 里有**明文** `twoFactorSecret`、密码哈希和签名私钥；spool（`spool.sqlite3*`）里的签名私钥同样是明文。
+工作目录里的密钥材料全部由目标的 `ENCRYPTED_KEY` 派生的密钥加密（密钥只在环境变量里，不在工作目录里）：
 
-- **spool 里的凭据记录（密码哈希、TOTP secret、备用码）静态加密**：写入 spool 前用 AES-256-GCM 封装，密钥由目标的 `ENCRYPTED_KEY` 派生（只在环境变量里，不在工作目录里）。旧版本留下的明文 spool（例如失败的演练）在下次打开时会原地加密，并清零释放的页、截断 WAL。`ENCRYPTED_KEY` 变了以后 `--reuse-spool` 会报错，需要恢复原值或不带 `--reuse-spool` 重新读取。没有设置 `ENCRYPTED_KEY` 时无法加密，程序会打印 `WARNING`。
+- **spool（`spool.sqlite3*`）**：`credentials`（密码哈希、TOTP secret、备用码）、`keys`（本地 Actor 签名私钥）和 `records`（完整的源表行：`user_keypair`、`app` 的 OAuth secret、`access_token`、webhook secret、`meta` 里的对象存储 / SMTP / captcha / DeepL 等密钥……）三个分区整条记录用 AES-256-GCM 封装。旧版本留下的明文 spool（例如失败的演练，含 33 个本地私钥）在下次打开时原地加密，然后 `secure_delete` + `VACUUM` + 截断 WAL，不留旧明文页。
+- **读取状态（`state/staging.sqlite3`）**：导出器需要用 `json_extract` 查询 id / 引用列，所以按字段加密：字段名像 `*secret*`、`*password*`、`privateKey`、`*authKey`、`*apiKey`、`*accessKey`、`smtpPass`、`token`、`hash`、`auth`、`code` 的非空字符串 / 数组 / 对象值替换成 `enc1:…`（SHAKE256 密钥流 + HMAC-SHA256，Python 标准库即可实现）。导出器写入时直接加密；`community-transfer` 每次启动时把旧版本留下的明文行原地加密并 `VACUUM`（包括 `--reuse-spool` 时）。
+- `ENCRYPTED_KEY` 变了以后 `--reuse-spool` / 续传会报错，需要恢复原值或清空工作目录重新读取。没有设置 `ENCRYPTED_KEY` 时无法加密，程序会打印 `WARNING`。
 - spool 中的私有原始记录（`records`）在写入前就把 `twoFactor*Secret` 替换为 `"[redacted]"`。
 - **失败或中断时也会清理**（预检失败、导入出错、Ctrl-C/SIGTERM）：擦除 `out-*/.spool`、`out-*/bundle.json*`；spool 已完整时还会擦除 `state/`（之后用 `--reuse-spool` 从加密 spool 续跑；不带 `--reuse-spool` 则从头读取源库）。源库还没读完时 `state/` 是续传检查点，会保留并打印 `NOTE`，读完后的下一次失败或成功都会擦除它。`--fetch-only` 和 `--keep-secret-spool` 不做这一步。
 
@@ -199,6 +201,7 @@ tootctl two-factor scrub-preserved     # 清除旧导入归档里的明文 secre
 8. **预检没发现列宽不够。** 第二次演练（224k 行、预检 0 错误）在真正导入自定义表情时失败：`value too long for type character varying(36)`——`emojis.shortcode` 是 `varchar(36)`，257 个远端表情名超长，最长 113（Misskey 允许 128）。现在：
    - 迁移 `ImportColumnWidthsScript` 加宽 `emojis.shortcode`→255、`statuses.origin_uri`/`origin_url`→2048、`media_attachments.remote_url`→2048、`media_attachments.content_type`→128、`accounts.username`→128、`accounts.acct`→320（PostgreSQL / MySQL / MariaDB；SQLite 不限制长度，无需改动；可重复执行）。`community-transfer` 启动时自动执行迁移。
    - 预检会把每个待导入字段的长度与**目标库实际的列宽**比较，超长时报阻断错误 `column_too_narrow`，每列一条，写明表.列、超长数量、最大长度、列宽和最多 5 个样例源 ID（`count` / `max_length` / `limit` / `sample_ids` 字段）。
+9. **回复比父帖可见范围更大。** 第三次演练在帖子阶段失败：`reply widens parent audience`——本地「首页」（unlisted）回复挂在远端「仅关注者」帖子下。现在不再中止：回复的可见性收窄到父帖的级别（从不放宽；unlisted→仅关注者；父帖是私信时回复变成私信，收件人只保留父帖参与者并加上父帖作者），帖子属性 `import_visibility_narrowed_from` 记录原值。预检和导入报告里是一条非阻断警告 `reply_visibility_narrowed`（数量 + 最多 5 个样例源 ID），回复链会逐级收窄。站点导入里互相回复成环、永远无法发布的帖子也不再让整个导入失败，而是保留在私有归档里并给出 `archived_parent` 警告。
 
 ## 重新执行 maid.lat 演练（隔离网络、只读源）
 
@@ -237,6 +240,17 @@ MISSKEY_DB_DSN='postgresql://community_export@10.0.0.5:5432/misskey?sslmode=requ
 COMMUNITY_DB_DSN='postgresql://community@127.0.0.1:5432/community_rehearsal' \
 COMMUNITY_BASE='http://127.0.0.1:8080' HOST_HEADER=maid.lat SAMPLE=200 \
 python3 scripts/migration/verify_misskey_import.py --seed 42 -v
+```
+
+### 从同一份已读取数据重跑（帖子阶段失败之后）
+
+```sh
+# 新版本二进制；.env 不变（APP_BASE_URL=https://maid.lat，ENCRYPTED_KEY 必须保持原值）
+# a) 预检：打开 spool 时原地加密 keys/records 明文并 VACUUM；预期 can_execute: true，
+#    reply_visibility_narrowed 警告列出将被收窄的回复（至少 2 条）
+community-transfer "${COMMON[@]}" --reuse-spool --report /srv/maid-rehearsal/report-validate-3.json
+# b) 导入：账号 / 表情 / 媒体及已提交的帖子分块按回执跳过，从帖子阶段的检查点继续
+TRANSFER_DEBUG=1 community-transfer "${COMMON[@]}" --reuse-spool --apply --report /srv/maid-rehearsal/report-import-3.json
 ```
 
 ### 从同一份已读取数据重跑（表情列宽失败之后）
