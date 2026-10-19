@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -271,4 +272,31 @@ func TestActorIDMustMatchBeyondTrailingSlash(t *testing.T) {
 	}, testSigner(t))
 	_, err := getOrCreateRemoteAccountContext(context.Background(), threadsActorURI)
 	require.ErrorContains(t, err, "does not match")
+}
+
+func TestAnnounceRetryIsDedupedByActivityID(t *testing.T) {
+	f := newAnnounceFixture(t)
+	f.origin.status = http.StatusServiceUnavailable
+	require.Equal(t, 200, f.announce(t, threadsNote))
+	require.Equal(t, 200, f.announce(t, threadsNote))
+	require.Len(t, f.retries(t), 1)
+}
+
+func TestAnnounceRetryScheduleSpansAboutADay(t *testing.T) {
+	var total time.Duration
+	for _, d := range announceRetryBackoff {
+		total += d
+	}
+	require.GreaterOrEqual(t, total, 20*time.Hour)
+	require.LessOrEqual(t, total, 30*time.Hour)
+}
+
+func TestAnnounceFailureClass(t *testing.T) {
+	require.Equal(t, "gone", announceFailureClass(&FetchError{StatusCode: 410}))
+	require.Equal(t, "not_found", announceFailureClass(&FetchError{StatusCode: 404}))
+	require.Equal(t, "unauthorized", announceFailureClass(&FetchError{StatusCode: 403}))
+	require.Equal(t, "server_error", announceFailureClass(&FetchError{StatusCode: 503}))
+	require.Equal(t, "http_400", announceFailureClass(&FetchError{StatusCode: 400}))
+	require.Equal(t, "network", announceFailureClass(context.DeadlineExceeded))
+	require.Equal(t, "invalid", announceFailureClass(errors.New("id mismatch")))
 }

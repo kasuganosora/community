@@ -2,6 +2,7 @@ package activitypub
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -29,8 +30,30 @@ type AnnounceRetry struct {
 func (AnnounceRetry) TableName() string { return "activitypub_announce_retries" }
 
 // announceRetryBackoff is the delay before each retry; its length caps the
-// attempts (roughly 9 hours in total).
-var announceRetryBackoff = []time.Duration{5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour}
+// attempts (five retries over roughly a day).
+var announceRetryBackoff = []time.Duration{5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 15 * time.Hour}
+
+// announceFailureClass names why an announced object could not be resolved,
+// for logs: "gone" (410, permanent), "not_found", "unauthorized" (401/403
+// even when signed), "server_error" (5xx/429/408), "network" (timeouts,
+// connection errors) or "invalid" (malformed or mismatched documents).
+func announceFailureClass(err error) string {
+	switch status := fetchStatusCode(err); {
+	case status == http.StatusGone:
+		return "gone"
+	case status == http.StatusNotFound:
+		return "not_found"
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return "unauthorized"
+	case status != 0 && isTransientFetchError(err):
+		return "server_error"
+	case status != 0:
+		return fmt.Sprintf("http_%d", status)
+	case isTransientFetchError(err):
+		return "network"
+	}
+	return "invalid"
+}
 
 func truncateError(err error) string {
 	msg := err.Error()
@@ -44,6 +67,7 @@ func truncateError(err error) string {
 // object is gone for good (410).
 func enqueueAnnounceRetry(ctx context.Context, activityID, actor, object, published string, cause error) {
 	if activityID == "" || fetchStatusCode(cause) == http.StatusGone {
+		log.Warn("Announce %s by %s of %s dropped (class=%s): %v", activityID, actor, object, announceFailureClass(cause), cause)
 		return
 	}
 	row := AnnounceRetry{
@@ -79,13 +103,14 @@ func retryAnnounce(ctx context.Context, conn *gorm.DB, row *AnnounceRetry, now t
 	row.Attempts++
 	if fetchStatusCode(err) == http.StatusGone || row.Attempts >= len(announceRetryBackoff) {
 		conn.Delete(row)
-		log.Warn("Giving up on announce %s by %s of %s after %d retries: %v", row.ActivityID, row.Actor, row.ObjectURI, row.Attempts, err)
+		log.Warn("Giving up on announce %s by %s of %s after %d retries (class=%s): %v", row.ActivityID, row.Actor, row.ObjectURI, row.Attempts, announceFailureClass(err), err)
 		return
 	}
+	row.NextAttemptAt = now.Add(announceRetryBackoff[row.Attempts])
 	conn.Model(row).Updates(map[string]any{
-		"attempts": row.Attempts, "next_attempt_at": now.Add(announceRetryBackoff[row.Attempts]), "last_error": truncateError(err),
+		"attempts": row.Attempts, "next_attempt_at": row.NextAttemptAt, "last_error": truncateError(err),
 	})
-	log.Debug("Announce %s by %s retry %d failed: %v", row.ActivityID, row.Actor, row.Attempts, err)
+	log.Info("Announce %s by %s of %s retry %d failed (class=%s), next at %s: %v", row.ActivityID, row.Actor, row.ObjectURI, row.Attempts, announceFailureClass(err), row.NextAttemptAt.Format(time.RFC3339), err)
 }
 
 func applyRetriedAnnounce(ctx context.Context, row *AnnounceRetry) error {

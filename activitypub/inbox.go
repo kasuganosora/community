@@ -951,7 +951,7 @@ func handleAnnounceActivity(ctx context.Context, c *gin.Context, activity map[st
 
 	originalStatus, fetchErr := resolveAnnouncedStatus(ctx, actor, object, embedded) //nolint:contextcheck
 	if fetchErr != nil {
-		log.Warn("Could not find or fetch original status for announce %s by %s: %s, error: %v", activityID, actor, object, fetchErr)
+		log.Warn("Could not find or fetch original status for announce %s by %s of %s (class=%s, queued for retry unless gone): %v", activityID, actor, object, announceFailureClass(fetchErr), fetchErr)
 		// Accept the activity (the sender must not retry forever) but keep it
 		// for our own capped retries: the origin may be briefly down or only
 		// serve the object later.
