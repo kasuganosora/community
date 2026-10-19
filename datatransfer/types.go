@@ -92,16 +92,23 @@ type Account struct {
 	Admin                 bool     `json:"admin,omitempty"`
 	// Misskey profile extensions (user.isCat, user_profile.location /
 	// birthday / lang / followedMessage, user.movedToUri / alsoKnownAs).
-	IsCat           bool           `json:"is_cat,omitempty"`
-	Location        string         `json:"location,omitempty"`
-	Birthday        string         `json:"birthday,omitempty"`
-	Language        string         `json:"language,omitempty"`
-	FollowedMessage string         `json:"followed_message,omitempty"`
-	MovedTo         string         `json:"moved_to,omitempty"`
-	AlsoKnownAs     []string       `json:"also_known_as,omitempty"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at,omitempty"`
-	Settings        map[string]any `json:"settings,omitempty"`
+	IsCat           bool     `json:"is_cat,omitempty"`
+	Location        string   `json:"location,omitempty"`
+	Birthday        string   `json:"birthday,omitempty"`
+	Language        string   `json:"language,omitempty"`
+	FollowedMessage string   `json:"followed_message,omitempty"`
+	MovedTo         string   `json:"moved_to,omitempty"`
+	AlsoKnownAs     []string `json:"also_known_as,omitempty"`
+	// Misskey account privacy settings (see privacy_settings.go).
+	FollowingVisibility string         `json:"following_visibility,omitempty"`
+	FollowersVisibility string         `json:"followers_visibility,omitempty"`
+	AutoAcceptFollowed  bool           `json:"auto_accept_followed,omitempty"`
+	HideOnlineStatus    bool           `json:"hide_online_status,omitempty"`
+	SpeakAsCat          *bool          `json:"speak_as_cat,omitempty"`
+	LastActiveAt        *time.Time     `json:"last_active_at,omitempty"`
+	CreatedAt           time.Time      `json:"created_at"`
+	UpdatedAt           time.Time      `json:"updated_at,omitempty"`
+	Settings            map[string]any `json:"settings,omitempty"`
 }
 
 type Field struct {

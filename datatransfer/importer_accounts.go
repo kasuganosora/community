@@ -117,6 +117,7 @@ func (i *importer) importAccounts() error {
 				}
 			}
 			i.applyProfileExtensions(&target, a)
+			applyPrivacySettings(&target, a)
 			target.MatrixAlias = models.NormalizedMatrixAlias(target)
 			if err := tx.Create(&target).Error; err != nil {
 				return 0, err

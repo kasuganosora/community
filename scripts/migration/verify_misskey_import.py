@@ -276,6 +276,77 @@ def profile_checks(mk, cm, origin, rep):
                 % (counts["local"][0], counts["remote"][0], counts["local"][1], counts["remote"][1], target_total["local"], target_total["remote"]), diffs)
 
 
+TRUE = ("t", "true", "True", "1")
+
+
+def norm_ts(raw):
+    """A timestamp as UTC seconds text, '' when unset or unparsable."""
+    import datetime
+    raw = (raw or "").strip().replace(" ", "T", 1)
+    if not raw:
+        return ""
+    raw = re.sub(r"\.\d+", "", raw)
+    raw = re.sub(r"([+-]\d\d)$", r"\1:00", raw).replace("Z", "+00:00")
+    try:
+        d = datetime.datetime.fromisoformat(raw)
+    except ValueError:
+        return ""
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=datetime.timezone.utc)
+    return d.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+# (misskey field, community column, misskey expr, expected(raw), actual(raw)):
+# only accounts whose Misskey value differs from the default are compared.
+PRIVACY_FIELDS = (
+    ("followingVisibility", "following_visibility", "to_jsonb(p)->>'followingVisibility'",
+     lambda r: r if r in ("followers", "private") else "", lambda r: r if r in ("followers", "private") else ""),
+    ("followersVisibility", "followers_visibility", "to_jsonb(p)->>'followersVisibility'",
+     lambda r: r if r in ("followers", "private") else "", lambda r: r if r in ("followers", "private") else ""),
+    ("autoAcceptFollowed", "auto_accept_followed", "to_jsonb(p)->>'autoAcceptFollowed'", lambda r: r in TRUE, lambda r: r in TRUE),
+    ("hideOnlineStatus", "hide_online_status", "to_jsonb(u)->>'hideOnlineStatus'", lambda r: r in TRUE, lambda r: r in TRUE),
+    ("speakAsCat=false", "speak_as_cat", "to_jsonb(u)->>'speakAsCat'", lambda r: r == "false", lambda r: r in ("f", "false", "False", "0")),
+    ("lastActiveDate", "last_active_at", "to_jsonb(u)->>'lastActiveDate'",
+     lambda r: norm_ts(r), lambda r: norm_ts(r)),
+)
+
+
+def privacy_checks(mk, cm, origin, rep):
+    """8h-8m: Misskey account privacy settings, compared per account like
+    profile_checks. Prints counts and ids, never values."""
+    exprs = ", ".join(f[2] for f in PRIVACY_FIELDS)
+    src = mk.q('SELECT u.id, u.host IS NULL, u.uri, %s FROM "user" u LEFT JOIN user_profile p ON p."userId" = u.id '
+               "WHERE (to_jsonb(u)->>'isDeleted') IS DISTINCT FROM 'true'" % exprs)
+    cols = ", ".join(f[1] for f in PRIVACY_FIELDS)
+    tgt = {}
+    for r in cm.q("SELECT domain IS NULL, local_actor_uri, origin_id, %s FROM accounts WHERE deleted_at IS NULL" % cols):
+        if len(r) < 3 + len(PRIVACY_FIELDS):
+            continue
+        local = r[0] in TRUE
+        key = r[1] if local else r[2]
+        if key:
+            tgt[key] = (local, r[3:])
+    for n, (field, column, _, expected, actual) in enumerate(PRIVACY_FIELDS):
+        counts = {"local": [0, 0], "remote": [0, 0]}
+        diffs = []
+        for r in src:
+            if len(r) < 3 + len(PRIVACY_FIELDS):
+                continue
+            local = r[1] in TRUE
+            key = "%s/users/%s" % (origin, r[0]) if local else r[2]
+            want = expected(r[3 + n])
+            if not want or not key or (not local and key not in tgt):
+                continue
+            side = "local" if local else "remote"
+            counts[side][0] += 1
+            got = actual(tgt[key][1][n]) if key in tgt else None
+            if got == want:
+                counts[side][1] += 1
+            else:
+                diffs.append("%s %s: %s %s" % (side, r[0] if SAFE_ID.match(r[0] or "") else "?", column, "missing account" if got is None else "differs"))
+        rep.add("8%s account %s -> %s" % ("hijklm"[n], field, column), not diffs,
+                "misskey set local=%d remote(imported)=%d; matching in community local=%d remote=%d"
+                % (counts["local"][0], counts["remote"][0], counts["local"][1], counts["remote"][1]), diffs)
+
+
 def run(args):
     origin = "https://" + args.host
     rep = Report(args.verbose)
@@ -440,6 +511,7 @@ def run(args):
 
     # (8) Misskey profile extensions stored in accounts columns
     profile_checks(mk, cm, origin, rep)
+    privacy_checks(mk, cm, origin, rep)
 
     failed = [n for n, s in rep.results if s == "FAIL"]
     print("\nSUMMARY: %d checks, %d PASS, %d FAIL" % (len(rep.results), len(rep.results) - len(failed), len(failed)))

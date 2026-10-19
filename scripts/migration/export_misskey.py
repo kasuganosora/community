@@ -999,6 +999,18 @@ class Converter:
                                ("moved_to", u.get("movedToUri") or ""), ("also_known_as", [x for x in (u.get("alsoKnownAs") or []) if isinstance(x, str) and x])):
                 if value:
                     a[dst] = value
+            # Misskey account privacy settings, omitted when at the default.
+            for dst, value in (("following_visibility", p.get("followingVisibility")), ("followers_visibility", p.get("followersVisibility"))):
+                if value in ("followers", "private"):
+                    a[dst] = value
+            if p.get("autoAcceptFollowed"):
+                a["auto_accept_followed"] = True
+            if u.get("hideOnlineStatus"):
+                a["hide_online_status"] = True
+            if u.get("speakAsCat") is False:
+                a["speak_as_cat"] = False
+            if u.get("lastActiveDate"):
+                a["last_active_at"] = u["lastActiveDate"]
             role = SYSTEM_ROLES.get(u.get("username") or "") if a["local"] else None
             if role:
                 # Misskey's instance.actor / relay.actor keep their actor URI
