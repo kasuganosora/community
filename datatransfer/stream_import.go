@@ -63,6 +63,23 @@ type streamRun struct {
 	firstDone  bool
 	seenIssues map[string]bool
 	widths     widthTally
+	// siteOwner is the local account that owns shared ownerless media
+	// (sharedMediaOwner): the first local system account, else the first
+	// local account; resolved lazily from the spool.
+	siteOwner *string
+}
+
+func (r *streamRun) siteOwnerID() string {
+	if r.siteOwner == nil {
+		id := ""
+		for _, where := range []string{"json_extract(raw, '$.local') AND json_extract(raw, '$.system')", "json_extract(raw, '$.local')"} {
+			if r.sp.db.QueryRow(`SELECT id FROM rec WHERE section = 'accounts' AND `+where+` ORDER BY seq LIMIT 1`).Scan(&id) == nil && id != "" {
+				break
+			}
+		}
+		r.siteOwner = &id
+	}
+	return *r.siteOwner
 }
 
 // ImportSpool imports (or previews) a spooled site transfer chunk by chunk.
@@ -383,6 +400,9 @@ func (r *streamRun) close(b *Bundle) error {
 		}
 		for _, m := range b.Media {
 			need["account"].add(m.OwnerID)
+			if m.OwnerID == "" {
+				need["account"].add(r.siteOwnerID())
+			}
 		}
 		for _, e := range b.Emojis {
 			need["media"].add(e.MediaID)

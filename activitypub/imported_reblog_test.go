@@ -37,6 +37,7 @@ func TestImportedReblogServedAsAnnounce(t *testing.T) {
 	router.GET("/notes/:id", ImportedStatusObject)
 	router.GET("/notes/:id/activity", ImportedStatusActivity)
 	router.GET("/users/:username/statuses/:id", StatusObject)
+	router.GET("/users/:username/statuses/:id/activity", LocalStatusActivity)
 	for _, path := range []string{"/notes/renote1", "/notes/renote1/activity"} {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", base+path, nil)
@@ -51,7 +52,35 @@ func TestImportedReblogServedAsAnnounce(t *testing.T) {
 		require.Equal(t, uri, a["object"])
 		require.Equal(t, booster.ActorURI(base), a["actor"])
 	}
-	for path, want := range map[string]int{"/notes/renote2": 404, "/notes/renote2/activity": 404, "/notes/902/activity": 404, "/users/booster/statuses/902": 404} {
+	// Native boosts answer at their status URI and at the Announce id their
+	// delivery used (<status uri>/activity), with the same document.
+	for _, path := range []string{"/users/booster/statuses/902", "/users/booster/statuses/902/activity"} {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", base+path, nil)
+		req.Header.Set("Accept", "application/activity+json")
+		router.ServeHTTP(w, req)
+		require.Equal(t, 200, w.Code, path+": "+w.Body.String())
+		var a map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &a))
+		require.Equal(t, "Announce", a["type"])
+		require.Equal(t, base+"/users/booster/statuses/902/activity", a["id"])
+		require.Equal(t, uri, a["object"])
+		own.Reblog = &original
+		own.Reblog.Account = author
+		delivered, id := announcePayload(&own, booster, booster.ActorURI(base), "", false)
+		require.Equal(t, id, a["id"], "same id as the delivered Announce")
+		require.Equal(t, delivered["object"], a["object"])
+	}
+	privateOwn := models.Status{Id: 904, AccountId: booster.Id, ReblogId: &rid, Visibility: models.StatusVisibilityPrivate, CreatedAt: &now, UpdatedAt: &now}
+	require.NoError(t, raw.Create(&privateOwn).Error)
+	hiddenID := uint64(905)
+	hidden := models.Status{Id: hiddenID, AccountId: author.Id, OriginUri: &[]string{"https://remote.example/notes/hidden"}[0], Visibility: models.StatusVisibilityPrivate, CreatedAt: &now, UpdatedAt: &now}
+	require.NoError(t, raw.Create(&hidden).Error)
+	ofHidden := models.Status{Id: 906, AccountId: booster.Id, ReblogId: &hiddenID, Visibility: models.StatusVisibilityPublic, CreatedAt: &now, UpdatedAt: &now}
+	require.NoError(t, raw.Create(&ofHidden).Error)
+	for path, want := range map[string]int{"/notes/renote2": 404, "/notes/renote2/activity": 404, "/notes/902/activity": 404,
+		"/users/booster/statuses/904": 404, "/users/booster/statuses/904/activity": 404, "/users/booster/statuses/906": 404,
+		"/users/booster/statuses/906/activity": 404, "/users/author/statuses/902": 404, "/users/booster/statuses/901/activity": 404} {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", base+path, nil)
 		req.Header.Set("Accept", "application/activity+json")

@@ -293,6 +293,23 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(posts[ident(60)]["quote_uri"], "https://source.test/notes/" + ident(61))
         self.assertEqual(posts[ident(62)]["quote_id"], ident(63))
 
+    def test_ownerless_files_become_site_assets_or_are_listed(self):
+        f = lambda n, url: {"id": ident(n), "userId": None, "userHost": None, "name": "f%d.png" % n, "type": "image/png", "url": url, "isLink": True}
+        self.tables["drive_file"] = [f(70, "https://h/icon"), f(71, "https://h/emoji"), f(72, "https://h/logo"), f(73, "https://h/ad"), f(74, "https://h/none")]
+        self.tables["meta"] = [{"id": "x", "iconUrl": "https://h/icon", "app512IconUrl": "https://h/icon", "logoImageUrl": "https://h/logo"}]
+        self.tables["emoji"] = [{"id": ident(75), "name": "e", "host": None, "originalUrl": "https://h/emoji", "publicUrl": "https://h/emoji", "type": "image/png"}]
+        self.tables["ad"] = [{"id": ident(76), "imageUrl": "https://h/ad"}]
+        b = self.converter().convert()
+        media = {m["id"]: m for m in b["media"]}
+        self.assertEqual(media[ident(70)]["site_assets"], ["app512IconUrl", "iconUrl"])
+        for n in (71, 72, 73, 74):
+            self.assertNotIn(ident(n), media)
+        listed = {i["source_id"]: i["message"] for i in b["issues"] if i["code"] == "misskey_meta_asset"}
+        self.assertEqual(set(listed), {ident(72), ident(73), ident(74)}, "emoji images are migrated as emojis, not listed")
+        self.assertIn("meta.logoImageUrl", listed[ident(72)])
+        self.assertIn("ad image", listed[ident(73)])
+        self.assertIn("not referenced", listed[ident(74)])
+
     def test_system_actors_and_relays(self):
         ia, ra = ident(30), ident(31)
         self.tables["user"] += [{"id": ia, "username": "instance.actor", "host": None}, {"id": ra, "username": "relay.actor", "host": None}]

@@ -80,6 +80,10 @@ class MisskeyPG(unittest.TestCase):
         drive_only = [m for m in b["media"] if m["id"].startswith("00000009500")]
         self.assertEqual(len(drive_only), 5, "local drive-only files are exported")
         self.assertTrue(all(m.get("unattached") for m in drive_only))
+        assets = {m["id"]: m.get("site_assets") for m in b["media"] if m["id"].startswith("00000009600")}
+        self.assertEqual(assets, {"0000000960000001": ["iconUrl"]})
+        listed = {i["source_id"] for i in b["issues"] if i["code"] == "misskey_meta_asset"}
+        self.assertEqual(listed, {"0000000960000002", "0000000960000003"})
         roles = {a.get("system_role"): a for a in b["accounts"] if a.get("system_role")}
         self.assertEqual(roles["instance_actor"]["actor_uri"], "https://src.test/users/0000000000000060")
         self.assertEqual(roles["relay_actor"]["actor_uri"], "https://src.test/users/0000000000000061")

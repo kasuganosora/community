@@ -177,6 +177,9 @@ type Media struct {
 	StorageReference bool `json:"storage_reference,omitempty"`
 	// Unattached marks a source drive file no post or profile references.
 	Unattached bool `json:"unattached,omitempty"`
+	// SiteAssets lists the source instance settings using this ownerless file
+	// (Misskey meta columns such as iconUrl, bannerUrl).
+	SiteAssets []string `json:"site_assets,omitempty"`
 }
 
 type Relation struct {

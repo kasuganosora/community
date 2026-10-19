@@ -31,7 +31,7 @@ CREATE TABLE poll_vote(id varchar(32) PRIMARY KEY, "createdAt" timestamptz NOT N
 CREATE TABLE emoji(id varchar(32) PRIMARY KEY, name varchar(128) NOT NULL, host varchar(512), "originalUrl" varchar(512), "publicUrl" varchar(512), type varchar(64), aliases varchar(128)[] NOT NULL DEFAULT '{}', category varchar(128));
 CREATE INDEX ON emoji(host);
 CREATE TABLE instance(id varchar(32) PRIMARY KEY, host varchar(512) NOT NULL UNIQUE, "softwareName" varchar(64));
-CREATE TABLE meta(id varchar(32) PRIMARY KEY, name varchar(1024), policies jsonb NOT NULL DEFAULT '{}');
+CREATE TABLE meta(id varchar(32) PRIMARY KEY, name varchar(1024), policies jsonb NOT NULL DEFAULT '{}', "iconUrl" varchar(1024), "logoImageUrl" varchar(1024));
 CREATE TABLE "__chart__notes"(id serial PRIMARY KEY, date int NOT NULL, "___local_inc" int NOT NULL DEFAULT 0);
 
 -- 50 local users (ids 1..50), 5000 remote users (ids 1001..6000) on 100 hosts
@@ -50,7 +50,12 @@ SELECT id, 'profile of ' || username, CASE WHEN host IS NULL THEN '$2b$10$abcdef
 INSERT INTO user_keypair SELECT id, 'PUB-' || id, 'PRIV-' || id FROM "user" WHERE host IS NULL;
 INSERT INTO user_publickey SELECT id, uri || '#main-key', 'PEM-' || id FROM "user" WHERE host IS NOT NULL;
 INSERT INTO instance SELECT mkid(800000000 + n), 'host' || n || '.test', 'misskey' FROM generate_series(0, 99) n;
-INSERT INTO meta VALUES ('x', 'Synthetic', '{}');
+INSERT INTO meta VALUES ('x', 'Synthetic', '{}', 'https://h/site/icon.png', 'https://h/site/logo.png');
+-- ownerless instance assets: the icon (supported), the logo (no equivalent), one unreferenced
+INSERT INTO drive_file(id, "userId", "userHost", name, url, "isLink", type) VALUES
+  (mkid(960000001), NULL, NULL, 'icon', 'https://h/site/icon.png', false, 'image/png'),
+  (mkid(960000002), NULL, NULL, 'logo', 'https://h/site/logo.png', false, 'image/png'),
+  (mkid(960000003), NULL, NULL, 'stray', 'https://h/site/stray.png', false, 'image/png');
 INSERT INTO emoji SELECT mkid(700000000 + n), 'local_e' || n, NULL, 'https://src.test/files/e' || n, 'https://src.test/files/e' || n, 'image/png' FROM generate_series(1, 20) n;
 INSERT INTO emoji SELECT mkid(710000000 + n), 'remote_e' || n, 'host' || (n % 200) || '.test', 'https://h/e' || n, 'https://h/e' || n, 'image/png' FROM generate_series(1, 4000) n;
 -- local drive-only files (not attached to any note/avatar/banner)

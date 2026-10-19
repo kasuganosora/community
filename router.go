@@ -142,6 +142,7 @@ func SetRouter(app gin.IRouter) {
 	app.GET("/actor/following", activitypub.Following)
 	app.GET("/actor/collections/featured", activitypub.Featured)
 	app.GET("/users/:username/statuses/:id", activitypub.StatusObject)
+	app.GET("/users/:username/statuses/:id/activity", activitypub.LocalStatusActivity)
 	app.GET("/notes/:id", activitypub.ImportedStatusObject)
 	app.GET("/notes/:id/activity", activitypub.ImportedStatusActivity)
 	app.GET("/ap/statuses/:id", activitypub.ImportedStatusObject)

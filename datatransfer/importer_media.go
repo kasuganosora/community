@@ -145,6 +145,9 @@ func (i *importer) importMedia() error {
 			return err
 		}
 	}
+	if err := i.importSiteAssets(); err != nil {
+		return err
+	}
 	return i.importAccountImages()
 }
 
@@ -152,7 +155,7 @@ func sharedMediaOwner(b *Bundle, m Media) string {
 	if m.OwnerID != "" {
 		return m.OwnerID
 	}
-	shared := false
+	shared := len(m.SiteAssets) > 0
 	for _, e := range b.Emojis {
 		if e.MediaID == m.ID {
 			shared = true

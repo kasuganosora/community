@@ -61,6 +61,10 @@ KNOWN_PRIMARY_KEYS = {
 }
 
 
+# Misskey meta image columns Community has a branding setting for.
+META_ASSET_COLUMNS = ("iconUrl", "app192IconUrl", "app512IconUrl", "bannerUrl", "backgroundImageUrl",
+                      "infoImageUrl", "serverErrorImageUrl", "notFoundImageUrl")
+
 # Misskey's local system actors (username, host NULL) and their target roles.
 SYSTEM_ROLES = {"instance.actor": "instance_actor", "relay.actor": "relay_actor"}
 
@@ -1140,6 +1144,26 @@ class Converter:
                     refs.add(sid(r["fileId"]))
         return refs
 
+    def ownerless_asset(self, r):
+        """Classify an ownerless local drive file: ([supported meta columns], "")
+        when instance settings use it, else ([], reason) — reason "" for
+        custom emoji images, which are migrated as emojis."""
+        urls = {r.get(c) for c in ("url", "webpublicUrl", "thumbnailUrl")} - {None, ""}
+        if urls & self.emoji_urls:
+            return [], ""
+        meta_cols = sorted({k for row in self.tables.get("meta", []) for k, v in row.items() if isinstance(v, str) and v in urls})
+        supported = [c for c in meta_cols if c in META_ASSET_COLUMNS]
+        if supported:
+            return supported, ""
+        if meta_cols:
+            return [], "used by meta.%s, which has no Community equivalent" % ", meta.".join(meta_cols)
+        for table, col, what in (("ad", "imageUrl", "an ad image"), ("avatar_decoration", "url", "an avatar decoration"), ("role", "iconUrl", "a role icon"),
+                                 ("flash", "thumbnailUrl", "a Play thumbnail")):
+            ids = [sid(x.get("id")) for x in self.tables.get(table, []) if x.get(col) in urls]
+            if ids:
+                return [], "%s (%s %s), not supported by Community" % (what, table, ",".join(ids[:5]))
+        return [], "not referenced by any note, profile, emoji or instance setting"
+
     def media(self):
         self.stage("files", "drive_file")
         referenced = self.referenced_files()
@@ -1151,12 +1175,21 @@ class Converter:
             if unattached and self.skip_unattached:
                 skipped += 1
                 continue
+            site_assets = []
+            if not r.get("userId") and r.get("userHost") is None and id_ not in referenced:
+                site_assets, why = self.ownerless_asset(r)
+                if not site_assets:
+                    if why:
+                        self.issue("info", "misskey_meta_asset", "media", id_, "Ownerless local drive file not migrated: %s." % why)
+                    continue
             props = r.get("properties") or {}
             m = {"id": id_, "owner_id": sid(r.get("userId")), "name": r.get("name") or "", "content_type": r.get("type") or "application/octet-stream",
                  "size": r.get("size") or 0, "remote_url": r.get("url") or "", "description": r.get("comment") or "", "blurhash": r.get("blurhash") or "",
                  "width": dim(props.get("width")), "height": dim(props.get("height")), "created_at": self.time(r)}
             if unattached:
                 m["unattached"] = True
+            if site_assets:
+                m["site_assets"] = site_assets
             local_owner = r.get("userId") and self.is_local(r["userId"])
             if r.get("userId") and not self.known("user", sid(r["userId"])):
                 m["owner_id"] = ""
@@ -1477,6 +1510,9 @@ def misskey_plan(f, include_remote_cache=False):
     explicit("note_reaction", 't."userId" IN %s OR t."noteId" IN %s' % (LU, LN), "userId", "noteId")
     explicit("poll_vote", 't."userId" IN %s OR t."noteId" IN %s' % (LU, LN), "userId", "noteId")
     explicit("emoji", "t.host IS NULL", "host")
+    # Ownerless local drive files: custom emoji images and instance assets
+    # (meta icon/banner/..., ads, decorations, role icons).
+    explicit("drive_file", 't."userId" IS NULL AND t."userHost" IS NULL', "userId", "userHost")
     for name in ("user_profile", "user_publickey", "drive_file", "poll", "instance"):
         handled.add(name)
     # Everything else: rows owned by local users, rows about local notes, or whole small tables.

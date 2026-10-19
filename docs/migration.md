@@ -214,6 +214,8 @@ tootctl two-factor scrub-preserved     # 清除旧导入归档里的明文 secre
 15. **引用目标不在导出范围内时 URI 丢失（第五次演练 156 条）。** 原因：导出器在裁剪超出范围的引用时把 `renoteId` 清空，`quote_id` 随之消失，导入端把它当普通帖子，既没写 `import_quote_uri` 也没报 `quote_unlinked`。现在：(a) 读取阶段对已读入的帖子继续追 renote / 引用目标直到不再增加（最多 8 轮），回复父帖追 3 层，所以远端回复父帖本身是引用等“两跳”目标也会导入并链接；(b) 引用即使目标不在导出中也保留 `quote_id`，本地目标的 URI 为 `https://maid.lat/notes/<id>`，导入时一律写 `import_quote_uri`（已知时）并报 `quote_unlinked/target_missing`，预检数量一致。远端目标若已从 Misskey 删除，URI 无从得知，只保留 `import_quote_source_id`。
 16. **纯转发的 `/notes/<id>` 返回 404。** 服务端（**需要部署**）现在对导入的转发（保留了 `local_object_uri` 的 reblog）在 `/notes/<id>` 和 `/notes/<id>/activity` 返回 Misskey 当初发布的 `Announce`（id 为 `<uri>/activity`，与 Misskey 投递时一致，object 为原帖 URI），仅限公开 / 不公开的转发且原帖可见。站内自己的转发没有 `local_object_uri`，不受影响。核对第 3 项接受 `type: Announce` 且 id 为 `<uri>/activity`。
 17. **仅在网盘里的文件（没有被帖子、头像、横幅、聊天引用）。** 默认作为原用户的未附加媒体导入（导出记录标 `unattached`，报告 `created.unattached_media` 计数）；加 `--skip-unattached-drive-files`（community-transfer 和 export_misskey.py 都有）则不导出，报 info `unattached_drive_files_skipped`。核对脚本加同名参数后，6b 只比较被引用的本地文件。Community 没有自动清理未附加本地媒体的任务（`tootctl media remove` 只清远端缓存，`remove-orphans` 只删数据库里没有记录的存储对象），所以这些文件不会被自动删掉。普通用户在 c.hime.at 界面里**看不到也无法管理**未附加媒体（没有网盘 / 媒体库页面）；只有管理员的「文件」页（`/admin/files`，可按“未附加”筛选、删除）。
+18. **没有所有者的本地文件（`userId` 为空，第六次演练 6b 差 203）。** 这些不是用户文件：多数是本地自定义表情的图片（已作为表情导入），其余是管理员上传到实例的文件。核对 6b 现在不计 `userId IS NULL` 的文件；新增 6c 用 URL 匹配本地表情的 `originalUrl`/`publicUrl`，把这类文件数与导入的本地表情数对比，并打印其余无主文件的数量。导出器现在会读取无主文件并按用途分类：被 Misskey `meta` 的 `iconUrl` / `app192IconUrl` / `app512IconUrl` / `bannerUrl` / `backgroundImageUrl` / `infoImageUrl` / `serverErrorImageUrl` / `notFoundImageUrl` 引用的，作为站点资源（`site_assets`）导入为实例 Actor 名下的媒体，并写入**本次导入的目标库**的品牌设置（报告 `created.site_asset`）；目标库中该设置已有不同的值则保留（info `site_asset_kept`）。`logoImageUrl`、广告图、头像装饰、角色图标、Play 缩略图以及完全未被引用的文件在 Community 没有对应位置，不导入，每个文件一条 info `misskey_meta_asset`，消息里写明用途（如 `meta.logoImageUrl`、`ad image`、`not referenced by …`）；表情图片不重复列出。导入工具不连接线上实例，线上是否执行 `import-misskey-meta` 仍由 Sion 决定。
+19. **站内自己的转发在 ActivityPub 地址上 404。** 服务端（**需要部署**）：本地转发投递时 `Announce` 的 id 是 `<base>/users/<name>/statuses/<id>/activity`；现在这个地址和转发本身的状态地址 `<base>/users/<name>/statuses/<id>` 在 `Accept: application/activity+json` 时都返回该 `Announce`（与投递内容一致），浏览器请求不变。规则与第 16 项导入的转发相同：仅限公开 / 不公开、非仅本站的转发，原帖未删除、公开 / 不公开且对请求方可见；否则 404。导入的转发仍只在其 Misskey 地址 `/notes/<id>` 上提供。
 
 ## 重新执行 maid.lat 演练（隔离网络、只读源）
 
@@ -253,6 +255,10 @@ COMMUNITY_DB_DSN='postgresql://community@127.0.0.1:5432/community_rehearsal' \
 COMMUNITY_BASE='http://127.0.0.1:8080' HOST_HEADER=maid.lat SAMPLE=200 \
 python3 scripts/migration/verify_misskey_import.py --seed 42 -v
 ```
+
+### 全量重跑（第六次演练之后）
+
+先部署新版本服务端（第 19 项本地转发的 `Announce`），再换空库全量重跑（导出范围变了：现在会读取无主文件），步骤同下一节。导入后**重启**目标实例（品牌设置在启动时读入）。期望：报告里 `created.site_asset` 为 meta 中受支持且确实有文件的项数，`misskey_meta_asset` 列出其余无主文件（约 29 个里不能映射的部分，逐条带用途）；核对 6b 只比较有所有者的本地文件，6c 表情图片数与本地表情数一致（约 175）。
 
 ### 全量重跑（第五次演练之后）
 

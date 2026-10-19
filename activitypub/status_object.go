@@ -110,7 +110,10 @@ func StatusObject(c *gin.Context) {
 			return
 		}
 		if err = query.Where("id = ? AND account_id = ? AND deleted_at IS NULL AND scheduled_at IS NULL AND (reblog_id IS NULL OR reblog_id = 0) AND (local_object_uri = '' OR local_object_uri IS NULL)", id, account.Id).First(&status).Error; err != nil {
-			c.Status(http.StatusNotFound)
+			// A boost's status URI answers with its Announce.
+			if !localReblogAnnounce(c, &account, id) {
+				c.Status(http.StatusNotFound)
+			}
 			return
 		}
 	}
@@ -188,32 +191,62 @@ func ImportedStatusActivity(c *gin.Context) {
 
 // importedReblogAnnounce answers with the Announce of an imported local boost
 // whose preserved object URI (Misskey /notes/<id>) is uri. Like Misskey the
-// Announce id is <uri>/activity. Only public/unlisted boosts of a visible
-// original are served; it reports whether it handled the request.
+// Announce id is <uri>/activity. It reports whether it handled the request.
 func importedReblogAnnounce(c *gin.Context, uri string) bool {
 	var boost models.Status
 	err := db.GetDB().Preload("Account").Where("local_object_uri = ? AND reblog_id IS NOT NULL AND reblog_id > 0 AND deleted_at IS NULL AND scheduled_at IS NULL", uri).First(&boost).Error
 	if err != nil {
 		return false
 	}
+	serveReblogAnnounce(c, &boost)
+	return true
+}
+
+// localReblogAnnounce answers with the Announce of a native local boost
+// (status URI <actor>/statuses/<id>, Announce id <that>/activity, as
+// delivered by announcePayload). It reports whether id is such a boost.
+func localReblogAnnounce(c *gin.Context, account *models.Account, id uint64) bool {
+	var boost models.Status
+	err := db.GetDB().Where("id = ? AND account_id = ? AND reblog_id IS NOT NULL AND reblog_id > 0 AND deleted_at IS NULL AND scheduled_at IS NULL AND (local_object_uri = '' OR local_object_uri IS NULL)", id, account.Id).First(&boost).Error
+	if err != nil {
+		return false
+	}
+	boost.Account = account
+	serveReblogAnnounce(c, &boost)
+	return true
+}
+
+// LocalStatusActivity serves <actor>/statuses/<id>/activity: the Announce of
+// a local boost (the id its delivery used). Other statuses are not served here.
+func LocalStatusActivity(c *gin.Context) {
+	c.Header("Vary", "Accept")
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	var account models.Account
+	if err != nil || id == 0 || localActorRouteQuery(db.GetDB(), c).First(&account).Error != nil || !localReblogAnnounce(c, &account, id) {
+		c.Status(http.StatusNotFound)
+	}
+}
+
+// serveReblogAnnounce writes a boost's Announce: public/unlisted boosts by a
+// local account of a still visible (public/unlisted) original only.
+func serveReblogAnnounce(c *gin.Context, boost *models.Status) {
 	if boost.Account == nil || boost.Account.Domain != nil || boost.LocalOnly ||
 		(boost.Visibility != models.StatusVisibilityPublic && boost.Visibility != models.StatusVisibilityUnlisted) {
 		c.Status(http.StatusNotFound)
-		return true
+		return
 	}
 	var original models.Status
 	if err := db.GetDB().Preload("Account").Where("id = ? AND deleted_at IS NULL", *boost.ReblogId).First(&original).Error; err != nil || original.Account == nil || original.LocalOnly ||
 		(original.Visibility != models.StatusVisibilityPublic && original.Visibility != models.StatusVisibilityUnlisted) {
 		c.Status(http.StatusNotFound)
-		return true
+		return
 	}
 	if !signedFetchAllowed(c, boost.Account) {
-		return true
+		return
 	}
 	boost.Reblog = &original
-	announce, _ := announcePayload(&boost, boost.Account, accountActorURI(boost.Account, systemsettings.GetBaseURL()), "", false)
+	announce, _ := announcePayload(boost, boost.Account, accountActorURI(boost.Account, systemsettings.GetBaseURL()), "", false)
 	announce["@context"] = "https://www.w3.org/ns/activitystreams"
 	c.Header("Content-Type", "application/activity+json")
 	c.JSON(http.StatusOK, announce)
-	return true
 }

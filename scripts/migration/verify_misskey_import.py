@@ -309,15 +309,26 @@ def run(args):
     rep.add("6a local custom emoji count", within(mk_emoji, cm_emoji, args.tolerance) and not (mk_emoji and not cm_emoji), "misskey=%d community=%d (tolerance %.0f%%)" % (mk_emoji, cm_emoji, args.tolerance * 100))
     if getattr(args, "skip_unattached_drive_files", False):
         # Drive-only files were not migrated: compare referenced local files only.
-        mk_files = int(mk.scalar('SELECT count(*) FROM drive_file f WHERE f."userHost" IS NULL AND (EXISTS (SELECT 1 FROM note n WHERE f.id = ANY(n."fileIds")) '
+        mk_files = int(mk.scalar('SELECT count(*) FROM drive_file f WHERE f."userHost" IS NULL AND f."userId" IS NOT NULL AND (EXISTS (SELECT 1 FROM note n WHERE f.id = ANY(n."fileIds")) '
                                  'OR EXISTS (SELECT 1 FROM "user" u WHERE u."avatarId" = f.id OR u."bannerId" = f.id))'))
     else:
-        mk_files = int(mk.scalar('SELECT count(*) FROM drive_file WHERE "userHost" IS NULL'))
-    mk_files_all = int(mk.scalar("SELECT count(*) FROM drive_file"))
+        # Ownerless files (userId NULL: custom emoji images, instance assets)
+        # are not user media; emoji images are checked in 6c.
+        mk_files = int(mk.scalar('SELECT count(*) FROM drive_file WHERE "userHost" IS NULL AND "userId" IS NOT NULL'))
+    mk_files_all = int(mk.scalar('SELECT count(*) FROM drive_file WHERE "userId" IS NOT NULL'))
     cm_files = int(cm.scalar("SELECT count(*) FROM media_attachments m JOIN accounts a ON a.id = m.account_id WHERE a.domain IS NULL"))
     cm_files_all = int(cm.scalar("SELECT count(*) FROM media_attachments"))
     rep.add("6b drive file / media count", (within(mk_files, cm_files, args.tolerance) or within(mk_files_all, cm_files_all, args.tolerance)) and not (mk_files and not cm_files_all),
             "misskey local=%d all=%d; community local-owner media=%d all=%d (tolerance %.0f%%)" % (mk_files, mk_files_all, cm_files, cm_files_all, args.tolerance * 100))
+    # 6c: ownerless local drive files used as custom emoji images become emoji
+    # images, not media; each must have produced a local emoji with an image.
+    mk_emoji_files = int(mk.scalar('SELECT count(DISTINCT f.id) FROM drive_file f JOIN emoji e ON e.host IS NULL AND (e."originalUrl" = f.url OR e."publicUrl" = f.url) '
+                                   'WHERE f."userHost" IS NULL AND f."userId" IS NULL') or 0)
+    mk_ownerless = int(mk.scalar('SELECT count(*) FROM drive_file WHERE "userHost" IS NULL AND "userId" IS NULL') or 0)
+    cm_emoji_images = int(cm.scalar("SELECT count(*) FROM emojis WHERE (domain = '' OR domain IS NULL) AND deleted_at IS NULL AND url <> ''") or 0)
+    rep.add("6c emoji image files", cm_emoji_images >= mk_emoji_files - int(mk_emoji_files * args.tolerance),
+            "misskey ownerless emoji image files=%d; community local emojis with an image=%d; other ownerless files=%d (instance assets: see the import report's misskey_meta_asset issues)"
+            % (mk_emoji_files, cm_emoji_images, mk_ownerless - mk_emoji_files))
 
     # (7) inbox routes (POST-only route: GET/OPTIONS should yield 405/400/401, never 404)
     fails, ok_n = [], 0
