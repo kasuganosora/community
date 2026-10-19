@@ -73,8 +73,8 @@ type Account struct {
 	// at display time; online_status is Misskey's onlineStatus.
 	SpeakAsCat          bool   `json:"speak_as_cat"`
 	OnlineStatus        string `json:"online_status"`
-	FollowingVisibility string `json:"following_visibility"`
-	FollowersVisibility string `json:"followers_visibility"`
+	FollowingVisibility string `json:"following_visibility,omitempty"`
+	FollowersVisibility string `json:"followers_visibility,omitempty"`
 	// Roles is always an array in Mastodon >= 4.3 (empty for plain users).
 	Roles []any `json:"roles"`
 
@@ -184,6 +184,10 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 	}
 
 	acc.Id = strconv.FormatUint(account.Id, 10)
+	if account.DeletionRequestedAt != nil {
+		// A deleting account has no lists to describe.
+		acc.FollowingVisibility, acc.FollowersVisibility = "", ""
+	}
 
 	if legacyAvatarDecorationID(account) == 0 {
 		acc.AvatarDecorationID = ""
