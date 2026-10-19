@@ -227,7 +227,7 @@ watch(activeTab, () => {
     <!-- Avatar + Info -->
     <div class="profile-info">
       <div class="profile-info__top">
-        <UserAvatar :account="account" :size="128" class="profile-avatar" />
+        <UserAvatar :account="account" :size="128" class="profile-avatar" show-online />
         <t-button v-if="isOwnProfile" theme="default" shape="round" class="edit-btn" @click="$router.push('/settings')">
           {{ $t('user.ProfilePage.s3') }}
         </t-button>

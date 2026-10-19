@@ -3071,6 +3071,26 @@
         "DOMAIN_REQUIRED": "请输入域名",
         "DOMAIN_INVALID": "域名格式不正确"
       }
+    },
+    "AccountPrivacy": {
+      "title": "隐私",
+      "autoAcceptFollowed": "自动批准你已关注的账号",
+      "autoAcceptFollowedHint": "账号设为需要批准关注时，来自你已关注账号的关注请求会自动批准。",
+      "hideOnlineStatus": "隐藏在线状态",
+      "hideOnlineStatusHint": "其他人看到的状态将是“未知”，而不是在线、活跃或离线。",
+      "followingVisibility": "谁可以查看你的关注列表",
+      "followersVisibility": "谁可以查看你的关注者列表",
+      "speakAsCat": "像猫一样说话",
+      "speakAsCatHint": "向查看者以猫语显示你的帖子（仅显示效果，不会修改帖子内容）。",
+      "nyaizeTitle": "猫语",
+      "nyaizeHint": "以猫语（喵）显示设置了“像猫一样说话”的猫账号的帖子。只影响你看到的效果。",
+      "nyaizeOn": "显示",
+      "nyaizeOff": "不显示",
+      "visibility": {
+        "public": "所有人",
+        "followers": "仅关注者",
+        "private": "仅自己"
+      }
     }
   },
   "timeline": {
@@ -3313,6 +3333,11 @@
       "signinRequired": "登录后查看帖子",
       "signinRequiredHint": "该账号的帖子仅对已登录用户可见。",
       "signinRequiredAction": "登录"
+    },
+    "onlineStatus": {
+      "online": "在线",
+      "active": "活跃",
+      "offline": "离线"
     }
   },
   "apiError": {

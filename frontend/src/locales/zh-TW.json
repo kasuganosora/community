@@ -3071,6 +3071,26 @@
         "DOMAIN_REQUIRED": "請輸入網域",
         "DOMAIN_INVALID": "網域格式不正確"
       }
+    },
+    "AccountPrivacy": {
+      "title": "隱私",
+      "autoAcceptFollowed": "自動批准你已追蹤的帳號",
+      "autoAcceptFollowedHint": "帳號設為需要批准追蹤時，來自你已追蹤帳號的追蹤請求會自動批准。",
+      "hideOnlineStatus": "隱藏上線狀態",
+      "hideOnlineStatusHint": "其他人看到的狀態將是「未知」，而不是上線、活躍或離線。",
+      "followingVisibility": "誰可以查看你的追蹤列表",
+      "followersVisibility": "誰可以查看你的追蹤者列表",
+      "speakAsCat": "像貓一樣說話",
+      "speakAsCatHint": "向查看者以貓語顯示你的貼文（僅顯示效果，不會修改貼文內容）。",
+      "nyaizeTitle": "貓語",
+      "nyaizeHint": "以貓語（喵）顯示設定了「像貓一樣說話」的貓帳號的貼文。只影響你看到的效果。",
+      "nyaizeOn": "顯示",
+      "nyaizeOff": "不顯示",
+      "visibility": {
+        "public": "所有人",
+        "followers": "僅追蹤者",
+        "private": "僅自己"
+      }
     }
   },
   "timeline": {
@@ -3313,6 +3333,11 @@
       "signinRequired": "登入後查看貼文",
       "signinRequiredHint": "此帳號的貼文僅對已登入的使用者可見。",
       "signinRequiredAction": "登入"
+    },
+    "onlineStatus": {
+      "online": "上線",
+      "active": "活躍",
+      "offline": "離線"
     }
   },
   "apiError": {

@@ -3071,6 +3071,26 @@
         "DOMAIN_REQUIRED": "ドメインを入力してください",
         "DOMAIN_INVALID": "ドメインの形式が正しくありません"
       }
+    },
+    "AccountPrivacy": {
+      "title": "プライバシー",
+      "autoAcceptFollowed": "フォローしているアカウントを自動承認",
+      "autoAcceptFollowedHint": "鍵アカウントのとき、すでにフォローしているアカウントからのフォローリクエストを自動で承認します。",
+      "hideOnlineStatus": "オンライン状態を隠す",
+      "hideOnlineStatusHint": "他の人にはオンライン・アクティブ・オフラインではなく「不明」と表示されます。",
+      "followingVisibility": "フォロー一覧を見られる人",
+      "followersVisibility": "フォロワー一覧を見られる人",
+      "speakAsCat": "猫語で話す",
+      "speakAsCatHint": "閲覧者に投稿を猫語で表示します（表示のみで、投稿内容は変わりません）。",
+      "nyaizeTitle": "猫語",
+      "nyaizeHint": "猫語で話す設定の猫アカウントの投稿を猫語（にゃ）で表示します。あなたの表示だけが変わります。",
+      "nyaizeOn": "表示する",
+      "nyaizeOff": "表示しない",
+      "visibility": {
+        "public": "全員",
+        "followers": "フォロワーのみ",
+        "private": "自分のみ"
+      }
     }
   },
   "timeline": {
@@ -3313,6 +3333,11 @@
       "signinRequired": "サインインして投稿を見る",
       "signinRequiredHint": "このアカウントの投稿はサインインしたユーザーにのみ表示されます。",
       "signinRequiredAction": "サインイン"
+    },
+    "onlineStatus": {
+      "online": "オンライン",
+      "active": "アクティブ",
+      "offline": "オフライン"
     }
   },
   "apiError": {

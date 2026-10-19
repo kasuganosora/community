@@ -3071,6 +3071,26 @@
         "DOMAIN_REQUIRED": "Indiquez un domaine",
         "DOMAIN_INVALID": "Ce n’est pas un domaine valide"
       }
+    },
+    "AccountPrivacy": {
+      "title": "Confidentialité",
+      "autoAcceptFollowed": "Approuver automatiquement les comptes que vous suivez",
+      "autoAcceptFollowedHint": "Si votre compte est verrouillé, les demandes d’abonnement des comptes que vous suivez déjà sont approuvées automatiquement.",
+      "hideOnlineStatus": "Masquer le statut en ligne",
+      "hideOnlineStatusHint": "Les autres verront « inconnu » au lieu de en ligne, actif ou hors ligne.",
+      "followingVisibility": "Qui peut voir vos abonnements",
+      "followersVisibility": "Qui peut voir vos abonnés",
+      "speakAsCat": "Parler comme un chat",
+      "speakAsCatHint": "Afficher vos publications en langage chat (affichage uniquement ; vos publications ne sont pas modifiées).",
+      "nyaizeTitle": "Langage chat",
+      "nyaizeHint": "Afficher en langage chat (nya) les publications des comptes chat qui parlent comme un chat. Ne change que l’affichage pour vous.",
+      "nyaizeOn": "Afficher",
+      "nyaizeOff": "Ne pas afficher",
+      "visibility": {
+        "public": "Tout le monde",
+        "followers": "Abonnés uniquement",
+        "private": "Moi uniquement"
+      }
     }
   },
   "timeline": {
@@ -3313,6 +3333,11 @@
       "signinRequired": "Connectez-vous pour voir les publications",
       "signinRequiredHint": "Les publications de ce compte ne sont visibles que par les utilisateurs connectés.",
       "signinRequiredAction": "Se connecter"
+    },
+    "onlineStatus": {
+      "online": "En ligne",
+      "active": "Actif",
+      "offline": "Hors ligne"
     }
   },
   "apiError": {

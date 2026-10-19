@@ -9,6 +9,8 @@ const props = defineProps<{
   size?: number
   /** Overrides the account's decorations (settings preview). */
   decorations?: AvatarDecorationPlacement[]
+  /** Show the Misskey-style online indicator (profile header). */
+  showOnline?: boolean
 }>()
 
 // Only this server's decoration endpoint and the media proxy are trusted:
@@ -50,6 +52,10 @@ function decorationFailed(key: string) {
   if (!failedDecorations.value.includes(key)) failedDecorations.value = [...failedDecorations.value, key]
 }
 const avatarSize = computed(() => props.size || 40)
+const onlineStatus = computed(() => {
+  const status = props.account.online_status
+  return props.showOnline && (status === 'online' || status === 'active' || status === 'offline') ? status : ''
+})
 function avatarUrl(raw: string | undefined): string {
   if (!raw) return ''
   try {
@@ -146,12 +152,17 @@ function imageFailed(event: Event) {
       draggable="false"
       @error="decorationFailed(d.key)"
     />
+  <span v-if="onlineStatus" class="avatar-online" :class="`avatar-online--${onlineStatus}`" role="img" :aria-label="$t(`user.onlineStatus.${onlineStatus}`)" :title="$t(`user.onlineStatus.${onlineStatus}`)" data-testid="online-indicator" />
   </span>
 </template>
 
 <style scoped>
 .avatar-frame { display: inline-flex; position: relative; flex-shrink: 0; vertical-align: middle; }
 /* Original vector artwork for Community cat avatars. */
+.avatar-online { position: absolute; z-index: 2; right: 4%; bottom: 4%; width: 18%; height: 18%; min-width: 10px; min-height: 10px; border-radius: 50%; border: 2px solid var(--td-bg-color-container, #fff); box-sizing: border-box; }
+.avatar-online--online { background: var(--td-success-color, #2ba471); }
+.avatar-online--active { background: var(--td-warning-color, #e37318); }
+.avatar-online--offline { background: var(--td-error-color, #d54941); }
 .avatar-cat-ears { position: absolute; top: -17%; left: 0; width: 100%; height: 60%; overflow: visible; pointer-events: none; }
 .avatar-cat-ears__fur { fill: #f0e9e3; stroke: #938c91; stroke-width: 2; stroke-linejoin: round; }
 .avatar-cat-ears__inner { fill: #e8a2b7; }

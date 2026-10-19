@@ -16,6 +16,7 @@ import DiscoverySettings from '@/domains/discovery/presentation/components/Disco
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import LanguagePicker from '@/shared/components/common/LanguagePicker.vue'
 import { useMediaMode, type MediaMode } from '@/shared/composables/useMediaMode'
+import { useNyaizeDisplay } from '@/shared/composables/useNyaizeDisplay'
 import { useTheme, type ThemePreference } from '@/shared/composables/useTheme'
 
 import { t } from '@/shared/i18n'
@@ -44,6 +45,15 @@ const mediaDisplay = computed<MediaMode>({
   get: () => mediaMode.value,
   set: (v) => { void setMediaMode(v) },
 })
+const { enabled: nyaizeEnabled, setEnabled: setNyaize } = useNyaizeDisplay()
+const nyaizeDisplay = computed<'on' | 'off'>({
+  get: () => nyaizeEnabled.value ? 'on' : 'off',
+  set: (v) => setNyaize(v === 'on'),
+})
+const nyaizeOptions = computed(() => [
+  { value: 'on' as const, label: t('settings.AccountPrivacy.nyaizeOn') },
+  { value: 'off' as const, label: t('settings.AccountPrivacy.nyaizeOff') },
+])
 const mediaOptions: { value: MediaMode; label: string }[] = [
   { value: 'default', label: t('settings.SettingsPage.s29') },
   { value: 'show_all', label: t('settings.SettingsPage.s30') },
@@ -111,6 +121,14 @@ async function logout() {
           <SegmentedControl v-model="mediaDisplay" :options="mediaOptions" :label="$t('settings.SettingsPage.s7')" />
         </div>
         <p class="settings__footer">{{ $t('settings.SettingsPage.s8') }}</p>
+      </section>
+
+      <section class="settings__section" v-show="activeSection === 'display'" aria-labelledby="settings-nyaize" data-testid="nyaize-setting">
+        <h2 id="settings-nyaize" class="settings__heading">{{ $t('settings.AccountPrivacy.nyaizeTitle') }}</h2>
+        <div class="settings__group settings__group--padded">
+          <SegmentedControl v-model="nyaizeDisplay" :options="nyaizeOptions" :label="$t('settings.AccountPrivacy.nyaizeTitle')" />
+        </div>
+        <p class="settings__footer">{{ $t('settings.AccountPrivacy.nyaizeHint') }}</p>
       </section>
 
       <section v-if="authStore.currentUser" class="settings__section settings__section--profile" v-show="activeSection === 'profile'" aria-labelledby="settings-profile">

@@ -20,6 +20,8 @@ import { stripHtml } from '@/shared/utils/sanitize'
 import { markBidiNumbers } from '@/shared/utils/bidi'
 
 import { t } from '@/shared/i18n'
+import { speaksAsCat } from '@/shared/utils/nyaize'
+import { useNyaizeDisplay } from '@/shared/composables/useNyaizeDisplay'
 const props = defineProps<{
   status: MastodonStatus
   textClass?: string
@@ -27,6 +29,8 @@ const props = defineProps<{
 }>()
 
 const router = useRouter()
+const { enabled: nyaizeEnabled } = useNyaizeDisplay()
+const nyaize = computed(() => nyaizeEnabled.value && speaksAsCat(props.status.account))
 const bodyHtml = computed(() => props.compactReply ? withoutLeadingReplyMention(props.status.content, props.status.reply?.account) : props.status.content)
 const cwOpen = useTimelineRowFlag('cwOpen')
 const mediaRevealed = useTimelineRowFlag('mediaRevealed')
@@ -119,7 +123,7 @@ onMounted(measure)
     </div>
     <div v-show="bodyVisible" :id="contentId">
       <div ref="textEl" class="post-content__text" :class="{ 'is-clamped': long && !expanded }">
-        <RichText :html="bodyHtml" :emojis="status.emojis" :class="textClass" :dir="textDir(status.language)" />
+        <RichText :html="bodyHtml" :emojis="status.emojis" :nyaize="nyaize" :class="textClass" :dir="textDir(status.language)" />
       </div>
       <button v-if="long" type="button" class="post-content__more" @click.stop="expanded = !expanded">
         {{ expanded ? $t('shared.PostContent.s1') : $t('shared.PostContent.s3') }}

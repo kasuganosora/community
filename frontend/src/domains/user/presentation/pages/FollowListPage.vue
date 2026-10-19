@@ -97,7 +97,7 @@ onMounted(load)
     <div v-else-if="accounts.length === 0" class="empty-state">
       <div class="empty-state__icon"><t-icon name="user" :size="48" /></div>
       <h2 class="empty-state__title">{{ kind === 'followers' ? $t('user.FollowListPage.s5') : $t('user.FollowListPage.s6') }}</h2>
-      <p v-if="owner?.hide_collections" class="empty-state__text">{{ $t('user.FollowListPage.s7') }}</p>
+      <p v-if="owner && (kind === 'followers' ? owner.followers_visibility : owner.following_visibility) ? (kind === 'followers' ? owner.followers_visibility : owner.following_visibility) !== 'public' : owner?.hide_collections" class="empty-state__text">{{ $t('user.FollowListPage.s7') }}</p>
     </div>
 
     <template v-else>

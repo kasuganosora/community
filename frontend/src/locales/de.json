@@ -3071,6 +3071,26 @@
         "DOMAIN_REQUIRED": "Bitte eine Domain eingeben",
         "DOMAIN_INVALID": "Das sieht nicht nach einer Domain aus"
       }
+    },
+    "AccountPrivacy": {
+      "title": "Privatsphäre",
+      "autoAcceptFollowed": "Konten, denen du folgst, automatisch bestätigen",
+      "autoAcceptFollowedHint": "Wenn dein Konto gesperrt ist, werden Folgeanfragen von Konten, denen du bereits folgst, automatisch bestätigt.",
+      "hideOnlineStatus": "Online-Status verbergen",
+      "hideOnlineStatusHint": "Andere sehen „unbekannt“ statt online, aktiv oder offline.",
+      "followingVisibility": "Wer deine Folge-ich-Liste sehen kann",
+      "followersVisibility": "Wer deine Follower-Liste sehen kann",
+      "speakAsCat": "Wie eine Katze sprechen",
+      "speakAsCatHint": "Deine Beiträge in Katzensprache anzeigen (nur Anzeige; deine Beiträge werden nicht verändert).",
+      "nyaizeTitle": "Katzensprache",
+      "nyaizeHint": "Beiträge von Katzenkonten, die wie eine Katze sprechen, in Katzensprache (nya) anzeigen. Ändert nur deine Ansicht.",
+      "nyaizeOn": "Anzeigen",
+      "nyaizeOff": "Nicht anzeigen",
+      "visibility": {
+        "public": "Alle",
+        "followers": "Nur Follower",
+        "private": "Nur ich"
+      }
     }
   },
   "timeline": {
@@ -3313,6 +3333,11 @@
       "signinRequired": "Melde dich an, um Beiträge zu sehen",
       "signinRequiredHint": "Die Beiträge dieses Kontos sind nur für angemeldete Nutzer sichtbar.",
       "signinRequiredAction": "Anmelden"
+    },
+    "onlineStatus": {
+      "online": "Online",
+      "active": "Aktiv",
+      "offline": "Offline"
     }
   },
   "apiError": {

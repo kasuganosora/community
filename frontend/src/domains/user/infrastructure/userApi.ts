@@ -180,6 +180,12 @@ export const userApi = {
 }
 
 export interface UpdateCredentialsParams {
+  speak_as_cat?: boolean
+  auto_accept_followed?: boolean
+  hide_online_status?: boolean
+  following_visibility?: 'public' | 'followers' | 'private'
+  followers_visibility?: 'public' | 'followers' | 'private'
+
   display_name?: string
   note?: string
   /** URL of an uploaded media attachment (the backend has no file upload here). */

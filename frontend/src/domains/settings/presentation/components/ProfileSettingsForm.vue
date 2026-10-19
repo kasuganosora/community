@@ -36,7 +36,9 @@ function decorationsSaved() {
   MessagePlugin.success(t('settings.AvatarDecorationPicker.s24'))
 }
 
-const emptyProfile = () => ({ display_name: '', note: '', locked: false, discoverable: false, indexable: false, avatar: '', header: '', location: '', birthday: '', language: '', followed_message: '', reaction_acceptance: 'all' as ReactionAcceptance, is_cat: false, bot: false, require_signin_to_view: false, fields: Array.from({ length: 4 }, () => ({ name: '', value: '' })) })
+type CollectionVisibility = 'public' | 'followers' | 'private'
+const visibilityChoices: CollectionVisibility[] = ['public', 'followers', 'private']
+const emptyProfile = () => ({ display_name: '', note: '', locked: false, discoverable: false, indexable: false, avatar: '', header: '', location: '', birthday: '', language: '', followed_message: '', reaction_acceptance: 'all' as ReactionAcceptance, is_cat: false, speak_as_cat: true, bot: false, require_signin_to_view: false, auto_accept_followed: false, hide_online_status: false, following_visibility: 'public' as CollectionVisibility, followers_visibility: 'public' as CollectionVisibility, fields: Array.from({ length: 4 }, () => ({ name: '', value: '' })) })
 const profile = reactive(emptyProfile())
 const fieldsReady = ref(false)
 const refreshingSource = ref(false)
@@ -101,6 +103,14 @@ function resetProfile() {
   profile.is_cat = !!me.is_cat
   profile.bot = !!me.bot
   profile.require_signin_to_view = !!me.require_signin_to_view
+  const src = me.source ?? { note: '' }
+  profile.speak_as_cat = (src.speak_as_cat ?? me.speak_as_cat) !== false
+  profile.auto_accept_followed = !!src.auto_accept_followed
+  profile.hide_online_status = !!src.hide_online_status
+  const fallback: CollectionVisibility = me.hide_collections ? 'private' : 'public'
+  const vis = (v: unknown): CollectionVisibility => (visibilityChoices as unknown[]).includes(v) ? v as CollectionVisibility : fallback
+  profile.following_visibility = vis(src.following_visibility ?? me.following_visibility)
+  profile.followers_visibility = vis(src.followers_visibility ?? me.followers_visibility)
   resetFields()
 }
 
@@ -198,6 +208,11 @@ async function saveProfile() {
       is_cat: profile.is_cat,
       bot: profile.bot,
       require_signin_to_view: profile.require_signin_to_view,
+      speak_as_cat: profile.speak_as_cat,
+      auto_accept_followed: profile.auto_accept_followed,
+      hide_online_status: profile.hide_online_status,
+      following_visibility: profile.following_visibility,
+      followers_visibility: profile.followers_visibility,
       ...(fieldsReady.value ? { fields_attributes: profile.fields.filter(field => field.name.trim() || field.value.trim()).map(({ name, value }) => ({ name, value })) } : {}),
       ...(profile.avatar && profile.avatar !== me?.avatar ? { avatar: profile.avatar } : {}),
       ...(profile.header && profile.header !== me?.header ? { header: profile.header } : {}),
@@ -291,6 +306,7 @@ onMounted(() => { resetProfile(); void refreshProfileSource() })
     </div>
     <div class="settings-profile-flags">
       <label class="settings-profile-flag" for="set-is-cat"><span><strong>{{ $t('settings.ProfileExtras.isCat') }}</strong><small>{{ $t('settings.ProfileExtras.isCatHint') }}</small></span><input id="set-is-cat" v-model="profile.is_cat" type="checkbox" role="switch" :disabled="savingProfile" /></label>
+      <label v-if="profile.is_cat" class="settings-profile-flag" for="set-speak-as-cat" data-testid="speak-as-cat-toggle"><span><strong>{{ $t('settings.AccountPrivacy.speakAsCat') }}</strong><small>{{ $t('settings.AccountPrivacy.speakAsCatHint') }}</small></span><input id="set-speak-as-cat" v-model="profile.speak_as_cat" type="checkbox" role="switch" :disabled="savingProfile" /></label>
       <label class="settings-profile-flag" for="set-is-bot"><span><strong>{{ $t('settings.ProfileExtras.isBot') }}</strong><small>{{ $t('settings.ProfileExtras.isBotHint') }}</small></span><input id="set-is-bot" v-model="profile.bot" type="checkbox" role="switch" :disabled="savingProfile" /></label>
       <label class="settings-profile-flag" for="set-require-signin" data-testid="require-signin-toggle"><span><strong>{{ $t('settings.ProfileExtras.requireSignin') }}</strong><small>{{ $t('settings.ProfileExtras.requireSigninHint') }}</small></span><input id="set-require-signin" v-model="profile.require_signin_to_view" type="checkbox" role="switch" :disabled="savingProfile" /></label>
     </div>
@@ -309,6 +325,21 @@ onMounted(() => { resetProfile(); void refreshProfileSource() })
     </label>
     <p class="settings-field__hint">{{ $t('settings.ProfileSettingsForm.s9') }}</p>
     </div>
+    <section class="settings-account-privacy" data-testid="account-privacy" :aria-label="$t('settings.AccountPrivacy.title')">
+      <h3 class="settings-field__label">{{ $t('settings.AccountPrivacy.title') }}</h3>
+      <div class="settings-profile-flags">
+        <label class="settings-profile-flag" for="set-auto-accept" data-testid="auto-accept-toggle"><span><strong>{{ $t('settings.AccountPrivacy.autoAcceptFollowed') }}</strong><small>{{ $t('settings.AccountPrivacy.autoAcceptFollowedHint') }}</small></span><input id="set-auto-accept" v-model="profile.auto_accept_followed" type="checkbox" role="switch" :disabled="savingProfile || !profile.locked" /></label>
+        <label class="settings-profile-flag" for="set-hide-online" data-testid="hide-online-toggle"><span><strong>{{ $t('settings.AccountPrivacy.hideOnlineStatus') }}</strong><small>{{ $t('settings.AccountPrivacy.hideOnlineStatusHint') }}</small></span><input id="set-hide-online" v-model="profile.hide_online_status" type="checkbox" role="switch" :disabled="savingProfile" /></label>
+      </div>
+      <div class="settings-field">
+        <label for="set-following-visibility" class="settings-field__label">{{ $t('settings.AccountPrivacy.followingVisibility') }}</label>
+        <select id="set-following-visibility" v-model="profile.following_visibility" class="settings-input" :disabled="savingProfile"><option v-for="choice in visibilityChoices" :key="choice" :value="choice">{{ $t(`settings.AccountPrivacy.visibility.${choice}`) }}</option></select>
+      </div>
+      <div class="settings-field">
+        <label for="set-followers-visibility" class="settings-field__label">{{ $t('settings.AccountPrivacy.followersVisibility') }}</label>
+        <select id="set-followers-visibility" v-model="profile.followers_visibility" class="settings-input" :disabled="savingProfile"><option v-for="choice in visibilityChoices" :key="choice" :value="choice">{{ $t(`settings.AccountPrivacy.visibility.${choice}`) }}</option></select>
+      </div>
+    </section>
 
     <p v-if="profileError" class="settings-error" role="alert">{{ profileError }}</p>
     <div class="settings-actions">

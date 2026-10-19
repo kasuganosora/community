@@ -3071,6 +3071,26 @@
         "DOMAIN_REQUIRED": "Please enter a domain",
         "DOMAIN_INVALID": "That doesn't look like a domain"
       }
+    },
+    "AccountPrivacy": {
+      "title": "Privacy",
+      "autoAcceptFollowed": "Auto-approve accounts you follow",
+      "autoAcceptFollowedHint": "When your account is locked, follow requests from accounts you already follow are approved automatically.",
+      "hideOnlineStatus": "Hide online status",
+      "hideOnlineStatusHint": "Others see your status as unknown instead of online, active or offline.",
+      "followingVisibility": "Who can see your following list",
+      "followersVisibility": "Who can see your followers list",
+      "speakAsCat": "Speak as a cat",
+      "speakAsCatHint": "Show your posts in cat speech to viewers (display only; your posts are not changed).",
+      "nyaizeTitle": "Cat speech",
+      "nyaizeHint": "Show posts by cat accounts that speak as a cat in cat speech (nya). Only changes how posts look to you.",
+      "nyaizeOn": "Show",
+      "nyaizeOff": "Don't show",
+      "visibility": {
+        "public": "Everyone",
+        "followers": "Followers only",
+        "private": "Only me"
+      }
     }
   },
   "timeline": {
@@ -3313,6 +3333,11 @@
       "signinRequired": "Sign in to see posts",
       "signinRequiredHint": "This account's posts are only visible to signed-in users.",
       "signinRequiredAction": "Sign in"
+    },
+    "onlineStatus": {
+      "online": "Online",
+      "active": "Active",
+      "offline": "Offline"
     }
   },
   "apiError": {

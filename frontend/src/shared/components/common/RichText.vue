@@ -7,12 +7,15 @@ import { internalRouteForLink, shortenBareLinks } from '@/shared/utils/links'
 import { markBidiNumbersHtml } from '@/shared/utils/bidi'
 import { showAccountHover, leaveAccountHover, closeAccountHover, focusAccountHover, useAccountHoverOwner } from '@/shared/composables/useAccountHover'
 import { localHosts } from '@/shared/utils/env'
+import { nyaizeHtml } from '@/shared/utils/nyaize'
 
 const props = withDefaults(defineProps<{
   html: string
   emojis?: MastodonEmoji[]
   dir?: 'auto' | 'rtl' | 'ltr'
   accountHoverEnabled?: boolean
+  /** Render the text nyaized (speakAsCat); display only. */
+  nyaize?: boolean
 }>(), {
   dir: 'auto',
   accountHoverEnabled: true,
@@ -34,7 +37,7 @@ function onAccountOut(event: MouseEvent | FocusEvent) {
 const revealed = ref(false)
 watch(() => props.html, () => { revealed.value = false })
 const sensitive = computed(() => props.emojis?.some(e => e.is_sensitive && props.html.includes(`:${e.shortcode}:`)))
-const safeHtml = computed(() => markBidiNumbersHtml(shortenBareLinks(renderEmojiHtml(props.html, props.emojis, revealed.value))))
+const safeHtml = computed(() => markBidiNumbersHtml(shortenBareLinks(renderEmojiHtml(props.nyaize ? nyaizeHtml(props.html) : props.html, props.emojis, revealed.value))))
 const router = useRouter()
 
 // Mentions and hashtags open the in-app profile / tag page instead of a new

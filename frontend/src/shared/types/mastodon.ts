@@ -92,6 +92,11 @@ export interface MastodonAccount {
   statuses_count: number
   last_status_at: string | null
   hide_collections: boolean
+  /** Extension (Misskey speakAsCat): nyaize this cat's posts at display time. */
+  speak_as_cat?: boolean
+  online_status?: OnlineStatus
+  following_visibility?: CollectionVisibility
+  followers_visibility?: CollectionVisibility
   /** Extension (Misskey requireSigninToViewContents): posts are hidden from logged-out visitors. */
   require_signin_to_view?: boolean
   emojis: MastodonEmoji[]
@@ -106,7 +111,18 @@ export interface MastodonAccountSource {
   sensitive?: boolean
   language?: string
   fields?: { name: string; value: string }[]
+  /** Misskey account settings (extensions). */
+  following_visibility?: CollectionVisibility
+  followers_visibility?: CollectionVisibility
+  auto_accept_followed?: boolean
+  hide_online_status?: boolean
+  speak_as_cat?: boolean
 }
+
+/** Misskey followingVisibility / followersVisibility. */
+export type CollectionVisibility = 'public' | 'followers' | 'private'
+/** Misskey onlineStatus; "unknown" when hidden or never recorded. */
+export type OnlineStatus = 'online' | 'active' | 'offline' | 'unknown'
 
 export interface MastodonMention {
   id: string
