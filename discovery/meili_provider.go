@@ -377,8 +377,9 @@ func (p *MeiliProvider) task(ctx context.Context, method, path string, body any)
 	if ack.TaskUID == nil {
 		return errors.New("missing recommendation index task")
 	}
-	ticker := time.NewTicker(40 * time.Millisecond)
-	defer ticker.Stop()
+	// Poll with backoff (50ms doubling to 1s) instead of every 40ms: a slow
+	// task on a busy disk then costs about one GET per second, not 25.
+	delay := meiliTaskPollStart
 	for {
 		var task struct {
 			Status string `json:"status"`
@@ -392,11 +393,33 @@ func (p *MeiliProvider) task(ctx context.Context, method, path string, body any)
 		case "failed", "canceled":
 			return errors.New("recommendation index task did not succeed")
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
+		if err := sleepCtx(ctx, delay); err != nil {
+			return err
 		}
+		delay = nextMeiliPoll(delay)
+	}
+}
+
+const (
+	meiliTaskPollStart = 50 * time.Millisecond
+	meiliTaskPollMax   = time.Second
+)
+
+func nextMeiliPoll(d time.Duration) time.Duration {
+	if d *= 2; d > meiliTaskPollMax {
+		return meiliTaskPollMax
+	}
+	return d
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 func (p *MeiliProvider) retire(ctx context.Context, index string) error {
@@ -408,8 +431,7 @@ func (p *MeiliProvider) retire(ctx context.Context, index string) error {
 	}
 	// Enqueued asynchronous writes survive caller cancellation. Do not create a
 	// third generation until the previous build has drained and is deleted.
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
+	delay := meiliTaskPollStart
 	for {
 		var tasks struct {
 			Results []json.RawMessage `json:"results"`
@@ -420,11 +442,10 @@ func (p *MeiliProvider) retire(ctx context.Context, index string) error {
 		if len(tasks.Results) == 0 {
 			break
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
+		if err := sleepCtx(ctx, delay); err != nil {
+			return err
 		}
+		delay = nextMeiliPoll(delay)
 	}
 	var metadata map[string]any
 	if err := p.http(ctx, http.MethodGet, "/indexes/"+url.PathEscape(index), nil, &metadata); err != nil {
