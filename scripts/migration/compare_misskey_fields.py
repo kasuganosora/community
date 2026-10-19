@@ -19,7 +19,7 @@ Checks (local notes are always in scope; remote notes only where imported):
   N10 note language (only when the source has a note lang column)
   R1  reactions per note (unicode, local custom, remote custom emoji)
   P1  polls: choices, vote counts, multiple, expiry; P2 poll vote rows
-  PIN pinned notes
+  PIN pinned notes of local users (remote users' pins: info only)
   CH  channel notes are archived, never published
   E1  local custom emoji: category, aliases, license, sensitive, local-only
   M1  instance meta assets (WARN only: meta import is a separate decision)
@@ -259,11 +259,19 @@ class Compare:
 
     # ---------------------------------------------------------- pins
     def pin_checks(self):
-        src = {self.notes[r[0]]["key"]: r[0] for r in self.mk.q('SELECT "noteId" FROM user_note_pining') if r[0] in self.notes}
+        """Local users' pins only: a remote user's pins are its server's
+        featured collection, not imported (refreshed by federation fetches);
+        they are counted and reported as info."""
+        rows = self.mk.q('SELECT p."noteId", u.host IS NULL FROM user_note_pining p JOIN "user" u ON u.id = p."userId"')
+        src = {self.notes[r[0]]["key"]: r[0] for r in rows if b(r[1]) and r[0] in self.notes}
+        remote = sum(1 for r in rows if not b(r[1]))
         by_status = {s["id"]: k for k, s in self.st.items()}
         tgt = {by_status[r[0]] for r in self.cm.q("SELECT status_id FROM pin_statuses") if r[0] in by_status}
         diffs = ["%s: pinned in misskey, not in community" % safe(src[k]) for k in src if k in self.st and k not in tgt]
-        self.add("PIN pinned notes", not diffs, "misskey pinned (published)=%d community pinned=%d" % (sum(1 for k in src if k in self.st), len(tgt)), diffs)
+        self.add("PIN pinned notes (local users)", not diffs, "misskey local users' pins=%d (published=%d) community pinned=%d"
+                 % (len(src), sum(1 for k in src if k in self.st), len(tgt)), diffs)
+        if remote:
+            self.rep.info("PIN pinned notes (local users)", "remote users' pins skipped by design=%d (their servers' featured collections, fetched by federation)" % remote)
 
     # ---------------------------------------------------------- emoji
     def emoji_checks(self):

@@ -53,7 +53,7 @@ class CompareTest(unittest.TestCase):
               ("FROM note_reaction", [["n1", "👍", "2"], ["n1", ":blob@.:", "1"], ["n2", ":far@remote.test:", "4"]]),
               ("FROM poll p", [["n1", '["a","b"]', "[1,2]", "t", None]]),
               ("FROM poll_vote", [["n1", "1"]]),
-              ("user_note_pining", [["n1"]]),
+              ("user_note_pining", [["n1", "t"], ["r9", "f"], ["n2", "f"]]),
               ("FROM emoji e", [["e1", "blob", "cat", '["x"]', "CC0", "false", "true"]])]
         cm = [("FROM statuses s", [status(k1, "1", local_only="t", cw="c1"), status(k2, "2", quote=k1)]),
               ("data_transfer_preserved_records", []),
@@ -73,12 +73,15 @@ class CompareTest(unittest.TestCase):
         self.assertEqual({k for k, s in res.items() if s != "PASS"}, set(), out)
         self.assertIn("unicode misskey=2 community=2; local custom misskey=1 community=1", out)
         self.assertIn("archived (emoji not on the target)=4", out)
+        # remote users' pins (also of an imported note) are info, not failures
+        self.assertIn("misskey local users' pins=1 (published=1) community pinned=1", out)
+        self.assertIn("[INFO] PIN pinned notes (local users): remote users' pins skipped by design=2", out)
 
     def test_mismatches_fail_with_ids_only(self):
         k1, k2 = O + "/notes/n1", O + "/notes/n2"
         res, out = self.run_all(*self.world(statuses=[status(k1, "1", local_only="f", cw="c1", text="other"), status(k2, "2")],
                                             votes="9", pins=[], emoji_local_only="f"))
-        for name in ("N3 local-only", "N5 MFM source text (local)", "N8 quotes", "P1 polls", "PIN pinned notes", "E1 local emoji metadata"):
+        for name in ("N3 local-only", "N5 MFM source text (local)", "N8 quotes", "P1 polls", "PIN pinned notes (local users)", "E1 local emoji metadata"):
             self.assertEqual(res[name], "FAIL", name)
         self.assertIn("n1 local note: N3 local-only differs", out)
         self.assertNotIn("other", out.replace("other ", ""))

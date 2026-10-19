@@ -222,6 +222,8 @@ tootctl two-factor scrub-preserved     # 清除旧导入归档里的明文 secre
 22. **Misskey 账号隐私设置。** 导出器带上 `user_profile.followingVisibility` / `followersVisibility` / `autoAcceptFollowed` 和 `user.hideOnlineStatus` / `speakAsCat` / `lastActiveDate`（只写非默认值），导入端写入 `accounts.following_visibility` / `followers_visibility`（`hide_collections` 随之为“任一列表非公开”）、`auto_accept_followed`、`hide_online_status`、`speak_as_cat`、`last_active_at`，本地和远端账号都适用；只带 `hide_collections` 的旧备份按两个列表都私密处理。核对脚本新增 8h–8m，逐账号比较这 6 项，只打印数量和 ID。
 23. **帖子级字段核对脚本 `scripts/migration/compare_misskey_fields.py`。** 只读连接源库和目标库（只发 SELECT，会话设为只读），逐条比较：帖子是否存在（或在私有归档中）、可见性（含导入时收窄的回复）、仅本站、CW、本地帖子的 MFM 原文（按哈希）、敏感标记、纯转发 / 引用 / 回复的目标、帖子语言（源库有该列时）、每帖的表情回应（Unicode / 本地自定义 / 远端自定义，目标上不存在的自定义表情的回应按设计归档）、投票（选项、票数、多选、截止时间）和投票记录、置顶、频道帖子归档、本地表情的分类 / 别名 / 许可 / 敏感 / 仅本站，以及实例 meta 资源（只提示）。只打印数量和 ID，不一致时退出码 1。字段映射总表见 `docs/misskey-field-mapping.md`。
 
+24. **第九次演练的三处核对失败。** (a) `alsoKnownAs` 287 个值全部被丢掉：上游 Misskey 的 `user.alsoKnownAs` 是 TypeORM `simple-array`，即一个用逗号连接的 `text`，导出器却把它当数组逐“元素”（实际是逐字符）导出，导入端逐个按 URL 校验，全部 `profile_value_dropped`；核对 8g 又把源值当 JSON 解析得到 0 个，于是 `0 == 0` 误报通过。现在导出器按逗号拆分、去空白、去空值、去重（也接受 `text[]`、PostgreSQL 数组字面量和 JSON 数组），导入端对每个元素同样拆分去重后再逐个校验，只保留合法的 http(s) URI；8g 用与导入端相同的函数解析，源库有值却一个都没算进去时直接 FAIL。(b) 生日：24 个年份为 0000 或未来日期的生日按规则不写入，但 8d 仍然期望它们；现在 8d 使用与导入端相同的有效性规则，排除的数量以 `[INFO]` 打印。(c) 置顶：Misskey 共 31 条置顶，只有 luna 的 1 条属于本地用户；其余 30 条属于远端用户，按决定**不导入**（那是远端服务器的 featured 集合，由联邦拉取 actor 时刷新）。导出器只标记本地用户的置顶，导入端遇到远端作者的置顶报 info `remote_pin_skipped`；核对新增第 9 项只比较本地用户的置顶数量，远端置顶以 `[INFO]` 打印；`compare_misskey_fields.py` 的 PIN 同样只比较本地用户。另外：`lastActiveDate`（8m）在读取之后仍会变化，源库里比导入值新的记录以 `[INFO]`（读取后仍活跃）报告而不是 FAIL；传 `--extracted-at <bundle 的 source.exported_at>` 时只容忍晚于读取时间的值。解析和有效性规则只在 `export_misskey.py` 定义一次（核对脚本直接调用），Go 导入端与之对应，两边共用测试向量 `scripts/migration/testdata/misskey_value_rules.json`，规则说明见 `docs/misskey-field-mapping.md` 的 “Value rules”。
+
 ## 重新执行 maid.lat 演练（隔离网络、只读源）
 
 前提：一台**不能访问公网**的演练机；源库是 maid.lat 的只读副本或恢复出来的快照，使用上面的只读角色；目标是一个空的 Community 数据库。
@@ -260,6 +262,15 @@ COMMUNITY_DB_DSN='postgresql://community@127.0.0.1:5432/community_rehearsal' \
 COMMUNITY_BASE='http://127.0.0.1:8080' HOST_HEADER=maid.lat SAMPLE=200 \
 python3 scripts/migration/verify_misskey_import.py --seed 42 -v
 ```
+
+### 全量重跑（第九次演练之后）
+
+只改了导入工具、导出脚本和核对脚本，**服务端代码没有变化**，不需要部署。`also_known_as` 在读取阶段拆分、在创建账号时写入，所以要用新版本**重新读取并换空库全量重跑**（离线、`--network none` 同前）。核对时建议加 `--extracted-at`（bundle 的 `source.exported_at`；手头没有时用 `--fetch-only` 开始的时间，UTC）。期望：
+
+- 8g PASS：`misskey set remote(imported)` 约为第九次的 287（减去没有任何合法 URI 的账号，这部分以 `[INFO]` 列出），`matching` 与之相等，`community set` 不再是 0；报告里 `profile_value_dropped/account.also_known_as` 只剩真正非法的 URI。
+- 8d PASS：`[INFO]` 一行写明约 24 个按规则排除的生日（年份 0000 / 未来日期），与报告中 `profile_value_dropped/account.birthday` 的数量一致；其余生日全部匹配。
+- 9 PASS：本地用户置顶 misskey=1、community=1（luna），`[INFO]` 远端置顶跳过约 30；`compare_misskey_fields.py` 的 `PIN pinned notes (local users)` 为 1/1，`[INFO]` 远端置顶约 30。新导出器不再标记远端置顶，导入报告里不应出现 `remote_pin_skipped`（出现说明用了旧 spool）。
+- 8m PASS；读取后仍活跃的账号以 `[INFO]` 计数列出。
 
 ### 全量重跑（第八次演练之后）
 

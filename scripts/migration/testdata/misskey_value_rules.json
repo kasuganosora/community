@@ -1,0 +1,36 @@
+{
+  "_comment": "Shared vectors for the Misskey value rules: export_misskey.py (split_also_known_as / also_known_as_values / valid_birthday) and datatransfer/profile_extensions.go (splitAlsoKnownAs / validActorURI / validBirthday). source_only cases are source column encodings the Go importer never receives (the exporter turns them into a list).",
+  "also_known_as": [
+    {"name": "null", "raw": null, "split": [], "valid": []},
+    {"name": "empty", "raw": "", "split": [], "valid": []},
+    {"name": "blank", "raw": "  ,  , ", "split": [], "valid": []},
+    {"name": "single", "raw": "https://old.example/users/a", "split": ["https://old.example/users/a"], "valid": ["https://old.example/users/a"]},
+    {"name": "comma separated (simple-array)", "raw": "https://a.example/users/1,https://b.example/@b", "split": ["https://a.example/users/1", "https://b.example/@b"], "valid": ["https://a.example/users/1", "https://b.example/@b"]},
+    {"name": "spaces and trailing comma", "raw": " https://a.example/u/1 ,  https://b.example/u/2 ,", "split": ["https://a.example/u/1", "https://b.example/u/2"], "valid": ["https://a.example/u/1", "https://b.example/u/2"]},
+    {"name": "duplicates", "raw": "https://a.example/u,https://a.example/u, https://a.example/u", "split": ["https://a.example/u"], "valid": ["https://a.example/u"]},
+    {"name": "invalid mixed", "raw": "https://ok.example/u,javascript:alert(1),not a url,ftp://f.example/u,https://user@x.example/u,https://frag.example/u#x,http://plain.example/u", "split": ["https://ok.example/u", "javascript:alert(1)", "not a url", "ftp://f.example/u", "https://user@x.example/u", "https://frag.example/u#x", "http://plain.example/u"], "valid": ["https://ok.example/u", "http://plain.example/u"]},
+    {"name": "all invalid", "raw": "acct:a@b.example,/users/x", "split": ["acct:a@b.example", "/users/x"], "valid": []},
+    {"name": "text[] list", "raw": ["https://a.example/u", " https://b.example/u ", "", "https://a.example/u"], "split": ["https://a.example/u", "https://b.example/u"], "valid": ["https://a.example/u", "https://b.example/u"]},
+    {"name": "list element holding a comma list", "raw": ["https://a.example/u,https://b.example/u"], "split": ["https://a.example/u", "https://b.example/u"], "valid": ["https://a.example/u", "https://b.example/u"]},
+    {"name": "JSON array text", "source_only": true, "raw": "[\"https://a.example/u\", \"https://b.example/u\"]", "split": ["https://a.example/u", "https://b.example/u"], "valid": ["https://a.example/u", "https://b.example/u"]},
+    {"name": "PostgreSQL text[] literal", "source_only": true, "raw": "{https://a.example/u,\"https://b.example/u\"}", "split": ["https://a.example/u", "https://b.example/u"], "valid": ["https://a.example/u", "https://b.example/u"]}
+  ],
+  "birthday": {
+    "now": "2026-10-19T08:00:00Z",
+    "cases": [
+      {"raw": "", "valid": ""},
+      {"raw": "2000-02-29", "valid": "2000-02-29"},
+      {"raw": " 1990-12-31 ", "valid": "1990-12-31"},
+      {"raw": "0000-05-01", "valid": ""},
+      {"raw": "0001-01-01", "valid": "0001-01-01"},
+      {"raw": "2001-02-29", "valid": ""},
+      {"raw": "1999-13-01", "valid": ""},
+      {"raw": "2026-10-20", "valid": "2026-10-20"},
+      {"raw": "2026-10-21", "valid": ""},
+      {"raw": "3024-01-01", "valid": ""},
+      {"raw": "1990-1-1", "valid": ""},
+      {"raw": "12-31", "valid": ""},
+      {"raw": "1990/12/31", "valid": ""}
+    ]
+  }
+}

@@ -32,8 +32,8 @@ func (i *importer) applyProfileExtensions(target *models.Account, a Account) {
 		}
 		target.Location = loc
 	}
-	if b := strings.TrimSpace(a.Birthday); b != "" {
-		if d, err := time.Parse("2006-01-02", b); err == nil && len(b) == 10 && d.Year() >= 1 && !d.After(time.Now().Add(24*time.Hour)) {
+	if strings.TrimSpace(a.Birthday) != "" {
+		if b, ok := validBirthday(a.Birthday, time.Now()); ok {
 			target.Birthday = b
 		} else {
 			issue("profile_value_dropped", "birthday", "birthday is not a valid past YYYY-MM-DD date")
@@ -65,13 +65,52 @@ func (i *importer) applyProfileExtensions(target *models.Account, a Account) {
 			issue("profile_value_dropped", "moved_to", "moved-to URI is not a valid http(s) URL")
 		}
 	}
-	for _, uri := range a.AlsoKnownAs {
-		if safeHTTPURL(uri) && len(uri) <= maxActorURILength {
+	for _, uri := range splitAlsoKnownAs(a.AlsoKnownAs) {
+		if validActorURI(uri) {
 			target.AlsoKnownAs = append(target.AlsoKnownAs, uri)
 		} else {
 			issue("profile_value_dropped", "also_known_as", "an alias URI is not a valid http(s) URL")
 		}
 	}
+}
+
+// Value rules shared with scripts/migration/export_misskey.py
+// (split_also_known_as, valid_actor_uri, valid_birthday); both run the vectors
+// in scripts/migration/testdata/misskey_value_rules.json. See "Value rules" in
+// docs/misskey-field-mapping.md.
+
+// splitAlsoKnownAs normalizes Misskey alsoKnownAs values: upstream stores the
+// column as a TypeORM simple-array (one comma-joined text value), so every
+// element is split on ',', trimmed, and empty or repeated URIs are removed
+// (source order kept).
+func splitAlsoKnownAs(values []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, v := range values {
+		for _, part := range strings.Split(v, ",") {
+			if part = strings.TrimSpace(part); part != "" && !seen[part] {
+				seen[part] = true
+				out = append(out, part)
+			}
+		}
+	}
+	return out
+}
+
+// validActorURI is an absolute http(s) URL of at most 2048 bytes.
+func validActorURI(uri string) bool {
+	return safeHTTPURL(uri) && len(uri) <= maxActorURILength
+}
+
+// validBirthday returns the trimmed birthday when it is a real YYYY-MM-DD
+// date with year >= 1 (Misskey allows 0000) not later than one day after now.
+func validBirthday(raw string, now time.Time) (string, bool) {
+	b := strings.TrimSpace(raw)
+	d, err := time.Parse("2006-01-02", b)
+	if err != nil || len(b) != 10 || d.Year() < 1 || d.After(now.Add(24*time.Hour)) {
+		return "", false
+	}
+	return b, true
 }
 
 func truncateRunes(s string, n int) string {

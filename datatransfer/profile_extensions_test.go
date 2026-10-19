@@ -23,7 +23,8 @@ func TestImportMisskeyProfileExtensions(t *testing.T) {
 		r := &b.Accounts[2]
 		require.Equal(t, "r1", r.ID)
 		r.IsCat, r.Location, r.Birthday, r.FollowedMessage = true, strings.Repeat("地", 200), "not-a-date", strings.Repeat("m", 300)
-		r.MovedTo, r.AlsoKnownAs = "https://moved.example/users/r", []string{"https://alias.example/users/r"}
+		// A pre-fix bundle carried Misskey's comma-joined simple-array text as one element.
+		r.MovedTo, r.AlsoKnownAs = "https://moved.example/users/r", []string{"https://alias.example/users/r, https://alias2.example/users/r,https://alias.example/users/r"}
 		b.Emojis = []Emoji{{ID: "e1", Shortcode: "local_only", URL: "https://files.site.example/e.png", LocalOnly: true, Category: "c", Aliases: []string{"a"}, License: "CC0"}}
 		o := Options{Scope: "site", TargetBaseURL: "https://site.example", StorageDir: t.TempDir()}
 		conn := importerDB(t)
@@ -52,7 +53,7 @@ func TestImportMisskeyProfileExtensions(t *testing.T) {
 		require.Empty(t, remote.Birthday, "invalid date dropped")
 		require.Len(t, remote.FollowedMessage, 200)
 		require.Equal(t, "https://moved.example/users/r", remote.MovedTo)
-		require.Equal(t, []string{"https://alias.example/users/r"}, remote.AlsoKnownAs)
+		require.Equal(t, []string{"https://alias.example/users/r", "https://alias2.example/users/r"}, remote.AlsoKnownAs)
 
 		var extra models.AccountExtra
 		require.NoError(t, conn.First(&extra, "account_id = ?", local.Id).Error)
@@ -75,5 +76,42 @@ func TestImportMisskeyProfileExtensions(t *testing.T) {
 		}
 		require.Equal(t, map[string]int{"profile_value_truncated/account.location": 1, "profile_value_dropped/account.birthday": 1,
 			"profile_value_truncated/account.followed_message": 1, "profile_value_dropped/account.also_known_as": 1}, codes, "streamed=%v", streamed)
+	}
+}
+
+// Only local authors' pins are imported; a remote account's pins are its
+// server's featured collection and are reported as skipped.
+func TestImportSkipsRemotePins(t *testing.T) {
+	for _, streamed := range []bool{false, true} {
+		b := streamFixture(t, 2, 3)
+		b.Posts[0].Pinned = true
+		b.Posts = append(b.Posts, Post{ID: "rp", AuthorID: "r1", URI: "https://remote.example/notes/rp", Visibility: "public", Text: "remote", Pinned: true, CreatedAt: time.Now().Add(-time.Minute)})
+		o := Options{Scope: "site", TargetBaseURL: "https://site.example", StorageDir: t.TempDir()}
+		conn := importerDB(t)
+		var report *Report
+		var err error
+		if streamed {
+			report, err = ImportSpool(context.Background(), conn, spoolBundle(t, b), o, StreamOptions{ChunkSize: 2, Apply: true})
+		} else {
+			report, err = Import(context.Background(), conn, b, o, nil)
+		}
+		require.NoError(t, err, "%+v", report)
+
+		var pins []models.PinStatus
+		require.NoError(t, conn.Find(&pins).Error)
+		require.Len(t, pins, 1, "streamed=%v", streamed)
+		var local, remote models.Status
+		require.NoError(t, conn.Where("local_object_uri = ?", b.Posts[0].URI).First(&local).Error)
+		require.NoError(t, conn.Where("origin_uri = ?", "https://remote.example/notes/rp").First(&remote).Error)
+		require.Equal(t, local.Id, pins[0].StatusId)
+		skipped := 0
+		for _, is := range report.Issues {
+			if is.Code == "remote_pin_skipped" {
+				require.Equal(t, "rp", is.SourceID)
+				require.Equal(t, "info", is.Severity)
+				skipped++
+			}
+		}
+		require.Equal(t, 1, skipped, "streamed=%v", streamed)
 	}
 }

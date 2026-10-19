@@ -18,7 +18,7 @@ export includes; use `--include-remote-cache` only if the rehearsal must also
 carry the full remote cache. See
 [scripts/migration/README-misskey.md](../scripts/migration/README-misskey.md).
 
-Requirements: Python 3 stdlib; `psycopg2` if installed, else `psql`; `mysql`
+Requirements: Python 3 stdlib; `export_misskey.py` next to the script (the value rules are imported from it); `psycopg2` if installed, else `psql`; `mysql`
 CLI if the Community DB is MySQL (`mysql://user:pass@host:port/db`).
 
 ```sh
@@ -41,10 +41,13 @@ Prefer `PGPASSFILE`/`~/.pgpass` over passwords in the DSN.
 | 5 | Instance actor: `accounts.local_actor_uri = 'https://<host>/actor'` has an `account_keys` row, `GET /actor` serves that key, **and** it equals the public key of Misskey's `instance.actor` user (`user_keypair`) | Misskey `user_keypair` |
 | 6 | Local custom emoji (`emoji.host IS NULL` vs `emojis.domain = ''`) and drive files (`drive_file` vs `media_attachments`) within `--tolerance` (2%) | |
 | 7 | `/users/<id>/inbox` is routed (POST-only, so `OPTIONS`/`GET` must not be 404) | |
+| 8a–8g | Misskey profile extensions per account (is_cat, language, location, birthday, followed_message, moved_to, also_known_as), local + imported remote; expected values follow the importer's value rules (values dropped by rule are `[INFO]`, not expected); 8d / 8g FAIL when the source has set values but none parsed | [field mapping](misskey-field-mapping.md#value-rules) |
+| 8h–8m | Account privacy settings; 8m `lastActiveDate` newer on the source than the import is `[INFO]` (active after extraction), bounded by `--extracted-at` (env `EXTRACTED_AT`, the bundle's `source.exported_at`) when given | |
+| 9 | Pinned notes of local users (count); remote users' pins are `[INFO]` (not imported by design) | Misskey `user_note_pining` |
 
 System actors (usernames with a dot, e.g. `instance.actor`, `relay.actor`) are
 excluded from the samples. Output is one `PASS`/`FAIL` line per check plus a
-summary. Exit codes: `0` all pass, `1` a check failed, `2` usage/connection error.
+summary; `[INFO]` lines are informational and never change the exit code. Exit codes: `0` all pass, `1` a check failed, `2` usage/connection error.
 Connection failures are reported as `no response (<error>)` rather than a fake
 `HTTP 0`; count checks fail when the source has rows and the target has none
 (the 2% tolerance never makes `0` match a non-zero count).

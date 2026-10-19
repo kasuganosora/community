@@ -82,7 +82,7 @@ class MisskeyPG(unittest.TestCase):
         self.assertEqual(cats, ["0000000000000001", "0000000000000002", "0000000000001001"])
         for i in ("0000000000000001", "0000000000001001"):
             self.assertEqual((acc[i]["language"], acc[i]["location"], acc[i]["birthday"], acc[i]["followed_message"]), ("ja-JP", "Tokyo", "2000-01-01", "welcome"))
-        self.assertEqual((acc["0000000000001001"]["moved_to"], acc["0000000000001001"]["also_known_as"]), ("https://new.test/users/1001", ["https://old.test/users/1001"]))
+        self.assertEqual((acc["0000000000001001"]["moved_to"], acc["0000000000001001"]["also_known_as"]), ("https://new.test/users/1001", ["https://old.test/users/1001", "https://older.test/users/1001"]))
         drive_only = [m for m in b["media"] if m["id"].startswith("00000009500")]
         self.assertEqual(len(drive_only), 5, "local drive-only files are exported")
         self.assertTrue(all(m.get("unattached") for m in drive_only))

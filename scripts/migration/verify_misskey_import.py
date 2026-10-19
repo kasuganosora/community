@@ -24,6 +24,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The value rules the importer applies (single definition, shared with the
+# exporter and the Go importer; see docs/misskey-field-mapping.md).
+from export_misskey import also_known_as_values, split_also_known_as, valid_birthday  # noqa: E402
+
 AP_ACCEPT = 'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"'
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -165,6 +170,14 @@ class Report:
         status = "PASS" if ok is True else ("WARN" if ok is None else "FAIL")
         self.results.append((name, status))
         print("[%s] %s: %s" % (status, name, detail))
+        self.show(failures)
+
+    def info(self, name, detail, items=()):
+        """An informational line: not a check, never changes the exit code."""
+        print("[INFO] %s: %s" % (name, detail))
+        self.show(items)
+
+    def show(self, failures):
         for f in list(failures)[: (None if self.verbose else 10)]:
             print("       - " + f)
         if failures and not self.verbose and len(failures) > 10:
@@ -189,9 +202,9 @@ PROFILE_FIELDS = (
     ("birthday", "birthday", "to_jsonb(p)->>'birthday'"),
     ("followedMessage", "followed_message", "to_jsonb(p)->>'followedMessage'"),
     ("movedToUri", "moved_to", "to_jsonb(u)->>'movedToUri'"),
-    ("alsoKnownAs", "also_known_as", "to_jsonb(u)->'alsoKnownAs'"),
+    # ->> : upstream's simple-array text ('a,b'), or a text[] / json column as JSON text.
+    ("alsoKnownAs", "also_known_as", "to_jsonb(u)->>'alsoKnownAs'"),
 )
-BIRTHDAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def profile_expected(field, raw):
@@ -200,13 +213,11 @@ def profile_expected(field, raw):
     if field == "isCat":
         return raw in ("true", "t", "True", "1")
     if field == "alsoKnownAs":
-        try:
-            v = json.loads(raw) if raw else []
-        except ValueError:
-            v = []
-        return sorted(x for x in (v or []) if isinstance(x, str) and x.startswith(("https://", "http://")))
+        return sorted(also_known_as_values(raw))
+    if field == "birthday":
+        return valid_birthday(raw)
     raw = (raw or "")
-    if field in ("location", "lang", "birthday"):
+    if field in ("location", "lang"):
         raw = raw.strip()
     if field == "location":
         raw = raw[:128]
@@ -214,9 +225,22 @@ def profile_expected(field, raw):
         raw = raw[:200]
     if field == "lang":
         raw = raw.lower()
-    if field == "birthday" and not BIRTHDAY.match(raw):
-        raw = ""
     return raw
+
+
+def profile_raw_set(field, raw):
+    """The Misskey value is set (before the importer's validity rules)."""
+    if field == "isCat":
+        return raw in ("true", "t", "True", "1")
+    if field == "alsoKnownAs":
+        return bool(split_also_known_as(raw))
+    return bool((raw or "").strip())
+
+
+# Fields whose source values are parsed: a source with set values of which
+# none were counted means the check parsed them differently from the importer
+# (round 9: 8g read alsoKnownAs text as JSON and compared 0 == 0).
+PARSED_FIELDS = ("alsoKnownAs", "birthday")
 
 
 def profile_actual(column, raw):
@@ -251,14 +275,20 @@ def profile_checks(mk, cm, origin, rep):
             tgt[key] = (local, r[3:])
     for n, (field, column, _) in enumerate(PROFILE_FIELDS):
         counts = {"local": [0, 0], "remote": [0, 0]}
-        diffs = []
+        diffs, raw_set, excluded = [], 0, []
         for r in src:
             if len(r) < 3 + len(PROFILE_FIELDS):
                 continue
             local = r[1] in ("t", "true", "True", "1")
             key = "%s/users/%s" % (origin, r[0]) if local else r[2]
+            if not key or (not local and key not in tgt):
+                continue
             want = profile_expected(field, r[3 + n])
-            if not want or not key or (not local and key not in tgt):
+            if profile_raw_set(field, r[3 + n]):
+                raw_set += 1
+                if not want:
+                    excluded.append("%s %s" % ("local" if local else "remote", r[0] if SAFE_ID.match(r[0] or "") else "?"))
+            if not want:
                 continue
             side = "local" if local else "remote"
             counts[side][0] += 1
@@ -271,9 +301,18 @@ def profile_checks(mk, cm, origin, rep):
         for local, vals in tgt.values():
             if profile_actual(column, vals[n]):
                 target_total["local" if local else "remote"] += 1
-        rep.add("8%s profile %s -> %s" % ("abcdefg"[n], field, column), not diffs,
-                "misskey set local=%d remote(imported)=%d; matching in community local=%d remote=%d; community set local=%d remote=%d"
-                % (counts["local"][0], counts["remote"][0], counts["local"][1], counts["remote"][1], target_total["local"], target_total["remote"]), diffs)
+        name = "8%s profile %s -> %s" % ("abcdefg"[n], field, column)
+        expected = counts["local"][0] + counts["remote"][0]
+        if field in PARSED_FIELDS and raw_set and not expected:
+            diffs.append("misskey has %d in-scope account(s) with %s set but none parsed as storable: the check does not parse the source like the importer" % (raw_set, field))
+        rep.add(name, not diffs,
+                "misskey set local=%d remote(imported)=%d; matching in community local=%d remote=%d; community set local=%d remote=%d; "
+                "misskey set but not storable (excluded)=%d"
+                % (counts["local"][0], counts["remote"][0], counts["local"][1], counts["remote"][1], target_total["local"], target_total["remote"], len(excluded)), diffs)
+        if excluded:
+            rep.info(name, "%d in-scope misskey value(s) excluded from the expected set: the importer drops them by rule (profile_value_dropped)%s"
+                     % (len(excluded), {"birthday": ": year 0000, impossible or future dates",
+                                        "alsoKnownAs": ": no alias is an absolute http(s) URL"}.get(field, "")), sorted(excluded))
 
 
 TRUE = ("t", "true", "True", "1")
@@ -309,9 +348,16 @@ PRIVACY_FIELDS = (
 )
 
 
-def privacy_checks(mk, cm, origin, rep):
+def privacy_checks(mk, cm, origin, rep, extracted_at=None):
     """8h-8m: Misskey account privacy settings, compared per account like
-    profile_checks. Prints counts and ids, never values."""
+    profile_checks. Prints counts and ids, never values.
+
+    8m lastActiveDate: the live source keeps moving after the export read it.
+    A source value newer than the target's is reported as info, not a
+    failure, when it is later than `extracted_at` (the bundle's
+    source.exported_at), or, without `extracted_at`, whenever the target holds
+    an older value."""
+    extracted = norm_ts(extracted_at) if extracted_at else ""
     exprs = ", ".join(f[2] for f in PRIVACY_FIELDS)
     src = mk.q('SELECT u.id, u.host IS NULL, u.uri, %s FROM "user" u LEFT JOIN user_profile p ON p."userId" = u.id '
                "WHERE (to_jsonb(u)->>'isDeleted') IS DISTINCT FROM 'true'" % exprs)
@@ -326,7 +372,7 @@ def privacy_checks(mk, cm, origin, rep):
             tgt[key] = (local, r[3:])
     for n, (field, column, _, expected, actual) in enumerate(PRIVACY_FIELDS):
         counts = {"local": [0, 0], "remote": [0, 0]}
-        diffs = []
+        diffs, moved = [], []
         for r in src:
             if len(r) < 3 + len(PRIVACY_FIELDS):
                 continue
@@ -338,13 +384,47 @@ def privacy_checks(mk, cm, origin, rep):
             side = "local" if local else "remote"
             counts[side][0] += 1
             got = actual(tgt[key][1][n]) if key in tgt else None
+            rid = r[0] if SAFE_ID.match(r[0] or "") else "?"
             if got == want:
                 counts[side][1] += 1
+            elif column == "last_active_at" and got is not None and active_after_extraction(want, got, extracted):
+                moved.append("%s %s" % (side, rid))
             else:
-                diffs.append("%s %s: %s %s" % (side, r[0] if SAFE_ID.match(r[0] or "") else "?", column, "missing account" if got is None else "differs"))
-        rep.add("8%s account %s -> %s" % ("hijklm"[n], field, column), not diffs,
-                "misskey set local=%d remote(imported)=%d; matching in community local=%d remote=%d"
-                % (counts["local"][0], counts["remote"][0], counts["local"][1], counts["remote"][1]), diffs)
+                diffs.append("%s %s: %s %s" % (side, rid, column, "missing account" if got is None else "differs"))
+        name = "8%s account %s -> %s" % ("hijklm"[n], field, column)
+        rep.add(name, not diffs,
+                "misskey set local=%d remote(imported)=%d; matching in community local=%d remote=%d%s"
+                % (counts["local"][0], counts["remote"][0], counts["local"][1], counts["remote"][1],
+                   "; newer on the source (active after extraction)=%d" % len(moved) if column == "last_active_at" else ""), diffs)
+        if moved:
+            rep.info(name, "%d account(s) were active on the source after it was read (%s); not a failure"
+                     % (len(moved), "source lastActiveDate > --extracted-at " + extracted if extracted else "source newer than the imported value; pass --extracted-at for a strict bound"), sorted(moved))
+
+
+def active_after_extraction(want, got, extracted):
+    """8m: the source last-active time moved on after extraction."""
+    if not want:
+        return False
+    if extracted:
+        return want > extracted and (not got or got <= want)
+    return bool(got) and got < want
+
+
+def pin_check(mk, cm, origin, rep):
+    if not mk.has_table("user_note_pining"):
+        rep.add("9 pinned notes (local users)", None, "misskey has no user_note_pining table")
+        return
+    r = mk.q('SELECT count(*) FILTER (WHERE u.host IS NULL), count(*) FILTER (WHERE u.host IS NOT NULL) '
+             'FROM user_note_pining p JOIN "user" u ON u.id = p."userId" WHERE (to_jsonb(u)->>\'isDeleted\') IS DISTINCT FROM \'true\'')
+    mk_local, mk_remote = (int(x or 0) for x in (r[0] if r and len(r[0]) >= 2 else (0, 0)))
+    cm_local = int(cm.scalar("SELECT count(*) FROM pin_statuses p JOIN accounts a ON a.id = p.account_id "
+                             "WHERE a.domain IS NULL AND a.deleted_at IS NULL AND a.local_actor_uri LIKE %s" % lit(origin + "/users/%")) or 0)
+    cm_remote = int(cm.scalar("SELECT count(*) FROM pin_statuses p JOIN accounts a ON a.id = p.account_id WHERE a.domain IS NOT NULL") or 0)
+    rep.add("9 pinned notes (local users)", cm_local == mk_local and not (mk_local and not cm_local),
+            "misskey local users' pins=%d; community pins of imported local users=%d" % (mk_local, cm_local))
+    if mk_remote or cm_remote:
+        rep.info("9 pinned notes (local users)", "remote users' pins skipped by design: misskey=%d community=%d (fetched from their servers' featured collections by federation)"
+                 % (mk_remote, cm_remote))
 
 
 def run(args):
@@ -511,7 +591,11 @@ def run(args):
 
     # (8) Misskey profile extensions stored in accounts columns
     profile_checks(mk, cm, origin, rep)
-    privacy_checks(mk, cm, origin, rep)
+    privacy_checks(mk, cm, origin, rep, getattr(args, "extracted_at", None))
+
+    # (9) pinned notes: only local users' pins are imported; a remote user's
+    # pins are its server's featured collection, refreshed by federation.
+    pin_check(mk, cm, origin, rep)
 
     failed = [n for n, s in rep.results if s == "FAIL"]
     print("\nSUMMARY: %d checks, %d PASS, %d FAIL" % (len(rep.results), len(rep.results) - len(failed), len(failed)))
@@ -529,6 +613,8 @@ def main():
     ap.add_argument("--seed", type=int, default=None, help="random seed for reproducible user sampling")
     ap.add_argument("--tolerance", type=float, default=0.02, help="relative tolerance for emoji/file counts (default 0.02)")
     ap.add_argument("--skip-unattached-drive-files", action="store_true", help="the import ran with --skip-unattached-drive-files: 6b compares only files a note/avatar/banner references")
+    ap.add_argument("--extracted-at", default=os.environ.get("EXTRACTED_AT"),
+                    help="when the source was read (the bundle's source.exported_at, ISO 8601; env EXTRACTED_AT): 8m reports accounts active on the source after it as info")
     ap.add_argument("--forwarded-proto", default="https", help="X-Forwarded-Proto to send ('' to omit; default https)")
     ap.add_argument("--timeout", type=int, default=30, help="per query/request timeout seconds")
     ap.add_argument("-v", "--verbose", action="store_true", help="list every failure")

@@ -287,7 +287,12 @@ func (i *importer) importPost(p Post) error {
 				return 0, err
 			}
 		}
-		if p.Pinned {
+		// Only local authors' pins are imported: a remote account's pins are
+		// its server's featured collection, refreshed by federation fetches.
+		if p.Pinned && !i.personal() && !source.Local {
+			i.report.Issues = append(i.report.Issues, Issue{Severity: "info", Code: "remote_pin_skipped", Kind: "post", SourceID: p.ID,
+				Message: "a remote account's pinned post is not imported; the remote server's featured collection is fetched by federation"})
+		} else if p.Pinned {
 			if err = tx.Create(&models.PinStatus{AccountId: author, StatusId: target.Id}).Error; err != nil {
 				return 0, err
 			}

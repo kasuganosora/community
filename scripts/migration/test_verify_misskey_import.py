@@ -178,3 +178,130 @@ class ProfileChecksTest(unittest.TestCase):
         self.assertEqual(res["8d profile birthday -> birthday"], "FAIL")
         self.assertIn("remote r1: is_cat differs", out)
         self.assertNotIn("Tokyo", out, "values are never printed")
+
+    def test_also_known_as_simple_array_text(self):
+        # Misskey's user.alsoKnownAs is TypeORM simple-array: comma-joined text.
+        src = [["a1", "t", None, None, None, None, None, None, None, "https://old.test/a, https://older.test/a,https://old.test/a"],
+               ["r1", "f", "https://remote.test/users/r", None, None, None, None, None, None, "https://alias.test/r,javascript:alert(1)"]]
+        good = [["t", O + "/users/a1", None, "", "", "", "", "", "", '["https://old.test/a","https://older.test/a"]'],
+                ["f", None, "https://remote.test/users/r", "", "", "", "", "", "", '["https://alias.test/r"]']]
+        res, out = self.run_checks(src, good)
+        self.assertEqual(res["8g profile alsoKnownAs -> also_known_as"], "PASS", out)
+        self.assertIn("misskey set local=1 remote(imported)=1; matching in community local=1 remote=1", out)
+        dropped = [r[:9] + [None] for r in good]
+        res, out = self.run_checks(src, dropped)
+        self.assertEqual(res["8g profile alsoKnownAs -> also_known_as"], "FAIL", out)
+        self.assertIn("remote r1: also_known_as differs", out)
+
+    def test_also_known_as_text_array_and_json_forms(self):
+        for raw in ('["https://old.test/a"]', "{https://old.test/a}"):
+            src = [["a1", "t", None, None, None, None, None, None, None, raw]]
+            tgt = [["t", O + "/users/a1", None, "", "", "", "", "", "", '["https://old.test/a"]']]
+            res, out = self.run_checks(src, tgt)
+            self.assertEqual(res["8g profile alsoKnownAs -> also_known_as"], "PASS", out)
+
+    def test_source_values_never_counted_fail_instead_of_0_eq_0(self):
+        # Round 9: the source was set but nothing parsed, so 0 == 0 passed.
+        src = [["r1", "f", "https://remote.test/users/r", None, None, None, None, None, None, "acct:r@remote.test,/users/r"]]
+        tgt = [["f", None, "https://remote.test/users/r", "", "", "", "", "", "", None]]
+        res, out = self.run_checks(src, tgt)
+        self.assertEqual(res["8g profile alsoKnownAs -> also_known_as"], "FAIL", out)
+        self.assertIn("none parsed as storable", out)
+
+    def test_invalid_birthdays_excluded_and_reported_as_info(self):
+        R = "https://remote.test/users/"
+        src = [["r1", "f", R + "1", None, None, None, "0000-03-04", None, None, None],
+               ["r2", "f", R + "2", None, None, None, "2999-01-01", None, None, None],
+               ["r3", "f", R + "3", None, None, None, " 1990-05-06 ", None, None, None],
+               ["r4", "f", R + "4", None, None, None, "2001-02-29", None, None, None]]
+        tgt = [["f", None, R + str(i), "", "", "", "1990-05-06" if i == 3 else "", "", "", None] for i in range(1, 5)]
+        res, out = self.run_checks(src, tgt)
+        self.assertEqual(res["8d profile birthday -> birthday"], "PASS", out)
+        self.assertIn("[INFO] 8d profile birthday -> birthday: 3 in-scope misskey value(s) excluded", out)
+        self.assertIn("misskey set local=0 remote(imported)=1", out)
+        tgt[2][6] = ""
+        res, out = self.run_checks(src, tgt)
+        self.assertEqual(res["8d profile birthday -> birthday"], "FAIL", out)
+
+
+class RulesTest(unittest.TestCase):
+    def test_shared_vectors(self):
+        import datetime
+        import os
+        import export_misskey as e
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "testdata", "misskey_value_rules.json")) as f:
+            vec = json.load(f)
+        for c in vec["also_known_as"]:
+            self.assertEqual(e.split_also_known_as(c["raw"]), c["split"], c["name"])
+            self.assertEqual(e.also_known_as_values(c["raw"]), c["valid"], c["name"])
+            # verify compares exactly what the importer keeps
+            raw = c["raw"] if c["raw"] is None or isinstance(c["raw"], str) else json.dumps(c["raw"])
+            self.assertEqual(v.profile_expected("alsoKnownAs", raw), sorted(c["valid"]), c["name"])
+        now = datetime.datetime.fromisoformat(vec["birthday"]["now"].replace("Z", "+00:00"))
+        for c in vec["birthday"]["cases"]:
+            self.assertEqual(e.valid_birthday(c["raw"], now), c["valid"], c["raw"])
+
+
+class LastActiveTest(unittest.TestCase):
+    Rows = ProfileChecksTest.Rows
+
+    def run_checks(self, src_last, tgt_last, extracted_at):
+        src = [["a1", "t", None, None, None, None, None, None, src_last]]
+        tgt = [["t", O + "/users/a1", None, "", "", "", "", "", tgt_last]]
+        rep = v.Report(False)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            v.privacy_checks(self.Rows(src), self.Rows(tgt), O, rep, extracted_at)
+        return dict(rep.results)["8m account lastActiveDate -> last_active_at"], out.getvalue()
+
+    def test_active_after_extraction_is_info(self):
+        st, out = self.run_checks("2026-10-19 10:00:00+00", "2026-10-19T08:00:00Z", "2026-10-19T09:00:00Z")
+        self.assertEqual(st, "PASS", out)
+        self.assertIn("[INFO] 8m", out)
+        self.assertIn("active after extraction)=1", out)
+        # also when the account had no last-active time at extraction
+        st, out = self.run_checks("2026-10-19 10:00:00+00", "", "2026-10-19T09:00:00Z")
+        self.assertEqual(st, "PASS", out)
+
+    def test_difference_before_extraction_fails(self):
+        st, out = self.run_checks("2026-10-19 08:30:00+00", "2026-10-19T08:00:00Z", "2026-10-19T09:00:00Z")
+        self.assertEqual(st, "FAIL", out)
+        st, out = self.run_checks("2026-10-19 08:00:00+00", "2026-10-19T09:00:00Z", None)
+        self.assertEqual(st, "FAIL", "a target newer than the source is never tolerated: " + out)
+
+    def test_without_extracted_at_source_newer_is_info(self):
+        st, out = self.run_checks("2026-10-19 10:00:00+00", "2026-10-19T08:00:00Z", None)
+        self.assertEqual(st, "PASS", out)
+        self.assertIn("pass --extracted-at", out)
+        st, out = self.run_checks("2026-10-19 10:00:00+00", "", None)
+        self.assertEqual(st, "FAIL", out)
+
+
+class PinCheckTest(unittest.TestCase):
+    class DB:
+        def __init__(self, rows, scalars=()):
+            self.rows, self.scalars = rows, list(scalars)
+
+        def has_table(self, t):
+            return True
+
+        def q(self, sql):
+            assert sql.lstrip().upper().startswith("SELECT")
+            return self.rows
+
+        def scalar(self, sql):
+            return self.scalars.pop(0)
+
+    def run_check(self, mk_counts, cm_local, cm_remote="0"):
+        rep = v.Report(False)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            v.pin_check(self.DB([mk_counts]), self.DB([], [cm_local, cm_remote]), O, rep)
+        return dict(rep.results)["9 pinned notes (local users)"], out.getvalue()
+
+    def test_remote_pins_are_info_only(self):
+        st, out = self.run_check(["1", "30"], "1")
+        self.assertEqual(st, "PASS", out)
+        self.assertIn("[INFO] 9 pinned notes (local users): remote users' pins skipped by design: misskey=30", out)
+
+    def test_missing_local_pin_fails(self):
+        st, out = self.run_check(["1", "30"], "0")
+        self.assertEqual(st, "FAIL", out)

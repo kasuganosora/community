@@ -441,6 +441,24 @@ class ExportTests(unittest.TestCase):
         with self.assertRaises(m.ExportError):
             m.PsqlSource(self.output, dsn="postgresql://u:secret@db/misskey")
 
+    def test_also_known_as_simple_array_text_is_split(self):
+        # Upstream Misskey: user.alsoKnownAs is TypeORM simple-array (comma-joined text).
+        self.tables["user"][0]["alsoKnownAs"] = "https://old.test/users/a, https://older.test/users/a,,https://old.test/users/a"
+        self.tables["user"][2]["alsoKnownAs"] = "https://alias.test/u"
+        self.tables["user"][1]["alsoKnownAs"] = ""
+        acc = {a["id"]: a for a in self.converter().convert()["accounts"]}
+        self.assertEqual(acc[self.a]["also_known_as"], ["https://old.test/users/a", "https://older.test/users/a"])
+        self.assertEqual(acc[self.c]["also_known_as"], ["https://alias.test/u"])
+        self.assertNotIn("also_known_as", acc[self.b])
+
+    def test_only_local_users_pins_are_exported(self):
+        self.tables["note"] = [{"id": ident(4), "userId": self.a, "visibility": "public", "text": "mine", "fileIds": []},
+                               {"id": ident(5), "userId": self.c, "userHost": "remote.test", "uri": "https://remote.test/n/5", "visibility": "public", "text": "theirs", "fileIds": []}]
+        self.tables["user_note_pining"] = [{"id": ident(6), "userId": self.a, "noteId": ident(4)}, {"id": ident(7), "userId": self.c, "noteId": ident(5)}]
+        posts = {p["id"]: p for p in self.converter().convert()["posts"]}
+        self.assertTrue(posts[ident(4)]["pinned"])
+        self.assertFalse(posts[ident(5)]["pinned"], "a remote user's pins are its server's featured collection")
+
     def test_file_sink_streams_same_bundle_as_memory(self):
         self.tables["note"] = [{"id": ident(4), "userId": self.a, "visibility": "public", "text": "hi", "fileIds": []}]
         expected = self.converter().convert()

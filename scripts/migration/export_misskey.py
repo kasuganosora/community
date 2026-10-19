@@ -69,6 +69,87 @@ META_ASSET_COLUMNS = ("iconUrl", "app192IconUrl", "app512IconUrl", "bannerUrl", 
 SYSTEM_ROLES = {"instance.actor": "instance_actor", "relay.actor": "relay_actor"}
 
 
+# ---------------------------------------------------------------- value rules
+# The single definition of how Misskey profile values are parsed and which
+# ones the target can store. verify_misskey_import.py and
+# compare_misskey_fields.py import these functions; the Go importer
+# (datatransfer/profile_extensions.go) applies the same rules, and both sides
+# run the shared vectors in testdata/misskey_value_rules.json. Described in
+# docs/misskey-field-mapping.md ("Value rules").
+MAX_ACTOR_URI_LENGTH = 2048
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def split_also_known_as(raw):
+    """user.alsoKnownAs as trimmed, non-empty, de-duplicated strings in source order.
+
+    Upstream Misskey declares the column as TypeORM `simple-array`: one text
+    value, actor URIs joined with ','. Also accepted: text[] (a list, or the
+    PostgreSQL literal '{a,b}') and a JSON array (a list or its JSON text).
+    Every element is split on ',' as well. Nothing is validated here."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        s = raw.strip()
+        if s.startswith("["):
+            try:
+                v = json.loads(s)
+            except ValueError:
+                v = None
+            if isinstance(v, list):
+                return split_also_known_as(v)
+        items = s.split(",")
+        if s.startswith("{") and s.endswith("}"):
+            items = [x.strip().strip('"') for x in s[1:-1].split(",")]
+    elif isinstance(raw, (list, tuple)):
+        items = [part for x in raw if isinstance(x, str) for part in x.split(",")]
+    else:
+        return []
+    out = []
+    for x in items:
+        x = x.strip()
+        if x and x not in out:
+            out.append(x)
+    return out
+
+
+def valid_actor_uri(value):
+    """An absolute http(s) URL without userinfo or fragment, at most 2048
+    bytes (the importer's safeHTTPURL + maxActorURILength)."""
+    if not isinstance(value, str) or not value or len(value.encode()) > MAX_ACTOR_URI_LENGTH or _CONTROL.search(value):
+        return False
+    try:
+        u = urlsplit(value)
+        u.port  # raises on an invalid port
+    except ValueError:
+        return False
+    return u.scheme in ("http", "https") and bool(u.hostname) and "@" not in u.netloc and " " not in u.netloc and not u.fragment
+
+
+def also_known_as_values(raw):
+    """The alias URIs the importer stores for a Misskey alsoKnownAs value."""
+    return [x for x in split_also_known_as(raw) if valid_actor_uri(x)]
+
+
+BIRTHDAY_FORMAT = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def valid_birthday(raw, now=None):
+    """The birthday the importer stores ('' when it drops it): a real
+    YYYY-MM-DD date with year >= 1 (Misskey allows 0000) and not later than
+    one day after `now` (future dates are dropped)."""
+    b = (raw or "").strip() if isinstance(raw, str) or raw is None else ""
+    if not BIRTHDAY_FORMAT.match(b):
+        return ""
+    try:
+        d = datetime.strptime(b, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:  # year 0000, month 13, Feb 30, ...
+        return ""
+    now = now or datetime.now(timezone.utc)
+    return b if d <= now + timedelta(days=1) else ""
+
+
+
 def source_record_id(table, row, cols):
     """Source identity of a raw preserved row from its table's real primary
     key; composite keys join their columns with "/". Without a known key the
@@ -996,7 +1077,7 @@ class Converter:
             # are omitted so bundles from older sources keep their digests.
             for dst, value in (("is_cat", bool(u.get("isCat"))), ("location", p.get("location") or ""), ("birthday", p.get("birthday") or ""),
                                ("language", p.get("lang") or ""), ("followed_message", p.get("followedMessage") or ""),
-                               ("moved_to", u.get("movedToUri") or ""), ("also_known_as", [x for x in (u.get("alsoKnownAs") or []) if isinstance(x, str) and x])):
+                               ("moved_to", u.get("movedToUri") or ""), ("also_known_as", split_also_known_as(u.get("alsoKnownAs")))):
                 if value:
                     a[dst] = value
             # Misskey account privacy settings, omitted when at the default.
@@ -1295,7 +1376,10 @@ class Converter:
 
     def posts(self):
         visibility = {"public": "public", "home": "unlisted", "followers": "private", "specified": "direct"}
-        pinned = {sid(r["noteId"]) for r in self.tables.get("user_note_pining", [])}
+        # Only local users' pins: a remote user's pins are that server's
+        # featured collection, refreshed by federation (see
+        # docs/misskey-field-mapping.md). A local-only export reads none.
+        pinned = {sid(r["noteId"]) for r in self.tables.get("user_note_pining", []) if self.is_local(r.get("userId"))}
         self.stage("notes", "note")
         for r in self.tables.get("note", []):
             self.progress.advance()
