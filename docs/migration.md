@@ -115,7 +115,7 @@ progress stage=import/posts done=187340 total=412880 pct=45.4 speed=1312/s eta=2
 | 变量 | 是否必需 | 说明 |
 |---|---|---|
 | `DB_CONNECTION` / `DB_DSN` | 必需 | 目标数据库 |
-| `APP_BASE_URL` | 必需 | 必须与源站域名一致 |
+| `APP_BASE_URL` | 必需 | **导入期间必须等于源站 origin**（例如 `https://maid.lat`，含 `https://`，不带路径和末尾 `/`）。整站迁移保留原有 Actor / 帖子 URI，预检会以 `origin` 错误拒绝不一致的值；不要用演练机的临时域名或 `http://127.0.0.1` |
 | `ENCRYPTED_KEY` | 必需 | 与目标实例相同的 32 字节密钥（导入的私钥等用它加密）；导入后不能再换 |
 | `REDIS_0_HOST` / `REDIS_0_PORT`（默认 6379）/ `REDIS_0_PASSWORD` / `REDIS_0_DB`（默认 0） | 可选 | 目标实例的 Redis。只用于导入后清除过期的时间线缓存 |
 | `REDIS_1_HOST` … | 可选 | 额外的 Redis 实例，导入不使用 |
@@ -159,7 +159,11 @@ Misskey `user_profile` 的二步验证会导入到 Community 自己的 TOTP（RF
 
 ### 工作目录与 spool
 
-spool（`spool.sqlite3*`）、读取状态（`state/staging.sqlite3`）和 `out-*/.spool`、`bundle.json` 里都有**明文** `twoFactorSecret`、密码哈希和签名私钥。
+读取状态（`state/staging.sqlite3`）和 `out-*/.spool`、`bundle.json` 里有**明文** `twoFactorSecret`、密码哈希和签名私钥；spool（`spool.sqlite3*`）里的签名私钥同样是明文。
+
+- **spool 里的凭据记录（密码哈希、TOTP secret、备用码）静态加密**：写入 spool 前用 AES-256-GCM 封装，密钥由目标的 `ENCRYPTED_KEY` 派生（只在环境变量里，不在工作目录里）。旧版本留下的明文 spool（例如失败的演练）在下次打开时会原地加密，并清零释放的页、截断 WAL。`ENCRYPTED_KEY` 变了以后 `--reuse-spool` 会报错，需要恢复原值或不带 `--reuse-spool` 重新读取。没有设置 `ENCRYPTED_KEY` 时无法加密，程序会打印 `WARNING`。
+- spool 中的私有原始记录（`records`）在写入前就把 `twoFactor*Secret` 替换为 `"[redacted]"`。
+- **失败或中断时也会清理**（预检失败、导入出错、Ctrl-C/SIGTERM）：擦除 `out-*/.spool`、`out-*/bundle.json*`；spool 已完整时还会擦除 `state/`（之后用 `--reuse-spool` 从加密 spool 续跑；不带 `--reuse-spool` 则从头读取源库）。源库还没读完时 `state/` 是续传检查点，会保留并打印 `NOTE`，读完后的下一次失败或成功都会擦除它。`--fetch-only` 和 `--keep-secret-spool` 不做这一步。
 
 - `--work-dir` 以 `0700` 创建（已存在时也会收紧为 `0700`），其中的文件为 `0600`（spool 在 SQLite 打开前以 `0600` 创建；导出器以 `umask 077` 运行；每个阶段后再收紧一次）。
 - **`--apply` 成功后自动擦除**这些含密文件：先用零覆盖、`fsync`，再删除；复制的媒体（`out-*/` 下的其余文件）保留。之后如果还要 `--final-sync`，会从头读取源库（回执保证幂等，只是更慢）。两阶段迁移的正常顺序（`--fetch-only` → `--final-sync --apply`）不受影响。
@@ -186,13 +190,15 @@ tootctl two-factor scrub-preserved     # 清除旧导入归档里的明文 secre
 5. **不迁移的内容（用户需要知道）：**
    - 登录会话、OAuth 应用与访问令牌：所有客户端需要重新登录 / 重新授权。
    - TOTP 二步验证（MFA）：**会迁移**，见下文「二步验证（TOTP）与敏感文件」。
-   - 通行密钥 / 安全密钥（passkeys / WebAuthn）：不在主导入里，**导入完成后立即**单独运行  
-     `tootctl passkeys import-misskey --dsn "$MISSKEY_DSN" --dry-run`，确认后去掉 `--dry-run`（按用户名匹配，可重复执行）。安装向导里是独立的 `passkeys` 阶段。预检对有安全密钥的账号给出 `security_keys_separate` 警告提醒这一步。
+   - **通行密钥 / 安全密钥（passkeys / WebAuthn）：不迁移，用户必须在新站重新注册。** `community-transfer` 不导入任何安全密钥；迁移公告里要提前告知用户：迁移后先用密码（以及已迁移的 TOTP）登录，再到「设置 → 安全」重新添加安全密钥 / 通行密钥。只用安全密钥、没有 TOTP 的账号会在预检中报 `passwordless_without_totp`。预检对有安全密钥的账号给出 `security_keys_separate` 警告，可据此统计需要通知的用户。（实验性的 `tootctl passkeys import-misskey` 仍然存在，但不属于本手册的支持流程，不能保证导入的密钥可用；不要以它代替通知用户重新注册。）
    - **引用（quote）笔记**（maid.lat：317 条）和**频道笔记**（5 条）只进入私有归档（archive-only），不作为公开帖子发布。回复它们的笔记照常发布，但不带回复链（帖子属性 `import_reply_parent_archived` 记录原父帖 ID）；转发它们的笔记同样只归档。
    - **账号级可见性策略**：Misskey 的 `requireSigninToViewContents`（需要登录才能查看）会导入为 Community 的账号设置「需要登录才能查看我的帖子」（`accounts.require_signin_to_view`），不再阻断预检。开启后：未登录访客只能看到资料（名字、头像、简介），帖子相关 API 返回 401 `SIGNIN_REQUIRED`，时间线 / 标签 / 搜索 / 热门结果中剔除其帖子；未签名的 ActivityPub 拉取（帖子、outbox、followers/following/featured）返回 401，远端服务器的签名请求照常放行；Actor 文档和公钥保持公开，投递给关注者不变。`makeNotesFollowersOnlyBefore` / `makeNotesHiddenBefore`（把某个时间点之前的笔记自动改为仅关注者可见 / 隐藏；正数是 Unix 秒，负数是"距今 N 秒"）仍没有对应功能，设置了的本地账号在预检中报 `unsupported_privacy_policy`（阻断），报告写明字段和值，例如 `makeNotesHiddenBefore=-2592000`。
    - 使用目标站不存在的自定义表情（例如本地迁移范围之外的远端表情）的回应会归档，而不是让整个事务失败。
 6. **核对脚本以前会误报通过。** `verify_misskey_import.py` 现在：空目标库直接 FAIL；逐个检查每个本地用户是否存在；实例 Actor 的公钥必须等于 Misskey `instance.actor` 的公钥；连接失败显示真实错误（不再是 `HTTP 0`）。
 7. **旧导出器的隐藏错误。** 失败时会打印阶段、异常类型和 psql 的原始错误（密码已脱敏），`--verbose` 打印 traceback；psql 警告（例如 PGPASSFILE 权限不安全）也会显示。
+8. **预检没发现列宽不够。** 第二次演练（224k 行、预检 0 错误）在真正导入自定义表情时失败：`value too long for type character varying(36)`——`emojis.shortcode` 是 `varchar(36)`，257 个远端表情名超长，最长 113（Misskey 允许 128）。现在：
+   - 迁移 `ImportColumnWidthsScript` 加宽 `emojis.shortcode`→255、`statuses.origin_uri`/`origin_url`→2048、`media_attachments.remote_url`→2048、`media_attachments.content_type`→128、`accounts.username`→128、`accounts.acct`→320（PostgreSQL / MySQL / MariaDB；SQLite 不限制长度，无需改动；可重复执行）。`community-transfer` 启动时自动执行迁移。
+   - 预检会把每个待导入字段的长度与**目标库实际的列宽**比较，超长时报阻断错误 `column_too_narrow`，每列一条，写明表.列、超长数量、最大长度、列宽和最多 5 个样例源 ID（`count` / `max_length` / `limit` / `sample_ids` 字段）。
 
 ## 重新执行 maid.lat 演练（隔离网络、只读源）
 
@@ -223,8 +229,8 @@ community-transfer "${COMMON[@]}" --final-sync --report /srv/maid-rehearsal/repo
 # 3) 导入（中断后加 --reuse-spool 重跑即可从检查点继续）
 TRANSFER_DEBUG=1 community-transfer "${COMMON[@]}" --reuse-spool --apply --report /srv/maid-rehearsal/report-import.json
 
-# 4) 通行密钥 / 安全密钥（导入后立即执行；TOTP 已随主导入迁移，含密 spool 已自动擦除）
-tootctl passkeys import-misskey --dsn "postgresql://community_export@10.0.0.5:5432/misskey?sslmode=require" --dry-run
+# 4) 通行密钥 / 安全密钥不迁移：按 report-validate.json 里的 security_keys_separate 名单通知用户重新注册
+#    （TOTP 已随主导入迁移，含密 spool 已自动擦除）
 
 # 5) 启动目标实例（仍在隔离网络中）并核对
 MISSKEY_DB_DSN='postgresql://community_export@10.0.0.5:5432/misskey?sslmode=require' \
@@ -232,5 +238,20 @@ COMMUNITY_DB_DSN='postgresql://community@127.0.0.1:5432/community_rehearsal' \
 COMMUNITY_BASE='http://127.0.0.1:8080' HOST_HEADER=maid.lat SAMPLE=200 \
 python3 scripts/migration/verify_misskey_import.py --seed 42 -v
 ```
+
+### 从同一份已读取数据重跑（表情列宽失败之后）
+
+上一次演练的工作目录和 spool 可以直接复用，不需要重新读取源库：
+
+```sh
+# 新版本二进制；.env 不变（APP_BASE_URL=https://maid.lat，ENCRYPTED_KEY 保持原值）
+# a) 预检：启动时自动执行 ImportColumnWidthsScript；旧 spool 的明文凭据在打开时被加密
+community-transfer "${COMMON[@]}" --reuse-spool --report /srv/maid-rehearsal/report-validate-2.json
+#    期望 can_execute: true、没有 column_too_narrow；若仍有，报告会写明表.列和样例 ID
+# b) 导入：已提交的分块按回执跳过，从失败处（表情阶段）继续
+TRANSFER_DEBUG=1 community-transfer "${COMMON[@]}" --reuse-spool --apply --report /srv/maid-rehearsal/report-import-2.json
+```
+
+如果在 community-transfer 运行期间 Community 服务进程也连着同一个 PostgreSQL 库，迁移改列后请重启服务（pgx 的预编译语句缓存会让旧连接对 `emojis` 等表报一次 `cached plan must not change result type`）。
 
 步骤 2 只预检；预检结果为 `can_execute: false` 时（退出码 2）先处理阻断问题，再执行步骤 3。`TRANSFER_DEBUG=1` 会在失败时打印底层错误链（可能包含记录内容，只用于隔离演练）。
