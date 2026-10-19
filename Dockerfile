@@ -33,11 +33,13 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 COPY frontend/ ./
-# Build id shown in /version.json; clients reload when it changes. Pass the
-# commit (COMMUNITY_BUILD_ID=$(git rev-parse --short HEAD) docker compose
-# build); empty means a random id per build.
+# Build id shown in /version.json is <git sha>-<build time>; clients reload
+# when it changes. The image has no .git, so pass the commit
+# (COMMUNITY_BUILD_SHA=$(git rev-parse --short=12 HEAD) docker compose build).
+# COMMUNITY_BUILD_ID still overrides the whole id.
+ARG COMMUNITY_BUILD_SHA=
 ARG COMMUNITY_BUILD_ID=
-ENV COMMUNITY_BUILD_ID=${COMMUNITY_BUILD_ID}
+ENV COMMUNITY_BUILD_SHA=${COMMUNITY_BUILD_SHA} COMMUNITY_BUILD_ID=${COMMUNITY_BUILD_ID}
 RUN npm run build
 
 # ============================================

@@ -39,6 +39,7 @@ function choose(emoji: MastodonEmoji) {
 }
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
+    event.preventDefault() // keep an enclosing sheet/dialog open
     emit('close')
     return
   }

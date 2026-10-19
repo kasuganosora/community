@@ -1,4 +1,5 @@
 import { t } from '@/shared/i18n'
+import { hasUnsavedWork, persistUnsavedWork } from './useUnsavedWork'
 
 declare const __BUILD_ID__: string
 
@@ -7,10 +8,13 @@ declare const __BUILD_ID__: string
  * registers the service worker, compares /version.json with the build this
  * bundle came from on load, periodically and on focus, and after a deploy
  * refreshes the service worker and reloads once the user is idle (a toast
- * offers to reload right away).
+ * offers to reload right away). A reload never interrupts work: while any
+ * composer holds unsent text/attachments, an upload runs or a modal is open,
+ * drafts are persisted and the reload waits until that clears or the tab is
+ * hidden (a hidden tab reloads immediately).
  */
-const CHECK_INTERVAL_MS = 5 * 60_000
-const IDLE_MS = 30_000
+const CHECK_INTERVAL_MS = 10 * 60_000
+const IDLE_MS = 10_000
 const RELOAD_KEY = 'community:version-reload'
 
 export const currentBuild = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'dev'
@@ -42,6 +46,7 @@ function isEditing(): boolean {
 }
 
 function reload(build: string) {
+  persistUnsavedWork()
   sessionStorage.setItem(RELOAD_KEY, build)
   window.location.reload()
 }
@@ -68,9 +73,16 @@ function showToast(build: string) {
 
 function maybeReload() {
   if (!pendingBuild) return
-  if (document.visibilityState === 'hidden' || (Date.now() - lastInput >= IDLE_MS && !isEditing())) {
+  if (document.visibilityState === 'hidden') {
     reload(pendingBuild)
+    return
   }
+  if (hasUnsavedWork() || isEditing()) {
+    // Keep drafts safe in case the user reloads or the tab is discarded.
+    persistUnsavedWork()
+    return
+  }
+  if (Date.now() - lastInput >= IDLE_MS) reload(pendingBuild)
 }
 
 async function onNewBuild(build: string) {
@@ -105,6 +117,8 @@ export function startVersionSync(): void {
     window.addEventListener(type, () => { lastInput = Date.now() }, { passive: true, capture: true })
   }
   window.addEventListener('focus', () => { void checkVersion() })
+  window.addEventListener('online', () => { void checkVersion() })
+  window.addEventListener('pagehide', () => { if (pendingBuild) persistUnsavedWork() })
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void checkVersion()
     else maybeReload()

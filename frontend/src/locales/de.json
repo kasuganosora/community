@@ -247,7 +247,10 @@
       "pollCharLimit": "{0} von {1} Zeichen",
       "pollMaxOptions": "Höchstens {0} Optionen",
       "hashtag": "Hashtag einfügen",
-      "mention": "Person erwähnen"
+      "mention": "Person erwähnen",
+      "pastedImage": "Eingefügtes Bild",
+      "retry": "Erneut versuchen",
+      "retryUpload": "{0} erneut hochladen"
     },
     "PostContent": {
       "s1": "Einklappen",
@@ -2435,7 +2438,9 @@
       "s32": "Abbrechen",
       "s33": "Diese Unterhaltung verlassen?",
       "s34": "Dieses Mitglied entfernen?",
-      "s35": "Das Mitglied erhält keine neuen Nachrichten mehr. Bereits Empfangenes lässt sich nicht zurückholen."
+      "s35": "Das Mitglied erhält keine neuen Nachrichten mehr. Bereits Empfangenes lässt sich nicht zurückholen.",
+      "tooManyAttachments": "Du kannst höchstens {0} Datei anhängen | Du kannst höchstens {0} Dateien anhängen",
+      "retryUpload": "Erneut versuchen"
     },
     "MessagesPage": {
       "s1": "Nachrichten",

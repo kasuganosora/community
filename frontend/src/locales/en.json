@@ -247,7 +247,10 @@
       "pollCharLimit": "{0} of {1} characters",
       "pollMaxOptions": "Up to {0} options",
       "hashtag": "Insert hashtag",
-      "mention": "Mention someone"
+      "mention": "Mention someone",
+      "pastedImage": "Pasted image",
+      "retry": "Retry",
+      "retryUpload": "Retry uploading {0}"
     },
     "PostContent": {
       "s1": "Collapse",
@@ -2435,7 +2438,9 @@
       "s32": "Cancel",
       "s33": "Leave this conversation?",
       "s34": "Remove this member?",
-      "s35": "They’ll no longer receive new messages in this conversation. What they’ve already received can’t be recalled."
+      "s35": "They’ll no longer receive new messages in this conversation. What they’ve already received can’t be recalled.",
+      "tooManyAttachments": "You can attach at most {0} file | You can attach at most {0} files",
+      "retryUpload": "Retry"
     },
     "MessagesPage": {
       "s1": "Messages",

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useDismiss } from '@/shared/composables/useDismiss'
 import { displayAccount } from '@/shared/utils/accountDisplay'
 import { wasEdited } from '@/shared/utils/format'
 import PostReactions from '@/shared/components/post/PostReactions.vue'
@@ -47,6 +48,11 @@ const authStore = useAuthStore()
 const editing = ref(false)
 const reporting = ref(false)
 const menuOpen = ref(false)
+const menuButton = ref<HTMLButtonElement>()
+const menuOverlayClass = `post-card-menu-${Math.random().toString(36).slice(2, 10)}`
+// TDesign closes on outside click and after a pick; this adds Esc, focus
+// leaving, page scroll and route change, consistent with other popovers.
+useDismiss(menuOpen, () => [menuButton.value, document.querySelector<HTMLElement>(`.${menuOverlayClass}`)])
 useTimelineRowPin(() => editing.value || reporting.value || menuOpen.value, () => {
   editing.value = false; reporting.value = false; menuOpen.value = false
   MessagePlugin.info(t('shared.PostCard.s6'))
@@ -195,10 +201,10 @@ function onMenuClick(data: { value?: unknown }) {
             v-if="authStore.currentUser"
             trigger="click"
             :options="menuOptions"
-            :popup-props="{ visible: menuOpen, onVisibleChange: (visible: boolean) => { menuOpen = visible } }"
+            :popup-props="{ visible: menuOpen, overlayClassName: menuOverlayClass, onVisibleChange: (visible: boolean) => { menuOpen = visible } }"
             @click="onMenuClick"
           >
-            <button type="button" class="post-card__menu" :aria-label="$t('shared.PostCard.s5')" @click.stop>
+            <button ref="menuButton" type="button" class="post-card__menu" :aria-label="$t('shared.PostCard.s5')" @click.stop>
               <t-icon name="more" :size="16" />
             </button>
           </t-dropdown>

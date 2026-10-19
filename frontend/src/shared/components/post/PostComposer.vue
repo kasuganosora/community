@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { useUnsavedWork } from '@/shared/composables/useUnsavedWork'
+import { useDismiss } from '@/shared/composables/useDismiss'
 import { displayAccount } from '@/shared/utils/accountDisplay'
-import { ref, computed, reactive, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, reactive, watch, nextTick, onMounted } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { mentionAtCaret } from '@/domains/post/domain/mentionQuery'
@@ -19,6 +21,7 @@ import {
 import EmojiPicker from './EmojiPicker.vue'
 import PollDeadlinePicker from './PollDeadlinePicker.vue'
 import { usePollLimits } from '@/shared/composables/usePollLimits'
+import { useMediaDrop, acceptMedia } from '@/shared/composables/useMediaDrop'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { insertShortcode } from '@/domains/emoji/domain/emoji'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
@@ -50,6 +53,8 @@ const uid = Math.random().toString(36).slice(2, 8)
 const content = ref('')
 const composerRoot = ref<HTMLElement>()
 const pickerOpen = ref(false)
+const emojiPickerEl = ref<{ $el: HTMLElement }>()
+const emojiButton = ref<HTMLButtonElement>()
 let selection = { start: 0, end: 0 }
 function toggleEmojiPicker() {
   const input = composerRoot.value?.querySelector('textarea')
@@ -165,20 +170,20 @@ function onVisibilityKeydown(e: KeyboardEvent) {
 const quote = ref<MastodonStatus | null>(props.quoteTo ?? null)
 watch(() => props.quoteTo, (value) => { quote.value = value ?? null })
 
-function closeVisibilityOnOutside(e: Event) {
-  if (!composerRoot.value?.contains(e.target as Node)) visibilityOpen.value = false
-}
-
-watch(visibilityOpen, (open) => {
-  if (open) document.addEventListener('pointerdown', closeVisibilityOnOutside)
-  else document.removeEventListener('pointerdown', closeVisibilityOnOutside)
+useDismiss(visibilityOpen, () => [visibilityTrigger.value, visibilityMenu.value], {
+  onClose: (reason) => {
+    visibilityOpen.value = false
+    if (reason === 'escape') visibilityTrigger.value?.focus()
+  },
 })
-
-onBeforeUnmount(() => document.removeEventListener('pointerdown', closeVisibilityOnOutside))
+useDismiss(pickerOpen, () => [emojiPickerEl.value?.$el as HTMLElement | undefined, emojiButton.value], {
+  scroll: false,
+  onClose: (reason) => { if (reason === 'escape') void closeEmojiPicker(); else pickerOpen.value = false },
+})
 const poll = ref<PollDraft | null>(null)
 const pollLimits = usePollLimits()
 const pollOptionLength = (value: string) => Array.from(value).length
-interface MediaItem { key: string; name: string; uploading: boolean; preview: string; attachment?: MastodonAttachment; error?: string }
+interface MediaItem { key: string; name: string; uploading: boolean; preview: string; attachment?: MastodonAttachment; error?: string; file?: File }
 const media = reactive<MediaItem[]>([])
 const posting = ref(false)
 const loadingSource = ref(!!props.editStatus)
@@ -190,6 +195,31 @@ const textareaRef = ref<{ focus?: () => void } | null>(null)
 const isEdit = computed(() => !!props.editStatus)
 const mediaIds = computed(() => media.filter(m => m.attachment).map(m => m.attachment!.id))
 const uploading = computed(() => media.some(m => m.uploading))
+const uploadFailed = computed(() => media.some(m => !!m.error && !m.uploading))
+
+// Unsent work survives a deploy auto-reload (see useVersionSync).
+interface PersistedPost { text: string; spoilerEnabled: boolean; spoilerText: string; visibility: Visibility; attachments: MastodonAttachment[] }
+let prefilledText: string | null = null
+onMounted(() => { prefilledText ??= content.value })
+useUnsavedWork<PersistedPost>(() => props.editStatus ? null : `post:${props.replyTo?.id ?? 'new'}:${props.quoteTo?.id ?? ''}`, {
+  busy: () => posting.value || uploading.value || media.length > 0 || (content.value.trim() !== '' && content.value !== prefilledText) || spoilerText.value.trim() !== '',
+  snapshot: () => {
+    const attachments = media.flatMap(m => m.attachment ? [m.attachment] : [])
+    const dirtyText = content.value.trim() !== '' && content.value !== prefilledText
+    if (!dirtyText && !spoilerText.value.trim() && !attachments.length) return null
+    return { text: content.value, spoilerEnabled: spoilerEnabled.value, spoilerText: spoilerText.value, visibility: visibility.value, attachments }
+  },
+  restore: (saved) => {
+    prefilledText ??= content.value
+    if (typeof saved.text === 'string') content.value = saved.text
+    spoilerEnabled.value = !!saved.spoilerEnabled
+    spoilerText.value = typeof saved.spoilerText === 'string' ? saved.spoilerText : ''
+    if (saved.visibility) visibility.value = saved.visibility
+    for (const attachment of (saved.attachments ?? []).slice(0, MAX_MEDIA_ATTACHMENTS)) {
+      media.push({ key: `restored-${attachment.id}`, name: attachment.description || attachment.id, uploading: false, preview: '', attachment })
+    }
+  },
+})
 
 const choices = computed(() => {
   const ceiling = props.replyTo
@@ -212,7 +242,7 @@ const draft = computed<ComposeDraft>(() => ({
 const charCount = computed(() => composeLength(draft.value))
 const isOverLimit = computed(() => charCount.value > MAX_POST_LENGTH)
 const validationError = computed(() => validateDraft(draft.value, MAX_POST_LENGTH, pollLimits.value))
-const canPost = computed(() => !validationError.value && !posting.value && !uploading.value && !loadingSource.value && !sourceUnavailable.value)
+const canPost = computed(() => !validationError.value && !posting.value && !uploading.value && !uploadFailed.value && !loadingSource.value && !sourceUnavailable.value)
 const placeholderText = computed(() => props.placeholder
   || (props.replyTo ? t('shared.PostComposer.s26', [displayAccount(props.replyTo.account.acct)]) : t('shared.PostComposer.s27')))
 const currentVisibility = computed(() => choices.value.find(v => v.value === draft.value.visibility) ?? choices.value[0]!)
@@ -299,24 +329,45 @@ async function onFilesSelected(e: Event) {
   const input = e.target as HTMLInputElement
   const files = Array.from(input.files || [])
   input.value = ''
+  await addFiles(files)
+}
+
+const mediaEnabled = () => !isEdit.value && !posting.value && !loadingSource.value && !poll.value
+
+/** One path for the picker, paste and drop: bounded by the attachment limit. */
+async function addFiles(files: File[]) {
+  if (!files.length || !mediaEnabled()) return
   const room = MAX_MEDIA_ATTACHMENTS - media.length
   if (files.length > room) error.value = t('shared.PostComposer.s37', [MAX_MEDIA_ATTACHMENTS])
-  await Promise.all(files.slice(0, room).map(async (file) => {
+  await Promise.all(files.slice(0, Math.max(0, room)).map(async (file) => {
     const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : ''
-    const item = reactive<MediaItem>({ key: `${Date.now()}-${Math.random()}`, name: file.name, uploading: true, preview })
+    const item = reactive<MediaItem>({ key: `${Date.now()}-${Math.random()}`, name: file.name || t('shared.PostComposer.pastedImage'), uploading: true, preview, file })
     media.push(item)
-    try {
-      item.attachment = await postApi.uploadMedia(file)
-    } catch (err) {
-      if (item.preview) URL.revokeObjectURL(item.preview)
-      item.error = err instanceof Error ? err.message : t('shared.PostComposer.s38')
-      error.value = t('shared.PostComposer.s39', [file.name, item.error])
-      media.splice(media.indexOf(item), 1)
-    } finally {
-      item.uploading = false
-    }
+    await uploadItem(item)
   }))
 }
+
+async function uploadItem(item: MediaItem) {
+  if (!item.file) return
+  item.uploading = true
+  item.error = undefined
+  try {
+    item.attachment = await postApi.uploadMedia(item.file)
+  } catch (err) {
+    // Keep the item (and its preview) so the upload can be retried.
+    item.error = err instanceof Error ? err.message : t('shared.PostComposer.s38')
+    error.value = t('shared.PostComposer.s39', [item.name, item.error])
+  } finally {
+    item.uploading = false
+  }
+}
+
+function retryMedia(item: MediaItem) {
+  error.value = null
+  void uploadItem(item)
+}
+
+const { dragging: mediaDragging } = useMediaDrop(composerRoot, { onFiles: files => { void addFiles(files) }, enabled: mediaEnabled, accept: acceptMedia })
 
 function removeMedia(i: number) {
   const item = media[i]
@@ -468,7 +519,7 @@ defineExpose({ focus, reset })
 </script>
 
 <template>
-  <div ref="composerRoot" class="composer" :class="{ 'composer--menu': visibilityOpen }" @keydown.capture="onMentionKeydown" @keydown="onKeydown">
+  <div ref="composerRoot" class="composer" :class="{ 'composer--menu': visibilityOpen, 'composer--dropping': mediaDragging }" @keydown.capture="onMentionKeydown" @keydown="onKeydown">
     <p v-if="isEdit" class="composer__replace-notice" role="note">
       {{ REPLACE_NOTE }}
       <span v-if="editStatus?.poll">{{ $t('shared.PostComposer.s1') }}</span>
@@ -593,7 +644,18 @@ defineExpose({ focus, reset })
             <span v-else class="composer__media-name">{{ m.uploading ? $t('shared.PostComposer.s8') : m.name }}</span>
             <t-loading v-if="m.uploading" size="small" class="composer__media-spinner" />
             <button
-              v-else
+              v-else-if="m.error"
+              type="button"
+              class="composer__media-retry"
+              data-testid="composer-media-retry"
+              :aria-label="$t('shared.PostComposer.retryUpload', [m.name])"
+              :title="m.error"
+              @click="retryMedia(m)"
+            >
+              <t-icon name="refresh" :size="16" /><span>{{ $t('shared.PostComposer.retry') }}</span>
+            </button>
+            <button
+              v-if="!m.uploading"
               type="button"
               class="composer__media-remove"
               :aria-label="$t('shared.PostComposer.s9', [m.name])"
@@ -658,7 +720,7 @@ defineExpose({ focus, reset })
           </div>
         </fieldset>
 
-        <EmojiPicker v-if="pickerOpen" @select="insertEmoji" @close="closeEmojiPicker" />
+        <EmojiPicker v-if="pickerOpen" ref="emojiPickerEl" @select="insertEmoji" @close="closeEmojiPicker" />
         <div v-if="quote && !isEdit" class="composer__quote">
           <span class="composer__quote-who">{{ $t('shared.PostComposer.s17', [displayAccount(quote.account.acct)]) }}</span>
           <p>{{ quote.spoiler_text ? $t('shared.PostComposer.s18', [quote.spoiler_text]) : (stripHtml(quote.content || '').replace(/\s+/g, ' ').trim() || $t('shared.PostComposer.s19')) }}</p>
@@ -729,7 +791,7 @@ defineExpose({ focus, reset })
             >
               {{ charCount }}/{{ MAX_POST_LENGTH }}
             </span>
-            <button type="button" class="tool-btn" :class="{ 'tool-btn--active': pickerOpen }" :aria-label="$t('shared.PostComposer.s24')" :title="$t('shared.PostComposer.s24')" :aria-expanded="pickerOpen" :disabled="posting || loadingSource" @click="toggleEmojiPicker"><t-icon name="happy" /></button>
+            <button ref="emojiButton" type="button" class="tool-btn" :class="{ 'tool-btn--active': pickerOpen }" :aria-label="$t('shared.PostComposer.s24')" :title="$t('shared.PostComposer.s24')" :aria-expanded="pickerOpen" :disabled="posting || loadingSource" @click="toggleEmojiPicker"><t-icon name="happy" /></button>
           </div>
         </div>
       </div>
@@ -1067,6 +1129,22 @@ defineExpose({ focus, reset })
 }
 
 /* Small glyph on a dark translucent disc, 44pt hit area. */
+.composer__media-retry {
+  position: absolute;
+  inset: auto var(--space-1) var(--space-1) var(--space-1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 1.75rem;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: var(--weight-semibold);
+}
+.composer__media-retry:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.composer--dropping { outline: 2px dashed var(--color-accent); outline-offset: -2px; background: color-mix(in srgb, var(--color-accent) 6%, transparent); }
 .composer__media-remove {
   position: absolute;
   top: var(--space-1);

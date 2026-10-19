@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useDismiss } from '@/shared/composables/useDismiss'
 import { adminEntry } from '@/domains/admin/domain/navigation'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import { computed, ref } from 'vue'
@@ -29,6 +30,8 @@ const router = useRouter()
 const authStore = useAuthStore()
 const { openCompose } = useUiChrome()
 const menuOpen = ref(false)
+const accountButton = ref<HTMLButtonElement>()
+useDismiss(menuOpen, () => [accountButton.value, document.querySelector<HTMLElement>('.sidebar-account-popup')])
 
 function goHome() {
   router.push({ name: 'home' }).catch(() => {})
@@ -119,8 +122,8 @@ async function handleLogout() {
 
     <!-- User Info -->
     <div class="sidebar-user" v-if="authStore.currentUser">
-      <t-popup v-model:visible="menuOpen" trigger="click" placement="top-left" :overlay-inner-style="{ padding: '4px' }">
-        <button type="button" class="user-info" data-qa="sidebar-account" aria-haspopup="menu" :aria-expanded="menuOpen" :aria-label="$t('shared.LeftSidebar.s6', [authStore.currentUser.username])">
+      <t-popup v-model:visible="menuOpen" trigger="click" placement="top-left" overlay-class-name="sidebar-account-popup" :overlay-inner-style="{ padding: '4px' }">
+        <button ref="accountButton" type="button" class="user-info" data-qa="sidebar-account" aria-haspopup="menu" :aria-expanded="menuOpen" :aria-label="$t('shared.LeftSidebar.s6', [authStore.currentUser.username])">
           <UserAvatar :account="authStore.currentUser" :size="42" />
           <div class="user-info__text">
             <div class="user-info__name"><EmojiText :text="authStore.currentUser.display_name || authStore.currentUser.username" :emojis="authStore.currentUser.emojis" /></div>

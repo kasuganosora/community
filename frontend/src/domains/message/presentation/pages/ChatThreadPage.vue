@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useUnsavedWork } from '@/shared/composables/useUnsavedWork'
 import { documentNearEnd, isMobileLayout, scrollDocumentToEnd, useDockedComposer } from '@/shared/composables/useMobileDock'
 import { displayAccount } from '@/shared/utils/accountDisplay'
 import { sessionEpoch } from '@/shared/api/sessionScope'
@@ -7,6 +8,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { DialogPlugin } from '@/shared/ui/feedback'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
+import { MAX_MEDIA_ATTACHMENTS } from '@/domains/post/domain/compose'
+import { useMediaDrop, acceptMedia } from '@/shared/composables/useMediaDrop'
 import type { MastodonAttachment } from '@/shared/types/mastodon'
 import { chatAvatars, chatPeerAcct, chatTitle, type ChatMember, type ChatMessage, type ChatMemberInput } from '../../domain/chat'
 import ChatAvatarStack from '../components/ChatAvatarStack.vue'
@@ -31,7 +34,9 @@ const draft = ref('')
 const reply = ref<ChatMessage | undefined>()
 const editing = ref<ChatMessage | undefined>()
 const attachments = ref<(MastodonAttachment & { uploadName?: string })[]>([])
-const uploading = ref(false)
+interface PendingUpload { key: string; file: File; name: string; failed: boolean }
+const pendingUploads = ref<PendingUpload[]>([])
+const uploading = computed(() => pendingUploads.value.some(item => !item.failed))
 const uploadError = ref('')
 const membersOpen = ref(false)
 const history = computed(() => {
@@ -57,7 +62,16 @@ const inviting = ref(false)
 let uploadGeneration = 0
 let transactionId = crypto.randomUUID()
 onBeforeUnmount(() => { uploadGeneration++ })
-const sendable = computed(() => (!!draft.value.trim() || attachments.value.length > 0) && !busy.value && !uploading.value)
+const sendable = computed(() => (!!draft.value.trim() || attachments.value.length > 0) && !busy.value && pendingUploads.value.length === 0)
+// Unsent work survives a deploy auto-reload (see useVersionSync).
+useUnsavedWork<{ text: string; attachments: typeof attachments.value }>(() => id() ? `dm:${id()}` : null, {
+  busy: () => busy.value || !!draft.value.trim() || attachments.value.length > 0 || pendingUploads.value.length > 0,
+  snapshot: () => (draft.value.trim() || attachments.value.length) && !editing.value ? { text: draft.value, attachments: attachments.value } : null,
+  restore: (saved) => {
+    if (typeof saved.text === 'string') draft.value = saved.text
+    if (Array.isArray(saved.attachments)) attachments.value = saved.attachments.slice(0, MAX_MEDIA_ATTACHMENTS)
+  },
+})
 function keepInputFocus(event: PointerEvent) {
   // Blurring a phone textarea changes the keyboard/tab-bar dock offset. Keep
   // toolbar targets still between pointerdown and click; keyboard focus is unaffected.
@@ -72,7 +86,7 @@ function onSendKeydown(event: KeyboardEvent) {
 watch([draft, () => attachments.value.map(file => file.id).join(','), () => reply.value?.event_id, () => editing.value?.event_id], () => { transactionId = crypto.randomUUID() }, { flush: 'sync' })
 watch([id, () => sessionEpoch.value], () => {
   uploadGeneration++; draft.value = ''; attachments.value = []; reply.value = undefined; editing.value = undefined
-  uploading.value = false; uploadError.value = ''; membersOpen.value = false; inviting.value = false
+  pendingUploads.value = []; uploadError.value = ''; membersOpen.value = false; inviting.value = false
 }, { flush: 'sync' })
 async function send() {
   if (!sendable.value) return
@@ -83,23 +97,43 @@ async function send() {
     draft.value = ''; attachments.value = []; reply.value = undefined; editing.value = undefined
   }
 }
-async function upload(event: Event) {
+function upload(event: Event) {
   const input = event.target as HTMLInputElement
   const files = Array.from(input.files || [])
   input.value = ''
-  if (!files.length || busy.value || uploading.value) return
-  const version = ++uploadGeneration
-  uploading.value = true
-  uploadError.value = ''
-  try {
-    for (const file of files) {
-      const media = await postApi.uploadMedia(file)
-      if (version !== uploadGeneration) return
-      attachments.value.push({ ...media, uploadName: file.name })
-    }
-  } catch { if (version === uploadGeneration) uploadError.value = t('message.ChatThreadPage.s28') }
-  finally { if (version === uploadGeneration) uploading.value = false }
+  addFiles(files)
 }
+/** Picker, paste and drop share one path, bounded by the attachment limit. */
+function addFiles(files: File[]) {
+  if (!files.length || busy.value || editing.value) return
+  const room = MAX_MEDIA_ATTACHMENTS - attachments.value.length - pendingUploads.value.length
+  uploadError.value = files.length > room ? t('message.ChatThreadPage.tooManyAttachments', [MAX_MEDIA_ATTACHMENTS]) : ''
+  for (const file of files.slice(0, Math.max(0, room))) {
+    const item: PendingUpload = { key: crypto.randomUUID(), file, name: file.name || t('message.ChatThreadPage.s22'), failed: false }
+    pendingUploads.value = [...pendingUploads.value, item]
+    void uploadOne(item)
+  }
+}
+async function uploadOne(item: PendingUpload) {
+  const version = uploadGeneration
+  setPending(item.key, { failed: false })
+  try {
+    const media = await postApi.uploadMedia(item.file)
+    if (version !== uploadGeneration) return
+    attachments.value.push({ ...media, uploadName: item.name })
+    pendingUploads.value = pendingUploads.value.filter(p => p.key !== item.key)
+  } catch {
+    if (version !== uploadGeneration) return
+    setPending(item.key, { failed: true })
+    uploadError.value = t('message.ChatThreadPage.s28')
+  }
+}
+function setPending(key: string, patch: Partial<PendingUpload>) {
+  pendingUploads.value = pendingUploads.value.map(p => p.key === key ? { ...p, ...patch } : p)
+}
+function retryUpload(item: PendingUpload) { uploadError.value = ''; void uploadOne(item) }
+function dropPending(item: PendingUpload) { pendingUploads.value = pendingUploads.value.filter(p => p.key !== item.key) }
+const { dragging: composeDragging } = useMediaDrop(composer, { onFiles: addFiles, enabled: () => !busy.value && !editing.value, accept: acceptMedia })
 watch(() => messages.value.at(-1)?.event_id, async (next, previous) => {
   if (!next) return
   const nearEnd = !previous || documentNearEnd(180)
@@ -170,7 +204,7 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
           <ChatMessageView :message="item.message" :account="item.account" :pending="busy || uploading" :reply="item.reply" @reply="replyTo(item.message)" @edit="edit(item.message)" @remove="remove(item.message)" @retry="thread.retry(item.message)" @refresh-delivery="thread.delivery(item.message)" />
         </template>
       </section>
-      <form ref="composer" class="chat-compose" :aria-busy="pending === 'send'" @pointerdown="keepInputFocus" @submit.prevent="send">
+      <form ref="composer" class="chat-compose" :class="{ 'chat-compose--dropping': composeDragging }" :aria-busy="pending === 'send'" @pointerdown="keepInputFocus" @submit.prevent="send">
         <div class="chat-compose__box">
           <p v-if="error" class="chat-thread__error" role="alert">{{ error }} <button type="button" class="btn btn--ghost btn--sm" :disabled="loadingOlder || refreshPending || busy" :aria-busy="refreshPending" @click="thread.reload">{{ refreshPending ? $t('message.ChatThreadPage.s5') : $t('message.ChatThreadPage.s6') }}</button></p>
           <p v-if="editing" class="chat-compose__context" role="note">{{ $t('message.ChatThreadPage.s16') }}<button type="button" class="btn btn--ghost btn--sm" :disabled="busy" @click="editing = undefined; draft = ''">{{ $t('message.ChatThreadPage.s17') }}</button></p>
@@ -183,6 +217,15 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
             <t-icon v-else name="file" :size="22" />
             <span>{{ file.description || file.uploadName || $t('message.ChatThreadPage.s22') }}</span>
             <button type="button" class="btn btn--ghost btn--sm" :disabled="busy || uploading" :aria-label="$t('message.ConversationMembersForm.s9', [file.uploadName || file.description || $t('message.ChatThreadPage.s22')])" @click="attachments = attachments.filter(item => item.id !== file.id)"><t-icon name="close" :size="16" /></button>
+            </li>
+          </ul>
+          <ul v-if="pendingUploads.length" class="chat-compose__attachments" :aria-label="$t('message.ChatThreadPage.s23')">
+            <li v-for="item in pendingUploads" :key="item.key" :data-state="item.failed ? 'failed' : 'uploading'">
+              <t-loading v-if="!item.failed" size="small" />
+              <t-icon v-else name="error-circle" :size="20" />
+              <span>{{ item.name }}</span>
+              <button v-if="item.failed" type="button" class="btn btn--ghost btn--sm" data-testid="chat-upload-retry" :disabled="busy" @click="retryUpload(item)">{{ $t('message.ChatThreadPage.retryUpload') }}</button>
+              <button v-if="item.failed" type="button" class="btn btn--ghost btn--sm" :aria-label="$t('message.ConversationMembersForm.s9', [item.name])" @click="dropPending(item)"><t-icon name="close" :size="16" /></button>
             </li>
           </ul>
           <p v-if="uploadError" class="chat-thread__error" role="alert">{{ uploadError }}</p>
@@ -225,6 +268,7 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
 .chat-compose__context > button, .chat-compose__context :deep(svg) { flex-shrink: 0; }
 .chat-compose__actions { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
 .chat-compose__actions > :is(button,label) { min-height: var(--hit-target); }
+.chat-compose--dropping .chat-compose__box { outline: 2px dashed var(--color-accent); outline-offset: 2px; }
 .chat-compose__attach { color: var(--color-label-secondary); cursor: pointer; }
 .chat-compose__attach.is-disabled { opacity: .5; cursor: default; }
 .chat-compose__actions > label:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: 2px; }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useDismiss } from '@/shared/composables/useDismiss'
 import { displayAccount } from '@/shared/utils/accountDisplay'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
@@ -30,6 +31,8 @@ const reactions = computed(() => optimistic.value ?? props.status.emoji_reaction
 const unicode = ['👍', '❤️', '😂', '🎉', '😮', '😢']
 const total = computed(() => reactions.value.reduce((sum, reaction) => sum + reaction.count, 0))
 const addButton = ref<HTMLButtonElement>()
+const reactionsRoot = ref<HTMLElement>()
+useDismiss(choosing, () => reactionsRoot.value, { scroll: false, onClose: (reason) => { if (reason === 'escape') closePicker(); else choosing.value = false } })
 function closePicker() { choosing.value = false; addButton.value?.focus() }
 function remoteReaction(reaction: MastodonEmojiReaction) { return !reaction.me && /^:[^:]+@[^:]+:$/.test(reaction.name) }
 let reactionGeneration = 0
@@ -83,7 +86,7 @@ async function showResponders() {
 }
 </script>
 <template>
-  <div class="post-reactions" @click.stop @keydown.stop @keydown.esc="closePicker">
+  <div ref="reactionsRoot" class="post-reactions" @click.stop @keydown.stop @keydown.esc="closePicker">
     <div class="post-reactions__row" :aria-label="$t('shared.PostReactions.s1')" :aria-busy="pending">
       <button v-for="reaction in reactions" :key="reaction.name" type="button" class="reaction" :class="{ 'reaction--mine': reaction.me, 'reaction--readonly': remoteReaction(reaction) || !auth.currentUser }" :aria-label="$t('shared.PostReactions.s3', [reaction.name, reaction.count, reaction.me ? $t('shared.PostReactions.s2') : ''])" :title="remoteReaction(reaction) ? $t('shared.PostReactions.s4') : reaction.name" :aria-pressed="reaction.me" :disabled="pending || !auth.currentUser || remoteReaction(reaction)" @click="toggle(reaction.name)">
         <span class="reaction__emoji"><img v-if="image(reaction)" :src="image(reaction)!" :alt="reaction.name" loading="lazy" decoding="async" referrerpolicy="no-referrer" /><span v-else :class="{ 'reaction__sensitive': reaction.is_sensitive }">{{ reaction.is_sensitive ? $t('shared.PostReactions.s5') : reaction.name }}</span></span>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useDismiss } from '@/shared/composables/useDismiss'
+import { computed, ref } from 'vue'
 import { POLL_DURATIONS, type PollDeadlineMode, type PollLimits } from '@/domains/post/domain/compose'
 import { t } from '@/shared/i18n'
 
@@ -56,17 +57,7 @@ function selectDuration(value: number) {
   open.value = false
 }
 
-function onOutside(e: PointerEvent) {
-  if (root.value && !root.value.contains(e.target as Node)) open.value = false
-}
-function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') open.value = false
-}
-watch(open, (v) => {
-  if (v) { document.addEventListener('pointerdown', onOutside); document.addEventListener('keydown', onKey) }
-  else { document.removeEventListener('pointerdown', onOutside); document.removeEventListener('keydown', onKey) }
-})
-onBeforeUnmount(() => { document.removeEventListener('pointerdown', onOutside); document.removeEventListener('keydown', onKey) })
+useDismiss(open, () => root.value)
 </script>
 
 <template>

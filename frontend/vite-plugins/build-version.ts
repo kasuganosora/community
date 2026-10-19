@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -6,11 +7,21 @@ import type { Plugin } from 'vite'
 
 /**
  * Build id shared by the client bundle (__BUILD_ID__), /version.json and the
- * service worker. Override with COMMUNITY_BUILD_ID (e.g. the git sha) for
- * reproducible ids; otherwise every build gets a fresh one.
+ * service worker: <git sha>-<build time>, so every build is distinct and
+ * traceable to a commit. Override with COMMUNITY_BUILD_ID (whole id) or
+ * COMMUNITY_BUILD_SHA (sha part, for builds outside a git checkout).
  */
+function gitSha(): string {
+  try {
+    return execSync('git rev-parse --short=12 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+  } catch {
+    return ''
+  }
+}
+export const buildSha = process.env.COMMUNITY_BUILD_SHA?.trim() || gitSha()
+export const builtAt = new Date().toISOString()
 export const buildId = process.env.COMMUNITY_BUILD_ID?.trim()
-  || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  || `${buildSha || 'nogit'}-${Date.now().toString(36)}`
 
 /**
  * Emits /version.json ({ build }) and /sw.js, a service worker that
@@ -43,7 +54,7 @@ export function buildVersion(): Plugin {
           .replace('__BUILD_ID__', JSON.stringify(buildId))
           .replace('__PRECACHE__', JSON.stringify(precache)),
       })
-      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: buildId }) + '\n' })
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: buildId, sha: buildSha || null, built_at: builtAt }) + '\n' })
     },
   }
 }

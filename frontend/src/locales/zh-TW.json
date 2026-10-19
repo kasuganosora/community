@@ -247,7 +247,10 @@
       "pollCharLimit": "已輸入 {0} / {1} 個字元",
       "pollMaxOptions": "最多 {0} 個選項",
       "hashtag": "插入話題",
-      "mention": "提及使用者"
+      "mention": "提及使用者",
+      "pastedImage": "貼上的圖片",
+      "retry": "重試",
+      "retryUpload": "重新上傳 {0}"
     },
     "PostContent": {
       "s1": "收起",
@@ -2435,7 +2438,9 @@
       "s32": "取消",
       "s33": "離開此會話？",
       "s34": "移除此成員？",
-      "s35": "該成員將不能繼續通過此會話接收後續訊息。已經收到的內容無法收回。"
+      "s35": "該成員將不能繼續通過此會話接收後續訊息。已經收到的內容無法收回。",
+      "tooManyAttachments": "最多只能新增 {0} 個附件",
+      "retryUpload": "重試"
     },
     "MessagesPage": {
       "s1": "訊息",

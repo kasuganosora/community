@@ -314,6 +314,8 @@ function focusInitial() {
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     e.stopPropagation()
+    // An open menu/picker inside the sheet consumed this Escape: close only that.
+    if (e.defaultPrevented) return
     requestClose()
     return
   }

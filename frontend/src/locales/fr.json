@@ -247,7 +247,10 @@
       "pollCharLimit": "{0} sur {1} caractères",
       "pollMaxOptions": "{0} options maximum",
       "hashtag": "Insérer un hashtag",
-      "mention": "Mentionner une personne"
+      "mention": "Mentionner une personne",
+      "pastedImage": "Image collée",
+      "retry": "Réessayer",
+      "retryUpload": "Réessayer l’envoi de {0}"
     },
     "PostContent": {
       "s1": "Réduire",
@@ -2435,7 +2438,9 @@
       "s32": "Annuler",
       "s33": "Quitter cette conversation ?",
       "s34": "Retirer ce membre ?",
-      "s35": "Ce membre ne recevra plus les nouveaux messages. Ce qu’il a déjà reçu ne peut être rappelé."
+      "s35": "Ce membre ne recevra plus les nouveaux messages. Ce qu’il a déjà reçu ne peut être rappelé.",
+      "tooManyAttachments": "Vous pouvez joindre au plus {0} fichier | Vous pouvez joindre au plus {0} fichiers",
+      "retryUpload": "Réessayer"
     },
     "MessagesPage": {
       "s1": "Messages",
