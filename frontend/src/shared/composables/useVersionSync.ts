@@ -30,11 +30,51 @@ export async function fetchServerBuild(): Promise<string | null> {
     const bust = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
     const res = await fetch(`/version.json?t=${bust}`, { cache: 'no-store', credentials: 'omit' })
     if (!res.ok) return null
+    if (res.headers?.get?.('X-Community-Service-Worker') === 'off') void disableServiceWorker()
     const body = await res.json() as { build?: unknown }
     return typeof body.build === 'string' && body.build ? body.build : null
   } catch {
     return null
   }
+}
+
+/**
+ * Rollback kill switch (server FRONTEND_SERVICE_WORKER=off): drop every
+ * worker and Community cache; the server's /sw.js unregisters itself too.
+ */
+let swDisabled = false
+export async function disableServiceWorker(): Promise<void> {
+  if (swDisabled) return
+  swDisabled = true
+  registration = undefined
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(regs.map(r => r.unregister()))
+    }
+    if (typeof caches !== 'undefined') {
+      const keys = await caches.keys()
+      await Promise.all(keys.filter(k => k.startsWith('community-')).map(k => caches.delete(k)))
+    }
+  } catch { /* best effort */ }
+}
+
+/**
+ * A lazy chunk failed to load (vite:preloadError): the server most likely
+ * runs a newer build. Keep drafts, then reload into the new shell, at most
+ * once a minute so a broken deploy cannot loop.
+ */
+export function handleChunkLoadError(event?: Event): void {
+  const key = 'community:preload-reload'
+  const last = Number(sessionStorage.getItem(key) || 0)
+  if (Date.now() - last < 60_000) {
+    void checkVersion()
+    return
+  }
+  sessionStorage.setItem(key, String(Date.now()))
+  event?.preventDefault()
+  persistUnsavedWork()
+  window.location.reload()
 }
 
 function isEditing(): boolean {
@@ -108,9 +148,14 @@ export function startVersionSync(): void {
   if (sessionStorage.getItem(RELOAD_KEY) === currentBuild) sessionStorage.removeItem(RELOAD_KEY)
 
   if ('serviceWorker' in navigator && window.isSecureContext) {
-    navigator.serviceWorker.register(`/sw.js?v=${encodeURIComponent(currentBuild)}`, { scope: '/' })
-      .then((reg) => { registration = reg })
-      .catch((err) => console.warn('Service worker registration failed', err))
+    navigator.serviceWorker.addEventListener('message', (e) => {
+      if (e.data === 'COMMUNITY_SW_DISABLED') void disableServiceWorker()
+    })
+    void fetchServerBuild().then(() => {
+      if (swDisabled) return
+      return navigator.serviceWorker.register(`/sw.js?v=${encodeURIComponent(currentBuild)}`, { scope: '/' })
+        .then((reg) => { registration = reg })
+    }).catch((err) => console.warn('Service worker registration failed', err))
   }
 
   for (const type of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {

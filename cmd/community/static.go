@@ -69,6 +69,9 @@ func serveFrontendFile(c *gin.Context, abs, requestPath string) {
 		// The client compares this build id with its own to detect a deploy:
 		// neither the browser nor the CDN may keep a copy.
 		c.Header("Cache-Control", "no-store")
+		if serviceWorkerDisabled() {
+			c.Header(swHeader, "off")
+		}
 	default:
 		c.Header("Cache-Control", cacheRevalidate)
 	}

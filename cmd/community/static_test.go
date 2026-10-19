@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -101,5 +102,39 @@ func TestFrontendPrecompressedAndCacheHeaders(t *testing.T) {
 	}
 	if w := get("/version.json?t=1", ""); w.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("version.json: cc=%q", w.Header().Get("Cache-Control"))
+	}
+}
+
+func TestServiceWorkerKillSwitch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sw.js"), []byte("// real worker"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "version.json"), []byte(`{"build":"b1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := gin.New()
+	r.NoRoute(spaFallback(dir, []byte("<html></html>")))
+	get := func(p string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
+		return w
+	}
+
+	if w := get("/sw.js"); w.Body.String() != "// real worker" {
+		t.Fatalf("switch off: got %q", w.Body.String())
+	}
+	if w := get("/version.json"); w.Header().Get(swHeader) != "" || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("switch off: version headers %v", w.Header())
+	}
+
+	t.Setenv("FRONTEND_SERVICE_WORKER", "off")
+	w := get("/sw.js")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "unregister()") || w.Header().Get("Cache-Control") != "no-cache, no-store, must-revalidate" {
+		t.Fatalf("kill switch: %d %q %v", w.Code, w.Body.String(), w.Header())
+	}
+	if w := get("/version.json"); w.Header().Get(swHeader) != "off" {
+		t.Fatalf("kill switch: version header missing: %v", w.Header())
 	}
 }

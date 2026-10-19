@@ -162,6 +162,9 @@ func init() {
 func spaFallback(frontendDir string, indexHTML []byte) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p := c.Request.URL.Path
+		if serveSWKillSwitch(c, p) {
+			return
+		}
 
 		if !hasDotSegment(p) && (c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead) {
 			if file, ok := frontendAsset(frontendDir, p); ok {
