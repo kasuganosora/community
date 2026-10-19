@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { AvatarDecorationPlacement, MastodonAccount } from '@/shared/types/mastodon'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 import { avatarIdentity, identiconPattern } from '@/shared/utils/accountAvatar'
@@ -77,6 +77,25 @@ watch(() => [props.account.id, primaryUrl.value, defaultUrl.value], () => {
 }, { flush: 'sync' })
 const imageUrl = computed(() => [primaryUrl.value, defaultUrl.value].find(url => url && !failedUrls.value.includes(url)) || '')
 const pattern = computed(() => identiconPattern(avatarIdentity(props.account), defaultUrl.value || primaryUrl.value))
+// Loading state: a shimmer in the avatar's own shape until the image has
+// decoded, then a short fade. Images the browser already has (complete on
+// mount) skip both, so cached avatars never flash.
+const loadedUrl = ref('')
+const instant = ref(false)
+const imageEl = ref<HTMLImageElement | null>(null)
+const loading = computed(() => !!imageUrl.value && loadedUrl.value !== imageUrl.value)
+function checkComplete() {
+  const img = imageEl.value
+  if (img && img.complete && img.naturalWidth > 0 && img.getAttribute('src') === imageUrl.value) {
+    instant.value = true
+    loadedUrl.value = imageUrl.value
+  }
+}
+watch(imageUrl, () => { instant.value = false; void nextTick(checkComplete) }, { immediate: true, flush: 'post' })
+function imageLoaded(event: Event) {
+  const src = (event.target as HTMLImageElement).getAttribute('src')
+  if (src && src === imageUrl.value) loadedUrl.value = src
+}
 function imageFailed(event: Event) {
   // A queued error for the previous URL must not hide a replacement avatar.
   const failedUrl = (event.target as HTMLImageElement).getAttribute('src')
@@ -95,8 +114,22 @@ function imageFailed(event: Event) {
       :style="{ fontSize: `${avatarSize / 2}px` }"
       role="img"
       :aria-label="`${account.display_name || account.username}'s avatar`"
+      :class="{ 'user-avatar--loading': loading }"
+      :aria-busy="loading ? 'true' : undefined"
     >
-      <img v-if="imageUrl" :key="imageUrl" class="user-avatar__image" :src="imageUrl" alt="" aria-hidden="true" @error="imageFailed" />
+      <img
+        v-if="imageUrl"
+        :key="imageUrl"
+        ref="imageEl"
+        class="user-avatar__image"
+        :class="{ 'is-loaded': !loading, 'is-instant': instant }"
+        :src="imageUrl"
+        alt=""
+        aria-hidden="true"
+        decoding="async"
+        @load="imageLoaded"
+        @error="imageFailed"
+      />
       <svg v-else class="user-avatar__identicon" viewBox="0 0 128 128" aria-hidden="true" focusable="false">
         <rect width="128" height="128" :fill="pattern.background" />
         <rect v-for="cell in pattern.cells" :key="`${cell.x}-${cell.y}`" :x="cell.x" :y="cell.y" width="20" height="20" :fill="pattern.foreground" />
@@ -143,6 +176,22 @@ function imageFailed(event: Event) {
   cursor: pointer;
 }
 .user-avatar__identicon { display: block; width: 100%; height: 100%; }
-.user-avatar__image { display: block; width: 100%; height: 100%; object-fit: cover; }
+.user-avatar__image { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .2s ease-out; }
+.user-avatar__image.is-loaded { opacity: 1; }
+.user-avatar__image.is-instant { transition: none; }
+/* Shimmer placeholder in the avatar's own circle; no layout change. */
+.user-avatar--loading::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, color-mix(in srgb, var(--color-label) 9%, transparent) 50%, transparent 80%) var(--color-fill);
+  background-size: 220% 100%;
+  animation: user-avatar-shimmer 1.2s ease-in-out infinite;
+}
+@keyframes user-avatar-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .user-avatar__image { transition: none; }
+  .user-avatar--loading::before { animation: none; background: var(--color-fill); }
+}
 .user-avatar:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
 </style>
