@@ -155,7 +155,7 @@ func TestVotePollConcurrentVotesKeepCountsExact(t *testing.T) {
 		switch c[1] {
 		case 200:
 			ok[c[0]]++
-		case 400:
+		case 422:
 			require.Equal(t, 0, c[0], "only the racing account may be refused")
 		default:
 			t.Fatalf("voter %d: unexpected status %d", c[0], c[1])

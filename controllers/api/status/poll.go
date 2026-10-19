@@ -2,6 +2,7 @@ package status
 
 import (
 	"errors"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
@@ -10,7 +11,6 @@ import (
 	"github.com/kasuganosora/community/serializer"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"time"
 )
 
 func ViewPoll(c *gin.Context) {
@@ -36,6 +36,13 @@ var (
 	errAlreadyVoted = errors.New("already voted")
 )
 
+// Mastodon-compatible Validation failed messages for POST /api/v1/polls/:id/votes.
+const (
+	errMsgAlreadyVoted  = "Validation failed: You have already voted on this poll"
+	errMsgPollEnded     = "Validation failed: The poll has already ended"
+	errMsgInvalidChoice = "Validation failed: The chosen vote option does not exist"
+)
+
 func VotePoll(c *gin.Context) {
 	req := &VotePollRequest{}
 	err := controllers.BindBody(c, req)
@@ -47,24 +54,25 @@ func VotePoll(c *gin.Context) {
 		return
 	}
 
-	// 判断是否已经过期
+	// Mastodon: 422 when the poll has already ended.
 	if poll.IsClosed(time.Now()) {
-		c.JSON(400, gin.H{"error": "poll expired"})
+		c.JSON(422, gin.H{"error": errMsgPollEnded})
 
 		return
 	}
 
-	// 判断单选还是多选
+	// Mastodon rejects multiple votes on a single-choice poll via the same
+	// already-voted validation (creating the second choice fails under lock).
 	if !poll.Multiple && len(req.Choices) > 1 {
-		c.JSON(400, gin.H{"error": "poll is single choice"})
+		c.JSON(422, gin.H{"error": errMsgAlreadyVoted})
 
 		return
 	}
 
-	// 判断选项是否存在
+	// Mastodon: invalid / out-of-range choice index.
 	for _, choice := range req.Choices {
 		if choice < 0 || choice >= len(poll.Options) {
-			c.JSON(400, gin.H{"error": "invalid choice"})
+			c.JSON(422, gin.H{"error": errMsgInvalidChoice})
 
 			return
 		}
@@ -150,7 +158,8 @@ func VotePoll(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "Record not found"})
 		return
 	case errors.Is(err, errAlreadyVoted):
-		c.JSON(400, gin.H{"error": "already voted"})
+		// Concurrent race and plain re-vote share Mastodon's 422 message.
+		c.JSON(422, gin.H{"error": errMsgAlreadyVoted})
 		return
 	}
 	controllers.AbortIfError(c, err)
@@ -184,18 +193,19 @@ func loadPoll(c *gin.Context) (poll *models.Poll, status *models.Status, abort b
 	err := query.First(status, poll.StatusId).Error
 	controllers.AbortIfError(c, err)
 
+	// Mastodon hides private polls the viewer cannot see (404, not 403).
 	currentAccount := controllers.GetAccount(c)
 	if currentAccount == nil {
 		// Public status can be viewed without account
 		if status.Visibility != models.StatusVisibilityPublic && status.Visibility != models.StatusVisibilityUnlisted {
-			c.JSON(403, gin.H{"error": "forbidden"}) //nolint:goconst
+			c.JSON(404, gin.H{"error": "Record not found"})
 			abort = true
 			return
 		}
 	} else {
 		canView, err := status.CanViewEx(db.GetDB(), currentAccount)
 		controllers.AbortIfError(c, err)
-		controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+		controllers.AbortIf(c, !canView, 404, gin.H{"error": "Record not found"})
 	}
 
 	return

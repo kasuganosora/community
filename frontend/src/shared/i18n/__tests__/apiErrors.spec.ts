@@ -27,6 +27,9 @@ describe('translateApiError', () => {
   it('translates the detail of a validation failure', () => {
     expect(translateApiError('Validation failed: password is too short (minimum is 8 characters)')).toBe(t('apiError.passwordTooShort'))
     expect(translateApiError('Validation failed: something new')).toBe(t('apiError.validationFailed', ['something new']))
+    expect(translateApiError('Validation failed: You have already voted on this poll')).toBe(t('apiError.alreadyVoted'))
+    expect(translateApiError('Validation failed: The poll has already ended')).toBe(t('apiError.pollExpired'))
+    expect(translateApiError('Validation failed: The chosen vote option does not exist')).toBe(t('apiError.invalidRequest'))
   })
   it('leaves unknown messages alone', () => {
     expect(translateApiError('something specific')).toBeNull()

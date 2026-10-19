@@ -1575,7 +1575,8 @@ func TestVotePoll_Expired(t *testing.T) {
 
 	safeHandler(c, VotePoll)
 
-	assert.Equal(t, 400, w.Code)
+	assert.Equal(t, 422, w.Code)
+	assert.Contains(t, w.Body.String(), "The poll has already ended")
 }
 
 func TestVotePoll_SingleChoiceMultipleVotes(t *testing.T) {
@@ -1599,7 +1600,8 @@ func TestVotePoll_SingleChoiceMultipleVotes(t *testing.T) {
 
 	safeHandler(c, VotePoll)
 
-	assert.Equal(t, 400, w.Code)
+	assert.Equal(t, 422, w.Code)
+	assert.Contains(t, w.Body.String(), "You have already voted on this poll")
 }
 
 func TestVotePoll_InvalidChoice(t *testing.T) {
@@ -1620,7 +1622,8 @@ func TestVotePoll_InvalidChoice(t *testing.T) {
 
 	safeHandler(c, VotePoll)
 
-	assert.Equal(t, 400, w.Code)
+	assert.Equal(t, 422, w.Code)
+	assert.Contains(t, w.Body.String(), "The chosen vote option does not exist")
 }
 
 func TestVotePoll_AlreadyVoted(t *testing.T) {
@@ -1648,7 +1651,8 @@ func TestVotePoll_AlreadyVoted(t *testing.T) {
 
 	safeHandler(c, VotePoll)
 
-	assert.Equal(t, 400, w.Code)
+	assert.Equal(t, 422, w.Code)
+	assert.Contains(t, w.Body.String(), "You have already voted on this poll")
 }
 
 func TestVotePoll_EmptyChoices(t *testing.T) {
@@ -1691,7 +1695,56 @@ func TestVotePoll_NegativeChoice(t *testing.T) {
 
 	safeHandler(c, VotePoll)
 
-	assert.Equal(t, 400, w.Code)
+	assert.Equal(t, 422, w.Code)
+	assert.Contains(t, w.Body.String(), "The chosen vote option does not exist")
+}
+
+func TestVotePoll_PrivateHidden(t *testing.T) {
+	ts := newTestSetup(t)
+
+	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "pollpriv" })
+	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "pollpriv" })
+	privateStatus := ts.fix.CreateStatus(otherAcct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityPrivate
+	})
+	expiresAt := time.Now().Add(24 * time.Hour)
+	poll := ts.fix.CreatePoll(privateStatus.Id, otherAcct.Id, func(p *models.Poll) {
+		p.ExpiresAt = &expiresAt
+	})
+	require.NoError(t, ts.db.Create(&models.PollOption{PollId: poll.Id, Content: "A", Index: 0}).Error)
+
+	c, w := newGinContextPost(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}}, VotePollRequest{
+		Choices: []int{0},
+	})
+	setAccount(c, ts.acct)
+
+	safeHandler(c, VotePoll)
+
+	assert.Equal(t, 404, w.Code)
+	assert.Contains(t, w.Body.String(), "Record not found")
+}
+
+func TestViewPoll_PrivateHidden(t *testing.T) {
+	ts := newTestSetup(t)
+
+	otherUser := ts.fix.CreateUser(func(u *models.User) { u.UserName = "pollpriv2" })
+	otherAcct := ts.fix.CreateAccount(otherUser, func(a *models.Account) { a.Username = "pollpriv2" })
+	privateStatus := ts.fix.CreateStatus(otherAcct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityPrivate
+	})
+	expiresAt := time.Now().Add(24 * time.Hour)
+	poll := ts.fix.CreatePoll(privateStatus.Id, otherAcct.Id, func(p *models.Poll) {
+		p.ExpiresAt = &expiresAt
+	})
+	require.NoError(t, ts.db.Create(&models.PollOption{PollId: poll.Id, Content: "A", Index: 0}).Error)
+
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(poll.Id, 10)}})
+	setAccount(c, ts.acct)
+
+	safeHandler(c, ViewPoll)
+
+	assert.Equal(t, 404, w.Code)
+	assert.Contains(t, w.Body.String(), "Record not found")
 }
 
 func TestVotePoll_MultipleChoice(t *testing.T) {
