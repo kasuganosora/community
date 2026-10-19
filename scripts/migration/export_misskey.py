@@ -931,8 +931,14 @@ class Converter:
     def stage(self, label, table=None, total=None):
         self.progress.stage("build/" + label, total if total is not None else (self.staging.count(table) if table else 0))
 
-    def issue(self, severity, code, kind, id_, message):
-        self.bundle["issues"].append(dict(severity=severity, code=code, kind=kind, source_id=sid(id_), message=message))
+    def issue(self, severity, code, kind, id_, message, **details):
+        """Records one real problem or decision. details carries structured,
+        non-sensitive fields (usage, file name/size/content type, counts); the
+        importer reports only fields it allowlists for the code, never message."""
+        is_ = dict(severity=severity, code=code, kind=kind, source_id=sid(id_), message=message)
+        if details:
+            is_["details"] = details
+        self.bundle["issues"].append(is_)
 
     def time(self, row, key="id"):
         if row.get("createdAt"):
@@ -1145,29 +1151,30 @@ class Converter:
         return refs
 
     def ownerless_asset(self, r):
-        """Classify an ownerless local drive file: ([supported meta columns], "")
-        when instance settings use it, else ([], reason) — reason "" for
-        custom emoji images, which are migrated as emojis."""
+        """Classify an ownerless local drive file: ([supported meta columns], "", "")
+        when instance settings use it, else ([], reason, usage) — reason "" for
+        custom emoji images, which are migrated as emojis. usage is a short
+        token for the report: meta.<column>, <table>.<column> or unreferenced."""
         urls = {r.get(c) for c in ("url", "webpublicUrl", "thumbnailUrl")} - {None, ""}
         if urls & self.emoji_urls:
-            return [], ""
+            return [], "", ""
         meta_cols = sorted({k for row in self.tables.get("meta", []) for k, v in row.items() if isinstance(v, str) and v in urls})
         supported = [c for c in meta_cols if c in META_ASSET_COLUMNS]
         if supported:
-            return supported, ""
+            return supported, "", ""
         if meta_cols:
-            return [], "used by meta.%s, which has no Community equivalent" % ", meta.".join(meta_cols)
+            return [], "used by meta.%s, which has no Community equivalent" % ", meta.".join(meta_cols), ",".join("meta." + c for c in meta_cols)
         for table, col, what in (("ad", "imageUrl", "an ad image"), ("avatar_decoration", "url", "an avatar decoration"), ("role", "iconUrl", "a role icon"),
                                  ("flash", "thumbnailUrl", "a Play thumbnail")):
             ids = [sid(x.get("id")) for x in self.tables.get(table, []) if x.get(col) in urls]
             if ids:
-                return [], "%s (%s %s), not supported by Community" % (what, table, ",".join(ids[:5]))
-        return [], "not referenced by any note, profile, emoji or instance setting"
+                return [], "%s (%s %s), not supported by Community" % (what, table, ",".join(ids[:5])), "%s.%s" % (table, col)
+        return [], "not referenced by any note, profile, emoji or instance setting", "unreferenced"
 
     def media(self):
         self.stage("files", "drive_file")
         referenced = self.referenced_files()
-        skipped = 0
+        skipped = referenced_by_url = 0
         for r in self.tables.get("drive_file", []):
             self.progress.advance()
             id_ = sid(r["id"])
@@ -1177,10 +1184,11 @@ class Converter:
                 continue
             site_assets = []
             if not r.get("userId") and r.get("userHost") is None and id_ not in referenced:
-                site_assets, why = self.ownerless_asset(r)
+                site_assets, why, usage = self.ownerless_asset(r)
                 if not site_assets:
                     if why:
-                        self.issue("info", "misskey_meta_asset", "media", id_, "Ownerless local drive file not migrated: %s." % why)
+                        self.issue("info", "misskey_meta_asset", "media", id_, "Ownerless local drive file not migrated: %s." % why,
+                                   usage=usage, file_name=r.get("name") or "", size=int(r.get("size") or 0), content_type=r.get("type") or "")
                     continue
             props = r.get("properties") or {}
             m = {"id": id_, "owner_id": sid(r.get("userId")), "name": r.get("name") or "", "content_type": r.get("type") or "application/octet-stream",
@@ -1214,7 +1222,8 @@ class Converter:
                             self.issue("error", "media_variant_unavailable", "media", variant["id"], "Derived asset bytes could not be safely copied from the snapshot.")
                         self.bundle["media"].append(variant)
             elif not r.get("isLink") and self.object_mode == "reference":
-                self.issue("info", "object_storage_reference", "media", id_, "Object-storage media keeps its original URL; the bucket must stay available to the target.")
+                # Expected for every object-storage file: one summary, not one issue per file.
+                referenced_by_url += 1
                 m["storage_reference"] = True
             elif not r.get("isLink") and self.object_mode == "copy":
                 if r.get("url"):
@@ -1232,7 +1241,9 @@ class Converter:
                 if r.get(col) and r[col] in self.emoji_urls:
                     self.media_urls[r[col]] = id_
         if skipped:
-            self.issue("info", "unattached_drive_files_skipped", "media", "", "%d local drive file(s) referenced by no note, avatar, banner or chat message were not exported (--skip-unattached-drive-files)." % skipped)
+            self.issue("info", "unattached_drive_files_skipped", "media", "", "%d local drive file(s) referenced by no note, avatar, banner or chat message were not exported (--skip-unattached-drive-files)." % skipped, count=skipped)
+        if referenced_by_url:
+            self.issue("info", "object_storage_reference", "media", "", "%d object-storage media file(s) keep their original URL; the bucket must stay available to the target." % referenced_by_url, count=referenced_by_url)
 
     def note_emoji_ids(self, row, kind="note"):
         result = []
@@ -1407,6 +1418,7 @@ class Converter:
                 self.bundle["poll_votes"].append({"poll_id": sid(r["noteId"]), "account_id": sid(r["userId"]), "option": r["choice"], "created_at": self.time(r)})
 
     def emojis(self):
+        referenced_by_url = 0
         for r in self.tables.get("emoji", []):
             id_ = sid(r["id"])
             url = r.get("originalUrl") or r.get("publicUrl") or ""
@@ -1415,7 +1427,7 @@ class Converter:
                  "sensitive": bool(r.get("isSensitive")), "license": r.get("license") or ""}
             object_key = self.object_key(url)
             if r.get("host") is None and not e["media_id"] and object_key and self.object_mode == "reference":
-                self.issue("info", "object_storage_reference", "emoji", id_, "Object-storage emoji keeps its original URL.")
+                referenced_by_url += 1
             elif r.get("host") is None and not e["media_id"] and object_key and self.object_mode == "copy":
                 asset_id = "emoji:" + id_
                 m = {"id": asset_id, "owner_id": "", "name": r.get("name") or "", "content_type": r.get("type") or "application/octet-stream", "remote_url": url}
@@ -1437,6 +1449,8 @@ class Converter:
                 except (ExportError, OSError):
                     self.issue("error", "emoji_bytes_unavailable", "emoji", id_, "Local emoji bytes need a safe local/object-storage snapshot mapping.")
             self.bundle["emojis"].append(e)
+        if referenced_by_url:
+            self.issue("info", "object_storage_reference", "emoji", "", "%d object-storage emoji keep their original URL." % referenced_by_url, count=referenced_by_url)
 
     def media_ref(self, file_id, owner):
         file_id = sid(file_id)

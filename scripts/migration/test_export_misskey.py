@@ -149,9 +149,13 @@ class ExportTests(unittest.TestCase):
         self.assertTrue(any(i["code"] == "emoji_bytes_unavailable" for i in b["issues"]))
 
     def test_object_storage_reference_keeps_urls_without_copying(self):
-        self.tables["drive_file"] = [{"id": ident(4), "userId": self.a, "storedInternal": False, "isLink": False, "accessKey": "files/abc.png", "url": "https://r2.test/files/abc.png", "size": 3}]
+        self.tables["drive_file"] = [{"id": ident(4), "userId": self.a, "storedInternal": False, "isLink": False, "accessKey": "files/abc.png", "url": "https://r2.test/files/abc.png", "size": 3},
+                                     {"id": ident(6), "userId": self.a, "storedInternal": False, "isLink": False, "accessKey": "files/def.png", "url": "https://r2.test/files/def.png", "size": 3}]
         self.tables["emoji"] = [{"id": ident(5), "name": "custom", "host": None, "originalUrl": "https://r2.test/emoji/e.png"}]
         b = self.converter(object_mode="reference", object_base_url="https://r2.test").convert()
+        # Expected per-file state is summarised once per kind, not raised per file.
+        refs = [i for i in b["issues"] if i["code"] == "object_storage_reference"]
+        self.assertEqual(sorted((i["kind"], i["source_id"], i["details"]["count"]) for i in refs), [("emoji", "", 1), ("media", "", 2)])
         self.assertFalse([i for i in b["issues"] if i["severity"] == "error" and i["kind"] in ("media", "emoji")])
         media = [x for x in b["media"] if x["id"] == ident(4)][0]
         self.assertEqual(media["remote_url"], "https://r2.test/files/abc.png")
@@ -309,6 +313,8 @@ class ExportTests(unittest.TestCase):
         self.assertIn("meta.logoImageUrl", listed[ident(72)])
         self.assertIn("ad image", listed[ident(73)])
         self.assertIn("not referenced", listed[ident(74)])
+        details = {i["source_id"]: i["details"] for i in b["issues"] if i["code"] == "misskey_meta_asset"}
+        self.assertEqual(details[ident(72)], {"usage": "meta.logoImageUrl", "file_name": "f72.png", "size": 0, "content_type": "image/png"})
 
     def test_system_actors_and_relays(self):
         ia, ra = ident(30), ident(31)

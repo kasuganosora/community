@@ -84,6 +84,9 @@ class MisskeyPG(unittest.TestCase):
         self.assertEqual(assets, {"0000000960000001": ["iconUrl"]})
         listed = {i["source_id"] for i in b["issues"] if i["code"] == "misskey_meta_asset"}
         self.assertEqual(listed, {"0000000960000002", "0000000960000003"})
+        usage = {i["source_id"]: i["details"]["usage"] for i in b["issues"] if i["code"] == "misskey_meta_asset"}
+        self.assertEqual(usage, {"0000000960000002": "meta.logoImageUrl", "0000000960000003": "unreferenced"})
+        self.assertLessEqual(sum(i["code"] == "object_storage_reference" for i in b["issues"]), 2, "one summary per kind, not one issue per file")
         roles = {a.get("system_role"): a for a in b["accounts"] if a.get("system_role")}
         self.assertEqual(roles["instance_actor"]["actor_uri"], "https://src.test/users/0000000000000060")
         self.assertEqual(roles["relay_actor"]["actor_uri"], "https://src.test/users/0000000000000061")

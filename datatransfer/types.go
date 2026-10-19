@@ -272,6 +272,12 @@ type Issue struct {
 	MaxLength int      `json:"max_length,omitempty"`
 	Limit     int64    `json:"limit,omitempty"`
 	SampleIDs []string `json:"sample_ids,omitempty"`
+	// Source export issues: Details is what the exporter attached (read from
+	// the bundle, never reported as is); SourceKind and Samples are the
+	// allowlisted view the report carries (see sourceIssues).
+	Details    map[string]any `json:"details,omitempty"`
+	SourceKind string         `json:"source_kind,omitempty"`
+	Samples    []IssueSample  `json:"samples,omitempty"`
 	// violators lists every offending source id of a column_too_narrow
 	// issue so streamed chunks (which repeat closure records) count each
 	// record once.

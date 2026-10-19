@@ -113,13 +113,8 @@ func Preview(ctx context.Context, conn *gorm.DB, b *Bundle, o Options) (*Report,
 			issue(r, "personal_credentials", "", "", "personal bundles cannot import credentials or signing keys")
 		}
 	}
-	for _, v := range b.Issues {
-		severity := "warning"
-		if v.Severity == "error" {
-			severity = "error"
-		}
-		code, message := safeSourceIssue(v.Code)
-		r.Issues = append(r.Issues, Issue{Severity: severity, Code: code, Kind: "source_export", Message: message})
+	for _, v := range sourceIssues(b.Issues, o.Scope == "site") {
+		r.Issues = append(r.Issues, v)
 		if v.Severity == "error" {
 			r.CanExecute = false
 		}
@@ -405,17 +400,6 @@ func policyEnabled(v any) bool {
 		return r.Len() > 0
 	default:
 		return !r.IsZero()
-	}
-}
-
-// Only known adapter codes select static text. Uploaded messages and IDs never
-// cross this reporting boundary, even for an otherwise recognized issue.
-func safeSourceIssue(code string) (string, string) {
-	switch code {
-	case "invalid_source_time", "source_records_preserved", "raw_records_preserved", "source_auth_material", "source_id_method", "missing_actor_uri", "missing_local_profile", "nonlocal_private_key", "missing_local_key", "media_bytes_unavailable", "media_variant_unavailable", "external_storage_required", "remote_media_reference", "unknown_visibility", "channel_note_archive", "quote_note_archive", "chat_archive_only", "chat_policy_review", "invalid_poll_counts", "emoji_bytes_unavailable", "source_style_absent", "missing_or_unreadable_media", "password_pepper_unsupported", "media_has_no_original", "emoji_has_no_original", "invalid_remote_media_reference", "local_actor_without_login", "two_factor_requires_adapter", "missing_password_verifier", "unsupported_active_key", "missing_local_signing_key", "unsupported_limited_visibility", "missing_account_emoji", "missing_note_emoji", "remote_reference_trimmed":
-		return code, "Source backup: " + strings.ReplaceAll(code, "_", " ") + ". Review the private source export and its migration requirements."
-	default:
-		return "source_issue", "source backup reports an issue; inspect its private export records"
 	}
 }
 
