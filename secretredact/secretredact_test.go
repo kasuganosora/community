@@ -1,6 +1,11 @@
 package secretredact
 
 import (
+	"encoding/base64"
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
 	"net/http/httptest"
 	"testing"
 
@@ -29,5 +34,40 @@ func TestDecodeBearerSubprotocol(t *testing.T) {
 		if _, ok := DecodeBearerSubprotocol(v); ok {
 			t.Fatalf("%q should not decode", v)
 		}
+	}
+}
+
+func TestMiddlewareScrubsResponseHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	token := "response-header-secret-token"
+	encoded := BearerSubprotocolPrefix + base64.RawURLEncoding.EncodeToString([]byte(token))
+	r := gin.New()
+	r.Use(Middleware())
+	r.GET("/ok", func(c *gin.Context) {
+		c.Header("X-Debug", "auth="+token)
+		c.Header("Sec-WebSocket-Protocol", encoded)
+		c.Header("X-Public", PublicSubprotocol)
+		c.SetCookie("app-token", token, 60, "/", "", true, true)
+		c.String(http.StatusOK, "ok")
+	})
+	req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+	req.Header.Set("Sec-WebSocket-Protocol", PublicSubprotocol+", "+encoded)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	for name, values := range w.Header() {
+		for _, v := range values {
+			if name == "Set-Cookie" {
+				continue
+			}
+			if strings.Contains(v, token) || strings.Contains(v, encoded) {
+				t.Fatalf("secret leaked in %s: %q", name, v)
+			}
+		}
+	}
+	if got := w.Header().Get("X-Public"); got != PublicSubprotocol {
+		t.Fatalf("public subprotocol was redacted: %q", got)
+	}
+	if !strings.Contains(w.Header().Get("Set-Cookie"), token) {
+		t.Fatal("Set-Cookie must be left intact")
 	}
 }

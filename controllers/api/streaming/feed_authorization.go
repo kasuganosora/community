@@ -15,6 +15,18 @@ import (
 
 // currentFeedStreamingAccount revalidates an already authenticated connection
 // directly against SQL. No optional cache can extend a revoked stream's life.
+// revalidateFeedStreamingAccount is swapped out only by tests whose embedded
+// SQL engine cannot run the three-way join below.
+var revalidateFeedStreamingAccount = currentFeedStreamingAccount
+
+// SetFeedRevalidationForTest replaces the feed revalidation query and returns
+// a restore func. Test-only.
+func SetFeedRevalidationForTest(fn func(c *gin.Context, original *models.Account) (*models.Account, error)) func() {
+	prev := revalidateFeedStreamingAccount
+	revalidateFeedStreamingAccount = fn
+	return func() { revalidateFeedStreamingAccount = prev }
+}
+
 func currentFeedStreamingAccount(c *gin.Context, original *models.Account) (*models.Account, error) {
 	value, exists := c.Get("token_data")
 	td, ok := value.(*models.AuthTokenData)

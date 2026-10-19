@@ -321,13 +321,13 @@ func FeedStreaming(c *gin.Context) {
 		}(hints)
 	}
 	// Redis subscription setup may outlive a token revocation or moderation change.
-	if _, err := currentFeedStreamingAccount(c, account); err != nil {
+	if _, err := revalidateFeedStreamingAccount(c, account); err != nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "authentication no longer valid"})
 		return
 	}
 	var out feedTransport
 	if websocket.IsWebSocketUpgrade(c.Request) {
-		ws, err := upgrade.Upgrade(c.Writer, c.Request, subprotocolResponseHeader(c.Request))
+		ws, err := upgrade.Upgrade(c.Writer, c.Request, feedSubprotocolResponseHeader(c.Request))
 		if err != nil {
 			return
 		}
@@ -355,7 +355,7 @@ func FeedStreaming(c *gin.Context) {
 		case <-mergeCtx.Done():
 			return
 		case hint := <-merged:
-			current, err := currentFeedStreamingAccount(c, account)
+			current, err := revalidateFeedStreamingAccount(c, account)
 			if err != nil {
 				return
 			}
@@ -369,7 +369,7 @@ func FeedStreaming(c *gin.Context) {
 				return
 			}
 		case <-heartbeat.C:
-			current, err := currentFeedStreamingAccount(c, account)
+			current, err := revalidateFeedStreamingAccount(c, account)
 			if err != nil {
 				return
 			}

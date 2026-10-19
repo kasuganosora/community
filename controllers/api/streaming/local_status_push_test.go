@@ -3,6 +3,7 @@ package streaming
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/kasuganosora/community/feed/home"
 	"github.com/kasuganosora/community/feed/public"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/secretredact"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,4 +76,25 @@ func TestSubprotocolResponseHeaderEchoesOfferedProtocol(t *testing.T) {
 	require.Nil(t, subprotocolResponseHeader(r))
 	r.Header.Set("Sec-WebSocket-Protocol", "token123, other")
 	require.Equal(t, "token123", subprotocolResponseHeader(r).Get("Sec-WebSocket-Protocol"))
+}
+
+func TestSubprotocolSelectionNeverEchoesBearer(t *testing.T) {
+	bearer := secretredact.BearerSubprotocolPrefix + "dG9rZW4"
+	for _, tc := range []struct {
+		offer, mastodon, feed string
+	}{
+		{"community.v1, " + bearer, "community.v1", ""},
+		{bearer + ", community.v1", "community.v1", ""},
+		{bearer, "", ""},
+		{"rawtoken", "rawtoken", ""},
+	} {
+		r, _ := http.NewRequest(http.MethodGet, "/", nil)
+		r.Header.Set("Sec-WebSocket-Protocol", tc.offer)
+		require.Equal(t, tc.mastodon, subprotocolResponseHeader(r).Get("Sec-WebSocket-Protocol"), tc.offer)
+		want := tc.feed
+		if strings.Contains(tc.offer, "community.v1") {
+			want = "community.v1"
+		}
+		require.Equal(t, want, feedSubprotocolResponseHeader(r).Get("Sec-WebSocket-Protocol"), tc.offer)
+	}
 }

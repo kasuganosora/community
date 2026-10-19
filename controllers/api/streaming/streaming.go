@@ -17,6 +17,7 @@ import (
 	"github.com/kasuganosora/community/feed/tag"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/secretredact"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
@@ -464,15 +465,51 @@ func processRedisMsg(ws *websocket.Conn, account *models.Account, msg *redis.Mes
 	return ws.WriteJSON(StreamingResponse{Stream: stream, Event: eventType, Payload: payload})
 }
 
-// subprotocolResponseHeader echoes the client's Sec-WebSocket-Protocol. Mastodon
-// clients put the access token there; browsers abort the handshake unless the
-// server selects one of the offered subprotocols.
-func subprotocolResponseHeader(r *http.Request) http.Header {
+// CommunitySubprotocol is the only subprotocol our own clients negotiate.
+const CommunitySubprotocol = secretredact.PublicSubprotocol
+
+// selectedSubprotocol picks the Sec-WebSocket-Protocol the server answers
+// with. It never selects a "community.bearer.*" entry: those carry the access
+// token, and echoing one would put the token into the response headers (and
+// every proxy/CDN log that records them).
+//
+// community.v1 always wins when offered. When allowRawToken is set (Mastodon
+// /api/v1/streaming only) and community.v1 was not offered, the first offered
+// value is echoed: Mastodon clients send their raw access token as the only
+// subprotocol and browsers abort the handshake unless the server selects one
+// of the offered values. That echo is the client's own token, matches
+// upstream Mastodon behaviour, and response headers are scrubbed by
+// secretredact before logging.
+func selectedSubprotocol(r *http.Request, allowRawToken bool) string {
 	offered := websocket.Subprotocols(r)
-	if len(offered) == 0 {
+	for _, p := range offered {
+		if p == CommunitySubprotocol {
+			return p
+		}
+	}
+	if allowRawToken && len(offered) > 0 && !strings.HasPrefix(offered[0], secretredact.BearerSubprotocolPrefix) {
+		return offered[0]
+	}
+	return ""
+}
+
+func subprotocolHeader(selected string) http.Header {
+	if selected == "" {
 		return nil
 	}
 	header := http.Header{}
-	header.Set("Sec-WebSocket-Protocol", offered[0])
+	header.Set("Sec-WebSocket-Protocol", selected)
 	return header
+}
+
+// subprotocolResponseHeader is the Mastodon-compatible selection used by
+// /api/v1/streaming (see selectedSubprotocol).
+func subprotocolResponseHeader(r *http.Request) http.Header {
+	return subprotocolHeader(selectedSubprotocol(r, true))
+}
+
+// feedSubprotocolResponseHeader is used by our own feed endpoint: it only
+// ever answers community.v1, or nothing.
+func feedSubprotocolResponseHeader(r *http.Request) http.Header {
+	return subprotocolHeader(selectedSubprotocol(r, false))
 }

@@ -5,7 +5,9 @@
 package secretredact
 
 import (
+	"bufio"
 	"encoding/base64"
+	"net"
 	"net/http"
 	"strings"
 
@@ -49,6 +51,9 @@ func Collect(r *http.Request) []string {
 		add(cookie.Value)
 	}
 	for _, v := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
+		if strings.TrimSpace(v) == PublicSubprotocol {
+			continue
+		}
 		add(v)
 		if token, ok := DecodeBearerSubprotocol(strings.TrimSpace(v)); ok {
 			add(token)
@@ -80,8 +85,8 @@ func Scrub(c *gin.Context, s string) string {
 	return Apply(s, Collect(c.Request))
 }
 
-// Middleware records the request's secrets and scrubs them from any error
-// response body (status >= 400). Successful bodies are untouched: a login or
+// Middleware records the request's secrets, scrubs them from every response
+// header (see scrubHeaders) and from any error response body (status >= 400). Successful bodies are untouched: a login or
 // token endpoint legitimately returns a new token.
 func Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -98,7 +103,58 @@ func Middleware() gin.HandlerFunc {
 
 type writer struct {
 	gin.ResponseWriter
-	secrets []string
+	secrets         []string
+	headersScrubbed bool
+}
+
+// PublicSubprotocol is the non-secret subprotocol our clients offer next to
+// the bearer one; it must never be treated (and redacted) as a credential.
+const PublicSubprotocol = "community.v1"
+
+// ScrubHeader removes secrets from every response header value except
+// Set-Cookie (a login/refresh may legitimately set the app-token cookie).
+// It returns the names of the headers it changed.
+func ScrubHeader(h http.Header, secrets []string) []string {
+	var changed []string
+	for name, values := range h {
+		if http.CanonicalHeaderKey(name) == "Set-Cookie" {
+			continue
+		}
+		for i, v := range values {
+			if out := Apply(v, secrets); out != v {
+				values[i] = out
+				changed = append(changed, name)
+			}
+		}
+	}
+	return changed
+}
+
+// scrubHeaders runs once, right before the status line and headers go out,
+// for every status: no response header should ever carry the request's own
+// credential. Hijacked connections (WebSocket) write their own handshake,
+// so the streaming handlers must also never select a token subprotocol.
+func (w *writer) scrubHeaders() {
+	if w.headersScrubbed {
+		return
+	}
+	w.headersScrubbed = true
+	ScrubHeader(w.ResponseWriter.Header(), w.secrets)
+}
+
+func (w *writer) WriteHeader(code int) {
+	w.scrubHeaders()
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *writer) WriteHeaderNow() {
+	w.scrubHeaders()
+	w.ResponseWriter.WriteHeaderNow()
+}
+
+func (w *writer) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	w.scrubHeaders()
+	return w.ResponseWriter.Hijack()
 }
 
 func (w *writer) scrub(data []byte) []byte {
@@ -114,6 +170,7 @@ func (w *writer) scrub(data []byte) []byte {
 }
 
 func (w *writer) Write(data []byte) (int, error) {
+	w.scrubHeaders()
 	if _, err := w.ResponseWriter.Write(w.scrub(data)); err != nil {
 		return 0, err
 	}

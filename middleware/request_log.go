@@ -29,7 +29,7 @@ func RequestLogMiddleware() gin.HandlerFunc {
 			"method":     c.Request.Method,
 			"path":       c.Request.URL.Path,
 			"client_ip":  c.ClientIP(),
-			"user_agent": c.Request.UserAgent(),
+			"user_agent": secretredact.Scrub(c, c.Request.UserAgent()),
 		})
 		entry.Debug("Request started")
 
