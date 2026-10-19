@@ -32,15 +32,21 @@ func Reblog(c *gin.Context) {
 	dbConn := db.GetDB()
 	currentAccount := controllers.MustGetAccount(c)
 
-	// 判断当前用户有没有转发过这条 status
-	isRelogged, err := status.IsReblogged(dbConn, currentAccount)
-	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, isRelogged, 400, gin.H{"error": "already reblogged"})
-
 	// 判断当前用户有没权限转发这条 status, 只要能看到这条 status 就可以转发
 	canView, err := status.CanViewEx(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
 	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"}) //nolint:goconst
+
+	// 判断当前用户有没有转发过这条 status
+	isRelogged, err := status.IsReblogged(dbConn, currentAccount)
+	controllers.AbortIfError(c, err)
+
+	// Mastodon: reblogging again is idempotent and returns the status.
+	if isRelogged {
+		returnFullSingleStatus(c, status, currentAccount)
+
+		return
+	}
 
 	reblog := &models.Status{}
 	reblog.ReblogId = &status.Id
@@ -94,7 +100,17 @@ func Unreblog(c *gin.Context) {
 	// 判断当前用户有没有转发过这条 status
 	isRelogged, err := status.IsReblogged(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !isRelogged, 400, gin.H{"error": "not reblogged"})
+
+	// Mastodon: unreblogging a status that is not reblogged is a no-op that
+	// returns the original status (reblogged: false).
+	if !isRelogged {
+		canView, err := status.CanViewEx(dbConn, currentAccount)
+		controllers.AbortIfError(c, err)
+		controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+		returnFullSingleStatus(c, status, currentAccount)
+
+		return
+	}
 
 	// 删除转发的 status， 并把原来的 status 的转发数减一
 	err = dbConn.Transaction(func(tx *gorm.DB) error {

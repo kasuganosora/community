@@ -18,7 +18,14 @@ func MuteStatus(c *gin.Context) {
 	// 是否已经 mute
 	isMuted, err := status.IsMuted(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, isMuted, 400, gin.H{"error": "already muted"})
+
+	// Mastodon: muting an already muted conversation is a no-op returning
+	// the status.
+	if isMuted {
+		returnFullSingleStatus(c, status, currentAccount)
+
+		return
+	}
 
 	mute := &models.MuteStatus{}
 	mute.AccountId = currentAccount.Id
@@ -44,7 +51,13 @@ func UnmuteStatus(c *gin.Context) {
 	isMuted, err := status.IsMuted(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
 
-	controllers.AbortIf(c, !isMuted, 400, gin.H{"error": "not muted"})
+	// Mastodon: unmuting a conversation that is not muted is a no-op
+	// returning the status.
+	if !isMuted {
+		returnFullSingleStatus(c, status, currentAccount)
+
+		return
+	}
 
 	err = dbConn.Delete(&models.MuteStatus{}, "account_id = ? AND status_id = ?", currentAccount.Id, status.Id).Error
 	controllers.AbortIfError(c, err)

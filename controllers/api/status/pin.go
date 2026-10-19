@@ -18,7 +18,13 @@ func Pin(c *gin.Context) {
 	// 是否已经置顶
 	isPinned, err := status.IsPinned(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, isPinned, 400, gin.H{"error": "already pinned"})
+
+	// Mastodon: pinning an already pinned status is a no-op returning it.
+	if isPinned {
+		returnFullSingleStatus(c, status, currentAccount)
+
+		return
+	}
 
 	pin := &models.PinStatus{}
 	pin.AccountId = currentAccount.Id
@@ -40,7 +46,13 @@ func UnPin(c *gin.Context) {
 	// 是否已经置顶
 	isPinned, err := status.IsPinned(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !isPinned, 400, gin.H{"error": "not pinned"})
+
+	// Mastodon: unpinning a status that is not pinned is a no-op returning it.
+	if !isPinned {
+		returnFullSingleStatus(c, status, currentAccount)
+
+		return
+	}
 
 	err = dbConn.Where("account_id = ? AND status_id = ?", currentAccount.Id, status.Id).Delete(&models.PinStatus{}).Error
 	controllers.AbortIfError(c, err)

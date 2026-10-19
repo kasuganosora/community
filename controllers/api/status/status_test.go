@@ -552,7 +552,7 @@ func TestFavourite_AlreadyFavourited(t *testing.T) {
 
 	safeHandler(c, Favourite)
 
-	assert.Equal(t, 400, w.Code)
+	assertIdempotentStatus(t, w, ts.status.Id, "favourited", true)
 }
 
 func TestFavourite_NoAccount(t *testing.T) {
@@ -589,7 +589,7 @@ func TestUnfavourite_NotFavourited(t *testing.T) {
 
 	safeHandler(c, Unfavourite)
 
-	assert.Equal(t, 400, w.Code)
+	assertIdempotentStatus(t, w, ts.status.Id, "favourited", false)
 }
 
 func TestFavouritedBy_Success(t *testing.T) {
@@ -694,7 +694,7 @@ func TestReblog_AlreadyReblogged(t *testing.T) {
 
 	safeHandler(c, Reblog)
 
-	assert.Equal(t, 400, w.Code)
+	assertIdempotentStatus(t, w, ts.status.Id, "reblogged", true)
 }
 
 func TestReblog_InvalidBody(t *testing.T) {
@@ -736,7 +736,7 @@ func TestUnreblog_NotReblogged(t *testing.T) {
 
 	safeHandler(c, Unreblog)
 
-	assert.Equal(t, 400, w.Code)
+	assertIdempotentStatus(t, w, ts.status.Id, "reblogged", false)
 }
 
 func TestRebloggedBy_Success(t *testing.T) {
@@ -817,7 +817,7 @@ func TestBookmark_AlreadyBookmarked(t *testing.T) {
 
 	safeHandler(c, Bookmark)
 
-	assert.Equal(t, 400, w.Code)
+	assertIdempotentStatus(t, w, ts.status.Id, "bookmarked", true)
 }
 
 func TestBookmark_NoAccount(t *testing.T) {
@@ -853,7 +853,7 @@ func TestUnbookmark_NotBookmarked(t *testing.T) {
 
 	safeHandler(c, Unbookmark)
 
-	assert.Equal(t, 400, w.Code)
+	assertIdempotentStatus(t, w, ts.status.Id, "bookmarked", false)
 }
 
 // ============== Pin Tests ==============
@@ -882,7 +882,7 @@ func TestPin_AlreadyPinned(t *testing.T) {
 
 	safeHandler(c, Pin)
 
-	assert.Equal(t, 400, w.Code)
+	assertIdempotentStatus(t, w, ts.status.Id, "pinned", true)
 }
 
 func TestPin_Forbidden(t *testing.T) {
@@ -923,7 +923,7 @@ func TestUnPin_NotPinned(t *testing.T) {
 
 	safeHandler(c, UnPin)
 
-	assert.Equal(t, 400, w.Code)
+	assertIdempotentStatus(t, w, ts.status.Id, "pinned", false)
 }
 
 func TestUnPin_Forbidden(t *testing.T) {
@@ -966,7 +966,7 @@ func TestMuteStatus_AlreadyMuted(t *testing.T) {
 
 	safeHandler(c, MuteStatus)
 
-	assert.Equal(t, 400, w.Code)
+	assertIdempotentStatus(t, w, ts.status.Id, "muted", true)
 }
 
 func TestMuteStatus_Forbidden(t *testing.T) {
@@ -1007,7 +1007,7 @@ func TestUnmuteStatus_NotMuted(t *testing.T) {
 
 	safeHandler(c, UnmuteStatus)
 
-	assert.Equal(t, 400, w.Code)
+	assertIdempotentStatus(t, w, ts.status.Id, "muted", false)
 }
 
 func TestUnmuteStatus_Forbidden(t *testing.T) {

@@ -15,19 +15,20 @@ func Favourite(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 
-	isFavourited, err := status.IsFavourited(dbConn, currentAccount)
-	controllers.AbortIfError(c, err)
-
-	if isFavourited {
-		c.AbortWithStatusJSON(400, gin.H{"error": "already favourited"}) //nolint:goconst
-
-		return
-	}
-
 	// 判断用户是否有权限收藏这条 status， 能看到都能收藏
 	canView, err := status.CanViewEx(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
 	controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"}) //nolint:goconst
+
+	isFavourited, err := status.IsFavourited(dbConn, currentAccount)
+	controllers.AbortIfError(c, err)
+
+	// Mastodon: favouriting is idempotent and returns the status.
+	if isFavourited {
+		returnFullSingleStatus(c, status, currentAccount)
+
+		return
+	}
 
 	favourite := &models.FavoriteStatus{}
 	favourite.AccountId = currentAccount.Id
@@ -53,7 +54,17 @@ func Unfavourite(c *gin.Context) {
 
 	isFavourited, err := status.IsFavourited(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
-	controllers.AbortIf(c, !isFavourited, 400, gin.H{"error": "not favourited"})
+
+	// Mastodon: unfavouriting a status that is not favourited is a no-op
+	// that returns the status (if the caller can see it).
+	if !isFavourited {
+		canView, err := status.CanViewEx(dbConn, currentAccount)
+		controllers.AbortIfError(c, err)
+		controllers.AbortIf(c, !canView, 403, gin.H{"error": "forbidden"})
+		returnFullSingleStatus(c, status, currentAccount)
+
+		return
+	}
 
 	// 删除收藏记录， 并把原来的 status 的收藏数减一
 	err = dbConn.Transaction(func(tx *gorm.DB) error {

@@ -25,8 +25,9 @@ func Bookmark(c *gin.Context) {
 	isBookmarked, err := status.IsBookmarked(dbConn, currentAccount)
 	controllers.AbortIfError(c, err)
 
+	// Mastodon: bookmarking is idempotent and returns the status.
 	if isBookmarked {
-		c.AbortWithStatusJSON(400, gin.H{"error": "already bookmarked"})
+		returnFullSingleStatus(c, status, currentAccount)
 
 		return
 	}
@@ -47,30 +48,24 @@ func Unbookmark(c *gin.Context) {
 	currentAccount := controllers.MustGetAccount(c)
 	dbConn := db.GetDB()
 
-	// 是否已经收藏
-	isBookmarked, err := status.IsBookmarked(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-
-		return
-	}
-
-	if !isBookmarked {
-		c.JSON(400, gin.H{"error": "not bookmarked"})
-
-		return
-	}
-
 	// 判断用户是否有权限收藏这条 status， 能看到都能收藏
 	canView, err := status.CanViewEx(dbConn, currentAccount)
-	if err != nil {
-		_ = c.Error(err)
-
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	if !canView {
 		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
+
+		return
+	}
+
+	// 是否已经收藏
+	isBookmarked, err := status.IsBookmarked(dbConn, currentAccount)
+	controllers.AbortIfError(c, err)
+
+	// Mastodon: unbookmarking a status that is not bookmarked is a no-op
+	// that returns the status.
+	if !isBookmarked {
+		returnFullSingleStatus(c, status, currentAccount)
 
 		return
 	}
