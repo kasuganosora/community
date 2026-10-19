@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -174,6 +175,10 @@ type MeilisearchClient struct {
 	enabled bool
 	indexed bool
 	mu      sync.RWMutex // 保护 enabled 字段的并发读写
+
+	// queue batches incremental index writes (see index_queue.go).
+	queueOnce sync.Once
+	queue     atomic.Pointer[IndexQueue]
 }
 
 var (
@@ -461,21 +466,50 @@ func (m *MeilisearchClient) initIndexes() error {
 }
 
 type taskWaiter interface {
-	WaitForTaskWithContext(ctx context.Context, taskUID int64, interval time.Duration) (*meilisearch.Task, error)
+	GetTaskWithContext(ctx context.Context, taskUID int64) (*meilisearch.Task, error)
 }
+
+// Task polling backoff. Index setup and the backfill wait for their tasks
+// (the backfill checkpoints only acknowledged batches), but a fixed 50ms
+// poll made ~20 GET /tasks requests per second per writer. Start at 100ms
+// and double up to 1s, so a slow task costs about one request per second.
+const (
+	taskPollStart = 100 * time.Millisecond
+	taskPollMax   = time.Second
+)
 
 func finishTask(ctx context.Context, waiter taskWaiter, task *meilisearch.TaskInfo) error {
 	if task == nil {
 		return nil
 	}
-	done, err := waiter.WaitForTaskWithContext(ctx, task.TaskUID, 50*time.Millisecond)
-	if err != nil {
-		return err
+	delay := taskPollStart
+	for {
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		done, err := waiter.GetTaskWithContext(ctx, task.TaskUID)
+		if err != nil {
+			return err
+		}
+		if done != nil {
+			switch done.Status {
+			case meilisearch.TaskStatusSucceeded:
+				return nil
+			case meilisearch.TaskStatusFailed, meilisearch.TaskStatusCanceled:
+				if done.Error.Message != "" {
+					return fmt.Errorf("meilisearch task %d %s: %s", task.TaskUID, done.Status, done.Error.Message)
+				}
+				return fmt.Errorf("meilisearch task %d %s", task.TaskUID, done.Status)
+			}
+		}
+		if delay *= 2; delay > taskPollMax {
+			delay = taskPollMax
+		}
 	}
-	if done != nil && done.Status != meilisearch.TaskStatusSucceeded {
-		return fmt.Errorf("meilisearch task %d %s", task.TaskUID, done.Status)
-	}
-	return nil
 }
 
 func finishTasks(ctx context.Context, waiter taskWaiter, tasks []meilisearch.TaskInfo) error {

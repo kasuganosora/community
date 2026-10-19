@@ -136,6 +136,14 @@ func (m *mockIndexManager) UpdateSettingsWithContext(_ context.Context, _ *ms.Se
 	return &ms.TaskInfo{TaskUID: 1}, nil
 }
 
+func (m *mockIndexManager) GetTaskWithContext(_ context.Context, taskUID int64) (*ms.Task, error) {
+	return &ms.Task{Status: ms.TaskStatusSucceeded, TaskUID: taskUID}, nil
+}
+
+func (m *mockServiceManager) GetTaskWithContext(_ context.Context, taskUID int64) (*ms.Task, error) {
+	return &ms.Task{Status: ms.TaskStatusSucceeded, TaskUID: taskUID}, nil
+}
+
 func (m *mockIndexManager) WaitForTaskWithContext(_ context.Context, taskUID int64, _ time.Duration) (*ms.Task, error) {
 	return &ms.Task{Status: ms.TaskStatusSucceeded, TaskUID: taskUID}, nil
 }

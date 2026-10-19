@@ -6,6 +6,7 @@
 package indexsync
 
 import (
+	"context"
 	"errors"
 	"html"
 	"strconv"
@@ -34,6 +35,14 @@ func Start() {
 	search.GetMeilisearchClient()
 }
 
+// Shutdown flushes the batched incremental index writes (one final request
+// per index) and stops the queue. Call it once request handlers have
+// drained. Whatever cannot be sent is repaired by the backfill on the next
+// start.
+func Shutdown(ctx context.Context) error {
+	return search.ShutdownIndexQueue(ctx)
+}
+
 func onStatus(ev event.Event) bool {
 	status, ok := ev.Data.(*models.Status)
 	if !ok || status == nil || status.Id == 0 {
@@ -43,11 +52,10 @@ func onStatus(ev event.Event) bool {
 	case "after_create", "after_update", "after_save":
 		go indexStatusByID(status.Id)
 	case "after_delete":
-		go func(id uint64) {
-			if err := withWriteSlot(func() error { return search.GetMeilisearchClient().DeleteStatus(strconv.FormatUint(id, 10)) }); err != nil {
-				log.Warn("search index delete status %d: %v", id, err)
-			}
-		}(status.Id)
+		// Queued, never waits for Meilisearch (see search.IndexQueue).
+		if err := search.GetMeilisearchClient().QueueDelete(search.IndexStatuses, strconv.FormatUint(status.Id, 10)); err != nil {
+			log.Warn("search index delete status %d: %v", status.Id, err)
+		}
 	}
 	return true
 }
@@ -237,7 +245,7 @@ func indexStatusByID(id uint64) {
 		return
 	}
 	if status.DeletedAt != nil || status.IsScheduled() {
-		_ = withWriteSlot(func() error { return client.DeleteStatus(strconv.FormatUint(id, 10)) })
+		_ = client.QueueDelete(search.IndexStatuses, strconv.FormatUint(id, 10))
 		return
 	}
 	contents := loadContents([]uint64{id})
@@ -253,11 +261,14 @@ func indexStatusByID(id uint64) {
 	if doc == nil {
 		return
 	}
-	if err := withWriteSlot(func() error { return client.IndexStatus(doc) }); err != nil {
+	// Incremental updates go through the batching queue: repeated updates
+	// of one status, its author and its tags within a flush interval become
+	// one document each in one request per index.
+	if err := client.QueueStatus(doc); err != nil {
 		log.Warn("search index status %d: %v", id, err)
 		return
 	}
-	if err := withWriteSlot(func() error { return client.IndexAccount(accountDoc(&author)) }); err != nil {
+	if err := client.QueueAccount(accountDoc(&author)); err != nil {
 		log.Warn("search index account %d: %v", author.Id, err)
 	}
 	indexStatusTags(client, id)
@@ -272,7 +283,7 @@ func indexAccountByID(id uint64) {
 	if err := db.GetDB().First(&account, id).Error; err != nil {
 		return
 	}
-	if err := withWriteSlot(func() error { return client.IndexAccount(accountDoc(&account)) }); err != nil {
+	if err := client.QueueAccount(accountDoc(&account)); err != nil {
 		log.Warn("search index account %d: %v", id, err)
 	}
 }
@@ -291,7 +302,7 @@ func indexStatusTags(client *search.MeilisearchClient, statusID uint64) {
 		if doc == nil {
 			continue
 		}
-		if err = withWriteSlot(func() error { return client.IndexHashtag(doc) }); err != nil {
+		if err = client.QueueHashtag(doc); err != nil {
 			log.Warn("search index tag %s: %v", tag.Name, err)
 		}
 	}

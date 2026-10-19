@@ -122,6 +122,11 @@ func main() {
 		defer stopWorkerMetrics(metricsServer)
 		log.Info("Feed worker started (scan=%d, delivery=%d)", feedOptions.ScanConcurrency, feedOptions.DeliveryConcurrency)
 		waitFeedWorker(stopServices, feedWorker)
+		flushCtx, cancelFlush := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := indexsync.Shutdown(flushCtx); err != nil {
+			log.Warn("search index queue not fully flushed: %v", err)
+		}
+		cancelFlush()
 		return
 	}
 	if err = models.ReconcileFollowCounts(db.GetDB()); err != nil {
@@ -416,6 +421,16 @@ func startServer(app *gin.Engine, stopTransfers context.CancelFunc) {
 	// Federation-tier row updates (delivery status, blurhash) are batched.
 	fedWrites := writebuffer.Start(writebuffer.New(db.GetDB, writebuffer.DefaultInterval))
 	srv.RegisterPostShutdown(func() error { fedWrites.Stop(); return nil })
+	// Search-index writes are batched in memory for a few seconds; send the
+	// last batch before exiting.
+	srv.RegisterPostShutdown(func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := indexsync.Shutdown(ctx); err != nil {
+			log.Warn("search index queue not fully flushed: %v", err)
+		}
+		return nil
+	})
 
 	log.Info("Server is starting on %s", config.C.Listen)
 
