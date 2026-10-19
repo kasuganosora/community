@@ -179,6 +179,103 @@ def within(a, b, tol):
     return abs(a - b) <= max(1, tol * max(a, b))
 
 
+# ---------------------------------------------------------------- profile extensions
+# Misskey source expression -> Community accounts column. to_jsonb(row)->>'col'
+# yields NULL (not an error) when a Misskey version lacks the column.
+PROFILE_FIELDS = (
+    ("isCat", "is_cat", "to_jsonb(u)->>'isCat'"),
+    ("lang", "language", "to_jsonb(p)->>'lang'"),
+    ("location", "location", "to_jsonb(p)->>'location'"),
+    ("birthday", "birthday", "to_jsonb(p)->>'birthday'"),
+    ("followedMessage", "followed_message", "to_jsonb(p)->>'followedMessage'"),
+    ("movedToUri", "moved_to", "to_jsonb(u)->>'movedToUri'"),
+    ("alsoKnownAs", "also_known_as", "to_jsonb(u)->'alsoKnownAs'"),
+)
+BIRTHDAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def profile_expected(field, raw):
+    """The value the importer stores for a Misskey value, normalised for
+    comparison ('' / False / [] when it is unset or not storable)."""
+    if field == "isCat":
+        return raw in ("true", "t", "True", "1")
+    if field == "alsoKnownAs":
+        try:
+            v = json.loads(raw) if raw else []
+        except ValueError:
+            v = []
+        return sorted(x for x in (v or []) if isinstance(x, str) and x.startswith(("https://", "http://")))
+    raw = (raw or "")
+    if field in ("location", "lang", "birthday"):
+        raw = raw.strip()
+    if field == "location":
+        raw = raw[:128]
+    if field == "followedMessage":
+        raw = raw[:200]
+    if field == "lang":
+        raw = raw.lower()
+    if field == "birthday" and not BIRTHDAY.match(raw):
+        raw = ""
+    return raw
+
+
+def profile_actual(column, raw):
+    if column == "is_cat":
+        return raw in ("true", "t", "True", "1")
+    if column == "also_known_as":
+        try:
+            v = json.loads(raw) if raw else []
+        except ValueError:
+            v = []
+        return sorted(x for x in (v or []) if isinstance(x, str))
+    raw = raw or ""
+    return raw.lower() if column == "language" else raw
+
+
+def profile_checks(mk, cm, origin, rep):
+    """8a-8g: every Misskey profile extension Community stores, compared per
+    account (local by <origin>/users/<id>, remote by actor URI; remote
+    accounts only where imported). Prints counts and ids, never values."""
+    exprs = ", ".join(e for _, _, e in PROFILE_FIELDS)
+    any_set = " OR ".join("(%s) IS NOT NULL" % e for _, _, e in PROFILE_FIELDS)
+    src = mk.q('SELECT u.id, u.host IS NULL, u.uri, %s FROM "user" u LEFT JOIN user_profile p ON p."userId" = u.id '
+               "WHERE (to_jsonb(u)->>'isDeleted') IS DISTINCT FROM 'true' AND (%s)" % (exprs, any_set))
+    cols = ", ".join(c for _, c, _ in PROFILE_FIELDS)
+    tgt = {}
+    for r in cm.q("SELECT domain IS NULL, local_actor_uri, origin_id, %s FROM accounts WHERE deleted_at IS NULL" % cols):
+        if len(r) < 3 + len(PROFILE_FIELDS):
+            continue
+        local = r[0] in ("t", "true", "True", "1")
+        key = r[1] if local else r[2]
+        if key:
+            tgt[key] = (local, r[3:])
+    for n, (field, column, _) in enumerate(PROFILE_FIELDS):
+        counts = {"local": [0, 0], "remote": [0, 0]}
+        diffs = []
+        for r in src:
+            if len(r) < 3 + len(PROFILE_FIELDS):
+                continue
+            local = r[1] in ("t", "true", "True", "1")
+            key = "%s/users/%s" % (origin, r[0]) if local else r[2]
+            want = profile_expected(field, r[3 + n])
+            if not want or not key or (not local and key not in tgt):
+                continue
+            side = "local" if local else "remote"
+            counts[side][0] += 1
+            got = profile_actual(column, tgt[key][1][n]) if key in tgt else None
+            if got == want:
+                counts[side][1] += 1
+            else:
+                diffs.append("%s %s: %s %s" % (side, r[0] if SAFE_ID.match(r[0] or "") else "?", column, "missing account" if got is None else "differs"))
+        target_total = {"local": 0, "remote": 0}
+        for local, vals in tgt.values():
+            if profile_actual(column, vals[n]):
+                target_total["local" if local else "remote"] += 1
+        rep.add("8%s profile %s -> %s" % ("abcdefg"[n], field, column), not diffs,
+                "misskey set local=%d remote(imported)=%d; matching in community local=%d remote=%d; community set local=%d remote=%d"
+                % (counts["local"][0], counts["remote"][0], counts["local"][1], counts["remote"][1], target_total["local"], target_total["remote"]), diffs)
+
+
 def run(args):
     origin = "https://" + args.host
     rep = Report(args.verbose)
@@ -340,6 +437,9 @@ def run(args):
         else:
             ok_n += 1
     rep.add("7 inbox route exists", bool(sample) and not fails, "%d/%d sampled inbox paths routed" % (ok_n, len(sample)), fails)
+
+    # (8) Misskey profile extensions stored in accounts columns
+    profile_checks(mk, cm, origin, rep)
 
     failed = [n for n, s in rep.results if s == "FAIL"]
     print("\nSUMMARY: %d checks, %d PASS, %d FAIL" % (len(rep.results), len(rep.results) - len(failed), len(failed)))

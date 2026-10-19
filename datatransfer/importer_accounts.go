@@ -116,6 +116,7 @@ func (i *importer) importAccounts() error {
 					target.Note = htmlsafe.Sanitize(a.Note)
 				}
 			}
+			i.applyProfileExtensions(&target, a)
 			target.MatrixAlias = models.NormalizedMatrixAlias(target)
 			if err := tx.Create(&target).Error; err != nil {
 				return 0, err

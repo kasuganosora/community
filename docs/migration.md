@@ -218,6 +218,7 @@ tootctl two-factor scrub-preserved     # 清除旧导入归档里的明文 secre
 18. **没有所有者的本地文件（`userId` 为空，第六次演练 6b 差 203）。** 这些不是用户文件：多数是本地自定义表情的图片（已作为表情导入），其余是管理员上传到实例的文件。核对 6b 现在不计 `userId IS NULL` 的文件；新增 6c 用 URL 匹配本地表情的 `originalUrl`/`publicUrl`，把这类文件数与导入的本地表情数对比，并打印其余无主文件的数量。导出器现在会读取无主文件并按用途分类：被 Misskey `meta` 的 `iconUrl` / `app192IconUrl` / `app512IconUrl` / `bannerUrl` / `backgroundImageUrl` / `infoImageUrl` / `serverErrorImageUrl` / `notFoundImageUrl` 引用的，作为站点资源（`site_assets`）导入为实例 Actor 名下的媒体，并写入**本次导入的目标库**的品牌设置（报告 `created.site_asset`）；目标库中该设置已有不同的值则保留（info `site_asset_kept`）。`logoImageUrl`、广告图、头像装饰、角色图标、Play 缩略图以及完全未被引用的文件在 Community 没有对应位置，不导入，导出时每个文件一条 info `misskey_meta_asset`（报告里按第 20 项合并为一条，逐个文件列在 `samples`），消息里写明用途（如 `meta.logoImageUrl`、`ad image`、`not referenced by …`）；表情图片不重复列出。导入工具不连接线上实例，线上是否执行 `import-misskey-meta` 仍由 Sion 决定。
 19. **站内自己的转发在 ActivityPub 地址上 404。** 服务端（**需要部署**）：本地转发投递时 `Announce` 的 id 是 `<base>/users/<name>/statuses/<id>/activity`；现在这个地址和转发本身的状态地址 `<base>/users/<name>/statuses/<id>` 在 `Accept: application/activity+json` 时都返回该 `Announce`（与投递内容一致），浏览器请求不变。规则与第 16 项导入的转发相同：仅限公开 / 不公开、非仅本站的转发，原帖未删除、公开 / 不公开且对请求方可见；否则 404。导入的转发仍只在其 Misskey 地址 `/notes/<id>` 上提供。
 20. **报告里导出器的问题全部变成 `source_issue`（第七次演练 1274 条）。** 原因：导入端只认一份旧的代码清单，`misskey_meta_asset`、`object_storage_reference` 等新代码都被替换成 `source_issue`；而导出器对对象存储里的每个文件都报一条 info `object_storage_reference`（这是正常状态，不是问题），所以条数正好等于本地网盘文件数。现在：(a) 导出器对这种正常状态只按类型（media / emoji）各报一条汇总，`details.count` 为文件数；(b) 导入端按白名单处理导出器的问题：已知代码保留原代码、原 info / warning / error 级别、来源类型（`source_kind`）和来源 ID，消息是导入端自己写的固定文字（导出器的原始消息一律不进报告），`details` 只保留该代码白名单内且格式校验通过的字段（`misskey_meta_asset`：`usage`（如 `meta.logoImageUrl`、`ad.imageUrl`、`unreferenced`）、`file_name`、`size`、`content_type`；汇总类：`count`）；不在白名单的代码仍报 `source_issue`，不带 ID、类型和任何导出内容；(c) 同一 (级别, 代码, 来源类型) 合并为一条：`count` 为总数，`sample_ids` 最多 5 个，`samples` 最多 50 条（每条 `source_id` + `details`），消息里写明总数。个人上传的备份仍不带 ID 和 details。
+21. **Misskey 资料扩展字段以前没有迁移（第八次演练）。** 导出器和导入端以前都没有带上 `user.isCat`、`user_profile.lang` / `location` / `birthday` / `followedMessage`；`user.movedToUri` / `alsoKnownAs` 只写进本地用户的设置，远端账号的直接丢掉。现在本地和远端账号都写入 `accounts.is_cat` / `language` / `location` / `birthday` / `followed_message` / `moved_to` / `also_known_as`，规则与资料编辑 API 相同：location 超过 128 字、followedMessage 超过 200 字截断（info `profile_value_truncated`），无效的生日 / 语言标签 / 非 http(s) 的 URI 不写入（info `profile_value_dropped`）；个人备份导入不接受 moved_to / also_known_as。另外：`user_profile.verifiedLinks` 里的链接对应的资料字段带上 `verified_at`；表情的 `localOnly` 写入 `emojis.local_only`。核对脚本新增 8a–8g，逐账号（本地按 `<origin>/users/<id>`，远端按 actor URI，只算已导入的远端账号）比较这 7 个字段，只打印数量和 ID。
 
 ## 重新执行 maid.lat 演练（隔离网络、只读源）
 
@@ -257,6 +258,10 @@ COMMUNITY_DB_DSN='postgresql://community@127.0.0.1:5432/community_rehearsal' \
 COMMUNITY_BASE='http://127.0.0.1:8080' HOST_HEADER=maid.lat SAMPLE=200 \
 python3 scripts/migration/verify_misskey_import.py --seed 42 -v
 ```
+
+### 全量重跑（第八次演练之后）
+
+只改了导入工具、导出脚本和核对脚本，**服务端代码没有变化**。资料字段在读取阶段导出、在创建账号时写入，所以需要用新版本**重新读取并换空库全量重跑**（复用旧 spool 或在旧库上续导都拿不到这些字段，旧库上续导还会因账号回执摘要变化而报冲突）。期望：核对 8a–8g 全部 PASS（第八次演练的缺口：is_cat 本地 4 / 远端 167，language 本地 3，followed_message 本地 1 / 远端 73，location 远端 233，birthday 远端 240，also_known_as 远端 287，moved_to 远端 23）；报告里的 `profile_value_truncated` / `profile_value_dropped` 是按规则未能原样保存的值。
 
 ### 全量重跑（第七次演练之后）
 

@@ -43,6 +43,25 @@ class ExportTests(unittest.TestCase):
     def converter(self, tables=None, **kwargs):
         return m.Converter(tables if tables is not None else self.tables, "https://source.test", "aidx", self.source, self.output, **kwargs)
 
+    def test_misskey_profile_extensions_local_and_remote(self):
+        self.tables["user"][0].update({"isCat": True, "updatedAt": "2026-01-02T03:04:05.000Z", "movedToUri": "https://new.test/users/a", "alsoKnownAs": ["https://old.test/users/a"]})
+        self.tables["user"][2].update({"isCat": True, "movedToUri": "https://moved.test/u", "alsoKnownAs": ["https://alias.test/u", None]})
+        self.tables["user_profile"][0].update({"lang": "ja-JP", "location": "Tokyo", "birthday": "2000-02-29", "followedMessage": "hi",
+                                               "fields": [{"name": "web", "value": "https://me.test"}, {"name": "x", "value": "y"}], "verifiedLinks": ["https://me.test"]})
+        self.tables["user_profile"].append({"userId": self.c, "location": "Remote City", "birthday": "1999-12-31", "followedMessage": "welcome"})
+        self.tables["emoji"] = [{"id": ident(9), "name": "lo", "host": None, "originalUrl": "https://r2.test/e.png", "localOnly": True}]
+        b = self.converter(object_mode="reference", object_base_url="https://r2.test").convert()
+        acc = {a["id"]: a for a in b["accounts"]}
+        a, r, bob = acc[self.a], acc[self.c], acc[self.b]
+        self.assertEqual((a["is_cat"], a["language"], a["location"], a["birthday"], a["followed_message"], a["moved_to"], a["also_known_as"]),
+                         (True, "ja-JP", "Tokyo", "2000-02-29", "hi", "https://new.test/users/a", ["https://old.test/users/a"]))
+        self.assertEqual(a["fields"], [{"name": "web", "value": "https://me.test", "verified_at": "2026-01-02T03:04:05.000Z"}, {"name": "x", "value": "y"}])
+        self.assertEqual((r["is_cat"], r["location"], r["birthday"], r["followed_message"], r["moved_to"], r["also_known_as"]),
+                         (True, "Remote City", "1999-12-31", "welcome", "https://moved.test/u", ["https://alias.test/u"]))
+        for k in ("is_cat", "language", "location", "birthday", "followed_message", "moved_to", "also_known_as"):
+            self.assertNotIn(k, bob, "empty values are omitted")
+        self.assertTrue(b["emojis"][0]["local_only"])
+
     def test_all_official_id_time_algorithms(self):
         # Independent fixed values derived from published ID layouts, not from converter.
         expected = "2000-01-01T00:00:00.000Z"

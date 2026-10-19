@@ -66,33 +66,42 @@ type Account struct {
 	System   bool   `json:"system,omitempty"`
 	// SystemRole marks a source system actor that becomes the target's
 	// instance_actor or relay_actor with its URI and keys unchanged.
-	SystemRole            string         `json:"system_role,omitempty"`
-	ActorURI              string         `json:"actor_uri"`
-	URL                   string         `json:"url,omitempty"`
-	Inbox                 string         `json:"inbox,omitempty"`
-	SharedInbox           string         `json:"shared_inbox,omitempty"`
-	DisplayName           string         `json:"display_name,omitempty"`
-	Note                  string         `json:"note,omitempty"`
-	NoteHTML              bool           `json:"note_html,omitempty"`
-	Fields                []Field        `json:"fields,omitempty"`
-	AvatarID              string         `json:"avatar_id,omitempty"`
-	HeaderID              string         `json:"header_id,omitempty"`
-	AvatarURL             string         `json:"avatar_url,omitempty"`
-	HeaderURL             string         `json:"header_url,omitempty"`
-	EmojiIDs              []string       `json:"emoji_ids,omitempty"`
-	Locked                bool           `json:"locked,omitempty"`
-	Bot                   bool           `json:"bot,omitempty"`
-	Discoverable          bool           `json:"discoverable,omitempty"`
-	NoIndex               bool           `json:"noindex,omitempty"`
-	HideCollections       bool           `json:"hide_collections,omitempty"`
-	RemoteDiscoverable    *bool          `json:"remote_discoverable,omitempty"`
-	RemoteIndexable       *bool          `json:"remote_indexable,omitempty"`
-	RemoteHideCollections *bool          `json:"remote_hide_collections,omitempty"`
-	Suspended             bool           `json:"suspended,omitempty"`
-	Admin                 bool           `json:"admin,omitempty"`
-	CreatedAt             time.Time      `json:"created_at"`
-	UpdatedAt             time.Time      `json:"updated_at,omitempty"`
-	Settings              map[string]any `json:"settings,omitempty"`
+	SystemRole            string   `json:"system_role,omitempty"`
+	ActorURI              string   `json:"actor_uri"`
+	URL                   string   `json:"url,omitempty"`
+	Inbox                 string   `json:"inbox,omitempty"`
+	SharedInbox           string   `json:"shared_inbox,omitempty"`
+	DisplayName           string   `json:"display_name,omitempty"`
+	Note                  string   `json:"note,omitempty"`
+	NoteHTML              bool     `json:"note_html,omitempty"`
+	Fields                []Field  `json:"fields,omitempty"`
+	AvatarID              string   `json:"avatar_id,omitempty"`
+	HeaderID              string   `json:"header_id,omitempty"`
+	AvatarURL             string   `json:"avatar_url,omitempty"`
+	HeaderURL             string   `json:"header_url,omitempty"`
+	EmojiIDs              []string `json:"emoji_ids,omitempty"`
+	Locked                bool     `json:"locked,omitempty"`
+	Bot                   bool     `json:"bot,omitempty"`
+	Discoverable          bool     `json:"discoverable,omitempty"`
+	NoIndex               bool     `json:"noindex,omitempty"`
+	HideCollections       bool     `json:"hide_collections,omitempty"`
+	RemoteDiscoverable    *bool    `json:"remote_discoverable,omitempty"`
+	RemoteIndexable       *bool    `json:"remote_indexable,omitempty"`
+	RemoteHideCollections *bool    `json:"remote_hide_collections,omitempty"`
+	Suspended             bool     `json:"suspended,omitempty"`
+	Admin                 bool     `json:"admin,omitempty"`
+	// Misskey profile extensions (user.isCat, user_profile.location /
+	// birthday / lang / followedMessage, user.movedToUri / alsoKnownAs).
+	IsCat           bool           `json:"is_cat,omitempty"`
+	Location        string         `json:"location,omitempty"`
+	Birthday        string         `json:"birthday,omitempty"`
+	Language        string         `json:"language,omitempty"`
+	FollowedMessage string         `json:"followed_message,omitempty"`
+	MovedTo         string         `json:"moved_to,omitempty"`
+	AlsoKnownAs     []string       `json:"also_known_as,omitempty"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at,omitempty"`
+	Settings        map[string]any `json:"settings,omitempty"`
 }
 
 type Field struct {
@@ -250,6 +259,7 @@ type Emoji struct {
 	Disabled  bool     `json:"disabled,omitempty"`
 	Sensitive bool     `json:"sensitive,omitempty"`
 	License   string   `json:"license,omitempty"`
+	LocalOnly bool     `json:"local_only,omitempty"`
 }
 
 // PreservedRecord is private source data with no equivalent live feature.

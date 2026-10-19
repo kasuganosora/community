@@ -77,6 +77,12 @@ class MisskeyPG(unittest.TestCase):
         polls = sorted(r["id"] for r in b["records"] if r["kind"] == "misskey:poll")
         self.assertEqual(polls, ["0000000200000050", "0000000200000100", "0000000200000150"])  # noteId, not the shared userId
         self.assertEqual(sorted(v["option"] for v in b["poll_votes"]), [0, 1])
+        acc = {a["id"]: a for a in b["accounts"]}
+        cats = sorted(i for i, a in acc.items() if a.get("is_cat"))
+        self.assertEqual(cats, ["0000000000000001", "0000000000000002", "0000000000001001"])
+        for i in ("0000000000000001", "0000000000001001"):
+            self.assertEqual((acc[i]["language"], acc[i]["location"], acc[i]["birthday"], acc[i]["followed_message"]), ("ja-JP", "Tokyo", "2000-01-01", "welcome"))
+        self.assertEqual((acc["0000000000001001"]["moved_to"], acc["0000000000001001"]["also_known_as"]), ("https://new.test/users/1001", ["https://old.test/users/1001"]))
         drive_only = [m for m in b["media"] if m["id"].startswith("00000009500")]
         self.assertEqual(len(drive_only), 5, "local drive-only files are exported")
         self.assertTrue(all(m.get("unattached") for m in drive_only))

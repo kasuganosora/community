@@ -36,7 +36,7 @@ func (i *importer) importEmojis() error {
 			continue
 		}
 		_, err := i.apply("emoji", e.ID, e, func(tx *gorm.DB) (uint64, error) {
-			target := models.Emoji{Shortcode: e.Shortcode, Domain: e.Domain, Url: e.URL, StaticUrl: e.URL, Category: e.Category, Aliases: e.Aliases, Disabled: e.Disabled, IsSensitive: e.Sensitive, License: e.License, VisibleInPicker: !e.Disabled}
+			target := models.Emoji{Shortcode: e.Shortcode, Domain: e.Domain, Url: e.URL, StaticUrl: e.URL, Category: e.Category, Aliases: e.Aliases, Disabled: e.Disabled, IsSensitive: e.Sensitive, License: e.License, LocalOnly: e.LocalOnly, VisibleInPicker: !e.Disabled}
 			if e.MediaID != "" {
 				id, err := i.ref("media", e.MediaID)
 				if err != nil {

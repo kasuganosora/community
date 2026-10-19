@@ -145,3 +145,36 @@ class VerifyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProfileChecksTest(unittest.TestCase):
+    class Rows:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def q(self, sql):
+            return self.rows
+
+    def run_checks(self, src, tgt):
+        rep = v.Report(False)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            v.profile_checks(self.Rows(src), self.Rows(tgt), O, rep)
+        return dict(rep.results), out.getvalue()
+
+    def test_drops_fail_and_matches_pass_local_and_remote(self):
+        R = "https://remote.test/users/r"
+        src = [["a1", "t", None, "true", "ja-JP", "Tokyo", "2000-02-29", "hi", None, '["https://old.test/a"]'],
+               ["r1", "f", R, "true", None, "x" * 300, "bad", "hello", "https://moved.test/r", None],
+               ["r2", "f", "https://unimported.test/u", "true", None, None, None, None, None, None]]
+        good = [["t", O + "/users/a1", None, "true", "ja-JP", "Tokyo", "2000-02-29", "hi", "", '["https://old.test/a"]'],
+                ["f", None, R, "true", "", "x" * 128, "", "hello", "https://moved.test/r", None]]
+        res, out = self.run_checks(src, good)
+        self.assertEqual(set(res.values()), {"PASS"}, out)
+        self.assertIn("misskey set local=1 remote(imported)=1", out)
+        dropped = [["t", O + "/users/a1", None, "false", "", "", "", "", "", None], ["f", None, R, "false", "", "", "", "", "", None]]
+        res, out = self.run_checks(src, dropped)
+        self.assertEqual(res["8a profile isCat -> is_cat"], "FAIL")
+        self.assertEqual(res["8f profile movedToUri -> moved_to"], "FAIL")
+        self.assertEqual(res["8d profile birthday -> birthday"], "FAIL")
+        self.assertIn("remote r1: is_cat differs", out)
+        self.assertNotIn("Tokyo", out, "values are never printed")

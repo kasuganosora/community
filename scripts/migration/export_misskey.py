@@ -984,7 +984,7 @@ class Converter:
             a = {"id": id_, "username": u.get("username") or "", "local": u.get("host") is None,
                  "domain": u.get("host") or "", "actor_uri": self.actor(u), "system": id_ in self.system_users,
                  "display_name": u.get("name") or "", "note": p.get("description") or "", "note_html": False,
-                 "fields": [{"name": f.get("name", ""), "value": f.get("value", "")} for f in p.get("fields", [])],
+                 "fields": self.profile_fields(u, p),
                  "avatar_id": self.media_ref(u.get("avatarId"), id_), "header_id": self.media_ref(u.get("bannerId"), id_),
                  "avatar_url": u.get("avatarUrl") or "", "header_url": u.get("bannerUrl") or "",
                  "emoji_ids": self.note_emoji_ids({"id": id_, "emojis": u.get("emojis") or [], "userHost": u.get("host")}, kind="account"),
@@ -992,6 +992,13 @@ class Converter:
                  "suspended": bool(u.get("isSuspended")), "noindex": bool(p.get("noCrawle")),
                  "hide_collections": any(p.get(k) not in (None, "public") for k in ("followingVisibility", "followersVisibility")), "created_at": self.time(u),
                  "settings": {k: v for k, v in u.items() if k in ("isDeleted", "chatScope", "requireSigninToViewContents", "makeNotesFollowersOnlyBefore", "makeNotesHiddenBefore", "movedToUri", "alsoKnownAs", "movedAt")}}
+            # Misskey profile extensions with a Community column. Empty values
+            # are omitted so bundles from older sources keep their digests.
+            for dst, value in (("is_cat", bool(u.get("isCat"))), ("location", p.get("location") or ""), ("birthday", p.get("birthday") or ""),
+                               ("language", p.get("lang") or ""), ("followed_message", p.get("followedMessage") or ""),
+                               ("moved_to", u.get("movedToUri") or ""), ("also_known_as", [x for x in (u.get("alsoKnownAs") or []) if isinstance(x, str) and x])):
+                if value:
+                    a[dst] = value
             role = SYSTEM_ROLES.get(u.get("username") or "") if a["local"] else None
             if role:
                 # Misskey's instance.actor / relay.actor keep their actor URI
@@ -1037,6 +1044,18 @@ class Converter:
             if not self.known("user", sid(k["userId"])):
                 continue
             self.bundle["keys"].append({"account_id": sid(k["userId"]), "key_id": k.get("keyId") or "", "public_key": k.get("keyPem") or "", "algorithm": "rsa"})
+
+    def profile_fields(self, u, p):
+        """Profile fields; Misskey keeps rel=me verified URLs in
+        user_profile.verifiedLinks, marked verified at the user's last update."""
+        verified = {x for x in (p.get("verifiedLinks") or []) if isinstance(x, str)}
+        out = []
+        for f in p.get("fields") or []:
+            field = {"name": f.get("name", ""), "value": f.get("value", "")}
+            if field["value"] in verified:
+                field["verified_at"] = u.get("updatedAt") or self.time(u)
+            out.append(field)
+        return out
 
     def copy_asset(self, key, expected_size=None, root=None):
         root = root or self.source_dir
@@ -1306,6 +1325,9 @@ class Converter:
                  "media_ids": files, "tags": r.get("tags") or [], "emoji_ids": self.note_emoji_ids(r), "pinned": id_ in pinned,
                  "created_at": self.time(r), "sensitive": any(f and f.get("isSensitive") for f in file_rows),
                  "extensions": {"format": "mfm", "source": r}}
+            if isinstance(r.get("lang"), str) and r["lang"]:
+                # Misskey forks with note languages (lang column); upstream has none.
+                p["language"] = r["lang"]
             if r.get("visibility") not in visibility:
                 p["archive_only"] = True
                 self.issue("error", "unknown_visibility", "note", id_, "Unknown source visibility must not be published.")
@@ -1425,6 +1447,8 @@ class Converter:
             e = {"id": id_, "shortcode": r.get("name") or "", "domain": r.get("host") or "", "url": r.get("publicUrl") or url,
                  "media_id": self.media_urls.get(url, ""), "category": r.get("category") or "", "aliases": r.get("aliases") or [],
                  "sensitive": bool(r.get("isSensitive")), "license": r.get("license") or ""}
+            if r.get("localOnly"):
+                e["local_only"] = True
             object_key = self.object_key(url)
             if r.get("host") is None and not e["media_id"] and object_key and self.object_mode == "reference":
                 referenced_by_url += 1

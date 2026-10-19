@@ -47,6 +47,12 @@ SELECT mkid(n), 'r' || n, 'host' || (n % 100) || '.test', 'https://host' || (n %
 FROM generate_series(1001, 6000) n;
 INSERT INTO user_profile("userId", description, password, email)
 SELECT id, 'profile of ' || username, CASE WHEN host IS NULL THEN '$2b$10$abcdefghijklmnopqrstuuJ1yJ2b9i0qT2qYb5j4q8v7K3l1t7vXe' END, CASE WHEN host IS NULL THEN username || '@example.test' END FROM "user";
+-- Misskey profile extensions: cats, languages, locations, birthdays, moved / aliased remote accounts
+ALTER TABLE "user" ADD COLUMN "isCat" boolean NOT NULL DEFAULT false, ADD COLUMN "movedToUri" varchar(512), ADD COLUMN "alsoKnownAs" text[];
+ALTER TABLE user_profile ADD COLUMN lang varchar(32), ADD COLUMN location varchar(128), ADD COLUMN birthday char(10), ADD COLUMN "followedMessage" varchar(256);
+UPDATE "user" SET "isCat" = true WHERE id IN (mkid(1), mkid(2), mkid(1001));
+UPDATE "user" SET "movedToUri" = 'https://new.test/users/1001', "alsoKnownAs" = ARRAY['https://old.test/users/1001'] WHERE id = mkid(1001);
+UPDATE user_profile SET lang = 'ja-JP', location = 'Tokyo', birthday = '2000-01-01', "followedMessage" = 'welcome' WHERE "userId" IN (mkid(1), mkid(1001));
 INSERT INTO user_keypair SELECT id, 'PUB-' || id, 'PRIV-' || id FROM "user" WHERE host IS NULL;
 INSERT INTO user_publickey SELECT id, uri || '#main-key', 'PEM-' || id FROM "user" WHERE host IS NOT NULL;
 INSERT INTO instance SELECT mkid(800000000 + n), 'host' || n || '.test', 'misskey' FROM generate_series(0, 99) n;
