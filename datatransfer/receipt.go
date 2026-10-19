@@ -113,7 +113,12 @@ func (i *importer) ref(kind, id string) (uint64, error) {
 	}
 	return 0, fmt.Errorf("unresolved %s reference", kind)
 }
-func (i *importer) preserve(kind, id string, value any) error {
+
+// preserve keeps a record in the private archive and counts it under reason
+// in the report's archived_records breakdown.
+func (i *importer) preserve(kind, id string, value any, reason string) error {
+	i.archiveReason = reason
+	defer func() { i.archiveReason = "" }()
 	return i.preserveStored(kind, id, value, value)
 }
 
@@ -136,6 +141,9 @@ func (i *importer) preserveStored(kind, id string, value, stored any) error {
 			bucket = "record"
 		}
 		i.report.Archived[bucket]++
+		if i.archiveReason != "" {
+			i.report.Issues = append(i.report.Issues, archivedIssue(bucket, i.archiveReason, 1, []string{id}, []string{id}))
+		}
 		return record.ID, nil
 	})
 	return err

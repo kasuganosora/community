@@ -408,13 +408,18 @@ func (t *widthTally) add(is Issue) {
 		*cur = replyNarrowedIssue(cur.Count, cur.SampleIDs, nil)
 		return
 	}
+	if cur.Code == ArchivedRecordsCode {
+		bucket, reason, _ := strings.Cut(cur.Kind, ":")
+		*cur = archivedIssue(bucket, reason, cur.Count, cur.SampleIDs, nil)
+		return
+	}
 	table, column, _ := strings.Cut(cur.Kind, ".")
 	*cur = widthIssue(table, column, cur.Limit, cur.Count, cur.MaxLength, cur.SampleIDs)
 }
 
 // aggregatedIssue reports issues the streamed run folds into one total.
 func aggregatedIssue(code string) bool {
-	return code == ColumnTooNarrowCode || code == ReplyNarrowedCode
+	return code == ColumnTooNarrowCode || code == ReplyNarrowedCode || code == ArchivedRecordsCode
 }
 
 // list returns the merged issues in first-seen order.

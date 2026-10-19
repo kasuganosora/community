@@ -98,6 +98,20 @@ func ImportSpool(ctx context.Context, conn *gorm.DB, sp *Spool, o Options, so St
 		}
 	}
 	r.firstDone = so.Apply && sp.Meta("issues_done") == "1"
+	dups, err := sp.DuplicateSourceIDs()
+	if err != nil {
+		return nil, err
+	}
+	if len(dups) > 0 {
+		// Two records sharing a source id would make receipts collide mid-run
+		// (round 3: "import conflict for archive:<misskey:poll>"). Refuse up
+		// front; such a spool must be re-fetched, not reused.
+		r.total.CanExecute = false
+		r.total.Issues = append(r.total.Issues, dups...)
+		if so.Apply {
+			return r.total, errors.New("spool has duplicate source ids; re-run the export without --reuse-spool (see report issues)")
+		}
+	}
 	for _, st := range streamStages {
 		if err := r.stage(st.stage, st.section); err != nil {
 			return r.total, err

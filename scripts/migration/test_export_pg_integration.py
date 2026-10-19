@@ -74,6 +74,11 @@ class MisskeyPG(unittest.TestCase):
         self.assertLess(len(b["posts"]), 600)  # not the 3000-note remote cache
         self.assertEqual(len(b["reactions"]), 5000)  # reactions on local notes only
         self.assertIn("progress stage=notes", err)
+        polls = sorted(r["id"] for r in b["records"] if r["kind"] == "misskey:poll")
+        self.assertEqual(polls, ["0000000200000050", "0000000200000100", "0000000200000150"])  # noteId, not the shared userId
+        self.assertEqual(sorted(v["option"] for v in b["poll_votes"]), [0, 1])
+        ids = [(r["kind"], r["id"]) for r in b["records"]]
+        self.assertEqual(len(ids), len(set(ids)))
         _, err = self.run_export("full", "--include-remote-cache", "--state-dir", str(self.root / "full.state"))
         full = self.bundle("full")
         self.assertEqual(len(full["posts"]), 3220)

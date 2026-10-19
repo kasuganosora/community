@@ -22,6 +22,8 @@ type importer struct {
 	ids        map[string]map[string]uint64
 	report     *Report
 	mediaPaths map[string]string
+	// archiveReason labels the record preserve() is archiving.
+	archiveReason string
 }
 
 type importFailure struct {

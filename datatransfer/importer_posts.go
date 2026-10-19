@@ -33,7 +33,7 @@ func (i *importer) importPosts() error {
 		var next []Post
 		for _, p := range pending {
 			if i.archivePost(p) {
-				if err := i.preserve("post", p.ID, p); err != nil {
+				if err := i.preserve("post", p.ID, p, i.archivePostReason(p)); err != nil {
 					return err
 				}
 				advanced = true
@@ -41,7 +41,7 @@ func (i *importer) importPosts() error {
 			}
 			// A boost of private archived history cannot be published; keep it archived too.
 			if p.ReblogID != "" && i.ids["post"][p.ReblogID] == 0 && i.archivedPost(p.ReblogID) {
-				if err := i.preserve("post", p.ID, p); err != nil {
+				if err := i.preserve("post", p.ID, p, "boost_of_archived_post"); err != nil {
 					return err
 				}
 				advanced = true
@@ -61,7 +61,7 @@ func (i *importer) importPosts() error {
 		if !advanced {
 			if i.personal() {
 				for _, p := range next {
-					if err := i.preserve("post", p.ID, p); err != nil {
+					if err := i.preserve("post", p.ID, p, "archived_parent"); err != nil {
 						return err
 					}
 					i.report.Issues = append(i.report.Issues, Issue{Severity: "warning", Code: "archived_parent", Kind: "post", SourceID: p.ID, Message: "post depends on private archived history and was not published"})
@@ -72,7 +72,7 @@ func (i *importer) importPosts() error {
 			// never be published (cycle, or missing live parent) stay in the
 			// private archive with a warning instead of failing the run.
 			for _, p := range next {
-				if err := i.preserve("post", p.ID, p); err != nil {
+				if err := i.preserve("post", p.ID, p, "reply_cycle_or_unpublished_parent"); err != nil {
 					return err
 				}
 				i.report.Issues = append(i.report.Issues, Issue{Severity: "warning", Code: "archived_parent", Kind: "post", SourceID: p.ID, Message: "post depends on a cyclic or unpublished parent and was kept in the private archive"})

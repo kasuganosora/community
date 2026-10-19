@@ -2,6 +2,7 @@ package datatransfer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -18,6 +19,12 @@ const ReplyNarrowedCode = "reply_visibility_narrowed"
 
 // narrowVisibility returns the visibility a reply may use under a parent:
 // never wider than the parent's (public < unlisted < private < direct).
+// Sentinels in the cross-chunk known map for posts that are not published.
+const (
+	knownArchived uint8 = 250
+	knownDead     uint8 = 251
+)
+
 func narrowVisibility(own, parent uint8) (uint8, bool) {
 	if own < parent {
 		return parent, true
@@ -72,45 +79,157 @@ func replyAudiences(ctx context.Context, conn *gorm.DB, b *Bundle, o Options, kn
 			fromDB[byTarget[r.Id]] = r.Visibility
 		}
 	}
-	eff := map[string]uint8{}
+	// Posts committed (or archived) by an earlier run are skipped by receipt
+	// at import: they are never narrowed again, and their stored visibility
+	// is what their replies are checked against.
+	done := map[string]bool{}
+	archivedDone := map[string]bool{}
+	if conn.Migrator().HasTable(&ImportReceipt{}) && len(b.Posts) > 0 {
+		namespace := transferNamespace(b, o)
+		hashes := make([]string, 0, len(b.Posts))
+		for _, p := range b.Posts {
+			hashes = append(hashes, digestBytes([]byte(p.ID)))
+		}
+		for start := 0; start < len(hashes); start += 500 {
+			var rows []ImportReceipt
+			if err := conn.WithContext(ctx).Select("kind", "source_id", "target_id").Where("namespace = ? AND kind IN ? AND source_hash IN ?", namespace, []string{"post", ArchivedPostKind}, hashes[start:min(start+500, len(hashes))]).Find(&rows).Error; err != nil {
+				return nil, err
+			}
+			var live []uint64
+			for _, row := range rows {
+				if row.Kind == ArchivedPostKind {
+					archivedDone[row.SourceID] = true
+				} else if row.TargetID > 0 {
+					done[row.SourceID] = true
+					live = append(live, row.TargetID)
+					byTarget[row.TargetID] = row.SourceID
+				}
+			}
+			if len(live) > 0 {
+				var vis []struct {
+					Id         uint64
+					Visibility uint8
+				}
+				if err := conn.WithContext(ctx).Model(&models.Status{}).Select("id, visibility").Where("id IN ?", live).Find(&vis).Error; err != nil {
+					return nil, err
+				}
+				for _, r := range vis {
+					fromDB[byTarget[r.Id]] = r.Visibility
+				}
+			}
+		}
+	}
+	// The importer's outcomes for a post: published (with an effective
+	// visibility), archived (its replies publish unlinked, never narrowed),
+	// or dead: its parent can never be published (cycle, missing parent),
+	// so the importer archives it and every descendant waiting on it.
+	const (
+		live = iota
+		archived
+		dead
+	)
+	type outcome struct {
+		state int
+		v     uint8
+	}
+	eff := map[string]outcome{}
 	visiting := map[string]bool{}
 	var narrowed []string
-	var resolve func(id string) (uint8, bool)
-	resolve = func(id string) (uint8, bool) {
-		if v, ok := eff[id]; ok {
-			return v, true
+	var resolve func(id string) outcome
+	resolve = func(id string) outcome {
+		if out, ok := eff[id]; ok {
+			return out
+		}
+		if archivedDone[id] {
+			return outcome{state: archived}
+		}
+		if v, ok := fromDB[id]; ok && (done[id] || posts[id] == nil) {
+			return outcome{v: v}
 		}
 		p := posts[id]
 		if p == nil {
 			if v, ok := known[id]; ok {
-				return v, true
+				if v == knownArchived {
+					return outcome{state: archived}
+				}
+				if v == knownDead {
+					return outcome{state: dead}
+				}
+				return outcome{v: v}
 			}
-			v, ok := fromDB[id]
-			return v, ok
+			if o.Seed[ArchivedPostKind][id] != 0 {
+				return outcome{state: archived}
+			}
+			return outcome{state: dead}
 		}
-		if p.ArchiveOnly || visiting[id] {
-			return 0, false
+		if p.ArchiveOnly {
+			eff[id] = outcome{state: archived}
+			return eff[id]
+		}
+		if visiting[id] {
+			return outcome{state: dead}
 		}
 		visiting[id] = true
-		v := visibility(p.Visibility)
-		if p.ReplyID != "" && o.Seed[ArchivedPostKind][p.ReplyID] == 0 {
-			if pv, ok := resolve(p.ReplyID); ok {
+		out := outcome{v: visibility(p.Visibility)}
+		if p.ReplyID != "" {
+			switch parent := resolve(p.ReplyID); parent.state {
+			case live:
 				var n bool
-				if v, n = narrowVisibility(v, pv); n {
+				if out.v, n = narrowVisibility(out.v, parent.v); n {
 					narrowed = append(narrowed, id)
 				}
+			case dead:
+				out = outcome{state: dead}
+			}
+		}
+		if p.ReblogID != "" && out.state == live {
+			if parent := resolve(p.ReblogID); parent.state == dead {
+				out = outcome{state: dead}
+			} else if parent.state == archived {
+				out = outcome{state: archived}
 			}
 		}
 		delete(visiting, id)
-		eff[id] = v
-		return v, true
+		eff[id] = out
+		return out
 	}
 	for _, p := range b.Posts {
 		resolve(p.ID)
 	}
+	// A cycle member resolved first sees its partner as dead and so is dead
+	// itself, but its partner was memoised as live; settle to a fixpoint.
+	for changed := true; changed; {
+		changed = false
+		for _, p := range b.Posts {
+			out := eff[p.ID]
+			if out.state == dead || p.ArchiveOnly {
+				continue
+			}
+			for _, parent := range []string{p.ReplyID, p.ReblogID} {
+				if parent != "" && posts[parent] != nil && eff[parent].state == dead {
+					eff[p.ID] = outcome{state: dead}
+					changed = true
+				}
+			}
+		}
+	}
+	keep := narrowed[:0]
+	for _, id := range narrowed {
+		if eff[id].state == live && !done[id] {
+			keep = append(keep, id)
+		}
+	}
+	narrowed = keep
 	if known != nil {
-		for id, v := range eff {
-			known[id] = v
+		for id, out := range eff {
+			switch out.state {
+			case archived:
+				known[id] = knownArchived
+			case dead:
+				known[id] = knownDead
+			default:
+				known[id] = out.v
+			}
 		}
 	}
 	return narrowed, nil
@@ -128,4 +247,46 @@ func directAudience(tx *gorm.DB, parent *models.Status) (map[uint64]bool, error)
 		allowed[id] = true
 	}
 	return allowed, nil
+}
+
+// ArchivedRecordsCode is the informational breakdown of records kept only in
+// the private archive, per kind and reason, so intentional archiving (quote
+// or channel notes, chats) can be told apart from data that failed to link.
+const ArchivedRecordsCode = "archived_records"
+
+func archivedIssue(bucket, reason string, count int, samples, violators []string) Issue {
+	return Issue{Severity: "info", Code: ArchivedRecordsCode, Kind: bucket + ":" + reason, SourceID: firstOr(samples),
+		Message: fmt.Sprintf("%d %s record(s) archived privately (reason %s); sample source ids: %s", count, bucket, reason, strings.Join(samples, ",")),
+		Count:   count, SampleIDs: samples, violators: violators}
+}
+
+// archivePostReason names why archivePost keeps p private.
+func (i *importer) archivePostReason(p Post) string {
+	if i.personal() && !p.ArchiveOnly {
+		if p.AuthorID != i.bundle.OwnerID {
+			return "personal_foreign_author"
+		}
+		return "personal_unverified_reference"
+	}
+	if strings.HasPrefix(p.ID, "chat_message:") || strings.HasPrefix(p.ID, "messaging_message:") {
+		return "chat_archive_only"
+	}
+	var ext struct {
+		Source map[string]any `json:"source"`
+	}
+	if json.Unmarshal(p.Extensions, &ext) == nil && ext.Source != nil {
+		src := ext.Source
+		switch {
+		case src["channelId"] != nil && src["channelId"] != "":
+			return "channel_note"
+		case src["renoteId"] != nil && src["renoteId"] != "":
+			return "quote_note"
+		}
+		switch src["visibility"] {
+		case "public", "home", "followers", "specified":
+		default:
+			return "unknown_visibility"
+		}
+	}
+	return "source_archive_only"
 }

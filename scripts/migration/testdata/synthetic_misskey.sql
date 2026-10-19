@@ -26,7 +26,7 @@ CREATE TABLE note_reaction(id varchar(32) PRIMARY KEY, "createdAt" timestamptz N
 CREATE INDEX ON note_reaction("noteId"); CREATE INDEX ON note_reaction("userId");
 CREATE TABLE note_favorite(id varchar(32) PRIMARY KEY, "createdAt" timestamptz NOT NULL DEFAULT now(), "userId" varchar(32) NOT NULL, "noteId" varchar(32) NOT NULL);
 CREATE TABLE user_note_pining(id varchar(32) PRIMARY KEY, "createdAt" timestamptz NOT NULL DEFAULT now(), "userId" varchar(32) NOT NULL, "noteId" varchar(32) NOT NULL);
-CREATE TABLE poll("noteId" varchar(32) PRIMARY KEY, "expiresAt" timestamptz, multiple boolean NOT NULL DEFAULT false, choices varchar(256)[] NOT NULL, votes int[] NOT NULL, "userHost" varchar(512));
+CREATE TABLE poll("noteId" varchar(32) PRIMARY KEY, "expiresAt" timestamptz, multiple boolean NOT NULL DEFAULT false, choices varchar(256)[] NOT NULL, votes int[] NOT NULL, "userId" varchar(32), "userHost" varchar(512));
 CREATE TABLE poll_vote(id varchar(32) PRIMARY KEY, "createdAt" timestamptz NOT NULL DEFAULT now(), "userId" varchar(32) NOT NULL, "noteId" varchar(32) NOT NULL, choice int NOT NULL);
 CREATE TABLE emoji(id varchar(32) PRIMARY KEY, name varchar(128) NOT NULL, host varchar(512), "originalUrl" varchar(512), "publicUrl" varchar(512), type varchar(64), aliases varchar(128)[] NOT NULL DEFAULT '{}', category varchar(128));
 CREATE INDEX ON emoji(host);
@@ -81,5 +81,9 @@ INSERT INTO note_reaction(id, "userId", "noteId", reaction) SELECT mkid(40000000
 INSERT INTO note_reaction(id, "userId", "noteId", reaction) SELECT mkid(410000000 + n), mkid(1001 + n % 5000), mkid(100000000 + 1 + n % :remote_notes), ':like:' FROM generate_series(1, 50000) n;
 INSERT INTO note_favorite(id, "userId", "noteId") SELECT mkid(420000000 + n), mkid(1 + n % 50), mkid(100000000 + n * 101 % :remote_notes + 1) FROM generate_series(1, 100) n;
 INSERT INTO user_note_pining(id, "userId", "noteId") SELECT mkid(430000000 + n), mkid(1 + n % 50), mkid(200000000 + n) FROM generate_series(1, 50) n;
+-- three polls by one author (poll has no id column; PK is noteId) and a
+-- multiple-choice vote stored as one row per chosen option
+INSERT INTO poll("noteId", multiple, choices, votes, "userId") SELECT mkid(200000000 + n), true, ARRAY['a','b'], ARRAY[1,1], mkid(1) FROM generate_series(50, 150, 50) n;
+INSERT INTO poll_vote(id, "userId", "noteId", choice) VALUES (mkid(440000001), mkid(2), mkid(200000050), 0), (mkid(440000002), mkid(2), mkid(200000050), 1);
 INSERT INTO "__chart__notes"(date) SELECT n FROM generate_series(1, 1000) n;
 ANALYZE;

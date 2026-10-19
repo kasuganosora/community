@@ -29,7 +29,7 @@ func (i *importer) importEmojis() error {
 			}
 			// A personal import may reuse an exact local identity, but cannot
 			// install a new instance-wide local emoji or trust an uploaded URL.
-			if err := i.preserve("emoji", e.ID, e); err != nil {
+			if err := i.preserve("emoji", e.ID, e, "personal_unmatched_local_emoji"); err != nil {
 				return err
 			}
 			i.report.Issues = append(i.report.Issues, Issue{Severity: "warning", Code: "personal_emoji_archived", Kind: "emoji", SourceID: e.ID, Message: "local emoji could not be safely matched; dependent content remains in the private archive"})
@@ -78,7 +78,7 @@ func (i *importer) importExtras() error {
 			}
 		}
 		if i.personal() && unresolved {
-			if err := i.preserve("list", list.ID, list); err != nil {
+			if err := i.preserve("list", list.ID, list, "personal_unresolved_member"); err != nil {
 				return err
 			}
 			continue
@@ -116,7 +116,7 @@ func (i *importer) importExtras() error {
 			return err
 		}
 		if list.Exclusive {
-			if err = i.preserve("exclusive_list", list.ID, list); err != nil {
+			if err = i.preserve("exclusive_list", list.ID, list, ""); err != nil {
 				return err
 			}
 			i.report.Issues = append(i.report.Issues, Issue{Severity: "warning", Code: "exclusive_list_archived", Kind: "list", SourceID: list.ID, Message: "exclusive flag retained privately; target lists do not exclude home-feed posts"})
@@ -124,7 +124,7 @@ func (i *importer) importExtras() error {
 	}
 	for _, poll := range i.bundle.Polls {
 		if i.ids["post"][poll.PostID] == 0 {
-			if err := i.preserve("poll", poll.ID, poll); err != nil {
+			if err := i.preserve("poll", poll.ID, poll, "post_not_published"); err != nil {
 				return err
 			}
 			continue
@@ -154,7 +154,11 @@ func (i *importer) importExtras() error {
 	for _, vote := range i.bundle.PollVotes {
 		id := fmt.Sprintf("%s/%s/%d", vote.PollID, vote.AccountID, vote.Option)
 		if i.ids["poll"][vote.PollID] == 0 || i.personal() && vote.AccountID != i.bundle.OwnerID {
-			if err := i.preserve("poll_vote", id, vote); err != nil {
+			reason := "poll_not_published"
+			if i.ids["poll"][vote.PollID] != 0 {
+				reason = "personal_foreign_account"
+			}
+			if err := i.preserve("poll_vote", id, vote, reason); err != nil {
 				return err
 			}
 			continue
@@ -187,7 +191,14 @@ func (i *importer) importExtras() error {
 			return err
 		}
 		if missingEmoji || i.ids["post"][reaction.PostID] == 0 || i.personal() && reaction.AccountID != i.bundle.OwnerID {
-			if err := i.preserve("reaction", id, reaction); err != nil {
+			reason := "personal_foreign_account"
+			switch {
+			case i.ids["post"][reaction.PostID] == 0:
+				reason = "post_not_published"
+			case missingEmoji:
+				reason = "custom_emoji_not_imported"
+			}
+			if err := i.preserve("reaction", id, reaction, reason); err != nil {
 				return err
 			}
 			continue
@@ -239,7 +250,11 @@ func (i *importer) importExtras() error {
 	for _, bookmark := range i.bundle.Bookmarks {
 		id := bookmark.AccountID + "/" + bookmark.PostID + "/" + bookmark.PostURI
 		if i.ids["post"][bookmark.PostID] == 0 || i.personal() && bookmark.AccountID != i.bundle.OwnerID {
-			if err := i.preserve("bookmark", id, bookmark); err != nil {
+			reason := "personal_foreign_account"
+			if i.ids["post"][bookmark.PostID] == 0 {
+				reason = "post_not_published"
+			}
+			if err := i.preserve("bookmark", id, bookmark, reason); err != nil {
 				return err
 			}
 			continue

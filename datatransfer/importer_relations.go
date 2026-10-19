@@ -11,7 +11,7 @@ func (i *importer) importRelations() error {
 	for _, r := range i.bundle.Relations {
 		sourceID := r.Kind + "\n" + r.AccountID + "\n" + r.TargetID + "\n" + r.TargetDomain
 		if i.personal() && r.Kind != "domain_block" && i.ids["account"][r.TargetID] == 0 {
-			if err := i.preserve("relation", sourceID, r); err != nil {
+			if err := i.preserve("relation", sourceID, r, "personal_unresolved_target"); err != nil {
 				return err
 			}
 			continue

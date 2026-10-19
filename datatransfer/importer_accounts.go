@@ -21,7 +21,7 @@ func (i *importer) importAccounts() error {
 	}
 	for _, a := range i.bundle.Accounts {
 		if i.personal() && a.ID != i.bundle.OwnerID && !i.options.VerifiedReferences[a.ID] {
-			if err := i.preserve("account", a.ID, a); err != nil {
+			if err := i.preserve("account", a.ID, a, "personal_unverified_account"); err != nil {
 				return err
 			}
 			continue
@@ -190,7 +190,7 @@ func (i *importer) importAccounts() error {
 	chosen := map[string]bool{}
 	for _, k := range i.bundle.Keys {
 		if !i.sourceAccount(k.AccountID).Local {
-			if err := i.preserve("remote_key", k.AccountID+"/"+k.KeyID, k); err != nil {
+			if err := i.preserve("remote_key", k.AccountID+"/"+k.KeyID, k, ""); err != nil {
 				return err
 			}
 			continue

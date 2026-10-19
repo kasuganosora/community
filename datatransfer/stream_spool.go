@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/glebarez/sqlite"
@@ -98,47 +99,68 @@ func (s *Spool) sealLegacySecrets() error {
 	if !SpoolSealingAvailable() {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT seq, raw FROM rec WHERE section IN ('credentials', 'keys', 'records') AND substr(raw, 1, ?) <> ?`, len(sealedSpoolPrefix), sealedSpoolPrefix)
-	if err != nil {
-		return err
-	}
-	type plain struct {
-		seq int64
-		raw []byte
-	}
-	var todo []plain
-	for rows.Next() {
-		var p plain
-		if err := rows.Scan(&p.seq, &p.raw); err != nil {
-			rows.Close()
-			return err
-		}
-		todo = append(todo, p)
-	}
-	rows.Close()
-	if len(todo) == 0 {
-		return nil
-	}
-	if _, err := s.db.Exec(`PRAGMA secure_delete = ON`); err != nil {
-		return err
-	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	for _, p := range todo {
-		sealed, err := sealSpoolRecord(p.raw)
+	// Streamed in pages of sealBatch rows, each committed and checkpointed
+	// on its own, so memory and WAL stay bounded on large old spools (the
+	// first all-at-once version peaked at ~390MB for a 72MB spool).
+	const sealBatch = 500
+	var after int64
+	touched := false
+	for {
+		rows, err := s.db.Query(`SELECT seq, raw FROM rec WHERE seq > ? AND section IN ('credentials', 'keys', 'records') AND substr(raw, 1, ?) <> ? ORDER BY seq LIMIT ?`, after, len(sealedSpoolPrefix), sealedSpoolPrefix, sealBatch)
 		if err != nil {
-			_ = tx.Rollback()
 			return err
 		}
-		if _, err := tx.Exec(`UPDATE rec SET raw = ? WHERE seq = ?`, sealed, p.seq); err != nil {
-			_ = tx.Rollback()
+		type plain struct {
+			seq int64
+			raw []byte
+		}
+		var todo []plain
+		for rows.Next() {
+			var p plain
+			if err := rows.Scan(&p.seq, &p.raw); err != nil {
+				rows.Close()
+				return err
+			}
+			todo = append(todo, p)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(todo) == 0 {
+			break
+		}
+		if !touched {
+			if _, err := s.db.Exec(`PRAGMA secure_delete = ON`); err != nil {
+				return err
+			}
+			touched = true
+		}
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		for _, p := range todo {
+			sealed, err := sealSpoolRecord(p.raw)
+			if err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE rec SET raw = ? WHERE seq = ?`, sealed, p.seq); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		after = todo[len(todo)-1].seq
+		if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 			return err
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return err
+	if !touched {
+		return nil
 	}
 	if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		return err
@@ -146,7 +168,7 @@ func (s *Spool) sealLegacySecrets() error {
 	if _, err := s.db.Exec(`VACUUM`); err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	_, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
 	return err
 }
 
@@ -185,6 +207,7 @@ type spoolKeys struct {
 	PollID    string `json:"poll_id"`
 	KeyID     string `json:"key_id"`
 	Kind      string `json:"kind"`
+	Option    *int   `json:"option"`
 }
 
 func (s *Spool) setHeader(raw []byte) error {
@@ -218,7 +241,12 @@ func (s *Spool) add(section string, raw []byte) error {
 	case "polls":
 		acct = k.PostID
 	case "poll_votes":
+		// Multiple-choice polls store one vote row per chosen option, so the
+		// option is part of the identity (as in the importer's receipt).
 		id = k.PollID + "\n" + k.AccountID
+		if k.Option != nil {
+			id += "\n" + strconv.Itoa(*k.Option)
+		}
 	case "keys":
 		id = k.AccountID + "\n" + k.KeyID
 	case "credentials":
@@ -457,6 +485,70 @@ func (s *Spool) lookup(section, column string, keys []string) ([]json.RawMessage
 			out = append(out, raw)
 		}
 		rows.Close()
+	}
+	return out, nil
+}
+
+// DuplicateSourceIDCode blocks a spool in which two records of one kind share
+// a source id; their receipts would collide during import.
+const DuplicateSourceIDCode = "duplicate_source_id"
+
+// duplicateSourceSections are the sections whose spool id is a source
+// identity (relations, reactions and bookmarks are keyed by content).
+var duplicateSourceSections = []string{"accounts", "credentials", "keys", "media", "emojis", "posts", "polls", "poll_votes", "lists", "records"}
+
+// DuplicateSourceIDs reports, per section (and per raw record kind), source
+// ids that occur more than once, with counts and up to five sample ids.
+func (s *Spool) DuplicateSourceIDs() ([]Issue, error) {
+	if err := s.flush(); err != nil {
+		return nil, err
+	}
+	var out []Issue
+	for _, section := range duplicateSourceSections {
+		rows, err := s.db.Query(`SELECT id, count(*) FROM rec WHERE section = ? AND id != '' GROUP BY id HAVING count(*) > 1 ORDER BY id`, section)
+		if err != nil {
+			return nil, err
+		}
+		type agg struct {
+			ids   []string
+			extra int
+		}
+		byKind := map[string]*agg{}
+		var order []string
+		for rows.Next() {
+			var id string
+			var n int
+			if err := rows.Scan(&id, &n); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			kind := section
+			if section == "records" {
+				var rest string
+				kind, rest, _ = strings.Cut(id, "\n")
+				kind, id = "records:"+kind, rest
+			} else {
+				id = strings.ReplaceAll(id, "\n", "/")
+			}
+			a := byKind[kind]
+			if a == nil {
+				a = &agg{}
+				byKind[kind] = a
+				order = append(order, kind)
+			}
+			a.ids = append(a.ids, id)
+			a.extra += n - 1
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		for _, kind := range order {
+			a := byKind[kind]
+			samples := a.ids[:min(5, len(a.ids))]
+			out = append(out, Issue{Severity: "error", Code: DuplicateSourceIDCode, Kind: kind, SourceID: samples[0], Count: len(a.ids), SampleIDs: samples,
+				Message: fmt.Sprintf("%d source id(s) in %s occur more than once (%d extra rows); sample ids: %s. The exporter built ids from the wrong column; re-fetch from the source instead of reusing this spool", len(a.ids), kind, a.extra, strings.Join(samples, ","))})
+		}
 	}
 	return out, nil
 }

@@ -94,7 +94,7 @@ func stageImportMedia(ctx context.Context, b *Bundle, o Options) (map[string]str
 func (i *importer) importMedia() error {
 	for _, m := range i.bundle.Media {
 		if i.personal() && m.OwnerID != i.bundle.OwnerID {
-			if err := i.preserve("media", m.ID, m); err != nil {
+			if err := i.preserve("media", m.ID, m, "personal_foreign_owner"); err != nil {
 				return err
 			}
 			continue
@@ -138,7 +138,7 @@ func (i *importer) importMedia() error {
 				_ = storage.Delete(models.MediaKeyPrefix + i.mediaPaths[m.ID])
 			}
 		}
-		if err = i.preserve("media_metadata", m.ID, m); err != nil {
+		if err = i.preserve("media_metadata", m.ID, m, ""); err != nil {
 			return err
 		}
 	}

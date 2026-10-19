@@ -53,6 +53,25 @@ SECTIONS = ("accounts", "credentials", "keys", "posts", "media", "relations", "l
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+# Primary keys of Misskey tables that have no "id" column; used when the
+# staged catalog predates primary-key introspection (and by dict fixtures).
+KNOWN_PRIMARY_KEYS = {
+    "poll": ["noteId"], "promo_note": ["noteId"],
+    "user_profile": ["userId"], "user_keypair": ["userId"], "user_publickey": ["userId"],
+}
+
+
+def source_record_id(table, row, cols):
+    """Source identity of a raw preserved row from its table's real primary
+    key; composite keys join their columns with "/". Without a known key the
+    id is a digest of the row, never a foreign key such as userId."""
+    if not cols and "id" in row:
+        cols = ["id"]
+    if cols and all(row.get(c) is not None for c in cols):
+        return "/".join(sid(row[c]) for c in cols)
+    return "row:" + hashlib.sha256(json.dumps(row, sort_keys=True, default=str).encode()).hexdigest()[:32]
+
+
 class ExportError(Exception):
     """A diagnostic that is safe to print (secrets are redacted)."""
 
@@ -322,8 +341,14 @@ class Staging:
         s = cls()
         s.db.execute("BEGIN")
         for table, rows in tables.items():
-            col = next((c for c in ("id", "userId", "noteId", "account_id") if rows and all(c in r for r in rows)), None)
+            known = KNOWN_PRIMARY_KEYS.get(table)
+            if known and len(known) == 1:
+                col = known[0]
+            else:
+                col = next((c for c in ("id", "userId", "noteId", "account_id") if rows and all(c in r for r in rows)), None)
             s.set_pk(table, col)
+            if known or col == "id":
+                s.set_pkcols(table, known or ["id"])
             s.upsert(table, rows, col)
         s.db.execute("COMMIT")
         return s
@@ -339,6 +364,15 @@ class Staging:
     def set_pk(self, table, col):
         self.db.execute("INSERT INTO pk(tbl,col) VALUES(?,?) ON CONFLICT(tbl) DO UPDATE SET col=excluded.col", (table, col))
         self.pk_cache = None
+
+    def set_pkcols(self, table, cols):
+        """Full (possibly composite) primary key of a source table, in key order."""
+        if cols:
+            self.set_meta("pkcols:" + table, json.dumps(list(cols)))
+
+    def pkcols(self, table):
+        raw = self.get_meta("pkcols:" + table)
+        return json.loads(raw) if raw else None
 
     def pk(self, table):
         if self.pk_cache is None:
@@ -666,12 +700,14 @@ class PsqlSource:
         if self.catalog is None:
             sql = r"""SELECT json_build_object('t', c.relname, 'cols', (SELECT json_agg(a.attname ORDER BY a.attnum) FROM pg_attribute a WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped),
                 'pk', (SELECT CASE WHEN array_length(i.indkey::int2[],1)=1 THEN (SELECT attname FROM pg_attribute WHERE attrelid=c.oid AND attnum=i.indkey[0]) END FROM pg_index i WHERE i.indrelid=c.oid AND i.indisprimary),
+                'pkcols', (SELECT json_agg(a.attname ORDER BY k.ord) FROM pg_index i CROSS JOIN LATERAL unnest(i.indkey::int2[]) WITH ORDINALITY AS k(attnum, ord)
+                    JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum=k.attnum WHERE i.indrelid=c.oid AND i.indisprimary),
                 'est', GREATEST(c.reltuples,0)::bigint)
                 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') ORDER BY c.relname"""
             self.catalog = {}
             for line in self.run(sql):
                 r = json.loads(line)
-                self.catalog[r["t"]] = {"cols": set(r["cols"] or []), "pk": r["pk"], "est": r["est"]}
+                self.catalog[r["t"]] = {"cols": set(r["cols"] or []), "pk": r["pk"], "pkcols": r.get("pkcols") or [], "est": r["est"]}
         return self.catalog
 
     def scalar(self, sql, variables=None):
@@ -708,6 +744,7 @@ class Fetcher:
         pk = self.cat[table]["pk"]
         name = name or "scan:" + table
         self.s.set_pk(table, pk)
+        self.s.set_pkcols(table, self.cat[table].get("pkcols"))
         last, done, finished = self.s.task(name)
         if finished and not self.final_sync:
             return
@@ -765,6 +802,7 @@ class Fetcher:
             return
         pk = self.cat[table]["pk"]
         self.s.set_pk(table, pk)
+        self.s.set_pkcols(table, self.cat[table].get("pkcols"))
         name = name or "ref:%s.%s" % (table, col)
         pending = []
         for (stbl, path, array, swhere) in sources:
@@ -901,11 +939,21 @@ class Converter:
         for table in sorted(self.tables):
             rows = self.tables.get(table)
             self.stage("records:" + table, table)
+            cols = self.staging.pkcols(table) or KNOWN_PRIMARY_KEYS.get(table)
+            seen, dups = set(), []
             for i, row in enumerate(rows):
-                self.bundle["records"].append({"kind": "misskey:" + table,
-                    "id": sid(row.get("id") or row.get("userId") or row.get("noteId") or i),
+                id_ = source_record_id(table, row, cols)
+                if id_ in seen:
+                    dups.append(id_)
+                seen.add(id_)
+                self.bundle["records"].append({"kind": "misskey:" + table, "id": id_,
                     "owner_id": sid(row.get("userId") or row.get("fromUserId")), "data": row})
                 self.progress.advance()
+            if dups:
+                # Fail fast: duplicate ids collide on import receipts (round 3:
+                # polls keyed by their author's userId).
+                raise ExportError("duplicate source ids in table %s (primary key %s): %d duplicate(s), e.g. %s"
+                                  % (table, "+".join(cols or ["<row hash>"]), len(dups), ", ".join(sorted(set(dups))[:5])))
             if rows:
                 self.issue("warning", "source_records_preserved", table, "", "Complete source rows are preserved privately; preservation does not imply equivalent live support.")
         self.issue("warning", "source_auth_material", "credentials", "", "Private raw records contain source authentication/security material. Do not publish this bundle; sessions, MFA and unsupported settings require explicit migration policy.")

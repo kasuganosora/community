@@ -203,6 +203,11 @@ tootctl two-factor scrub-preserved     # 清除旧导入归档里的明文 secre
    - 预检会把每个待导入字段的长度与**目标库实际的列宽**比较，超长时报阻断错误 `column_too_narrow`，每列一条，写明表.列、超长数量、最大长度、列宽和最多 5 个样例源 ID（`count` / `max_length` / `limit` / `sample_ids` 字段）。
 9. **回复比父帖可见范围更大。** 第三次演练在帖子阶段失败：`reply widens parent audience`——本地「首页」（unlisted）回复挂在远端「仅关注者」帖子下。现在不再中止：回复的可见性收窄到父帖的级别（从不放宽；unlisted→仅关注者；父帖是私信时回复变成私信，收件人只保留父帖参与者并加上父帖作者），帖子属性 `import_visibility_narrowed_from` 记录原值。预检和导入报告里是一条非阻断警告 `reply_visibility_narrowed`（数量 + 最多 5 个样例源 ID），回复链会逐级收窄。站点导入里互相回复成环、永远无法发布的帖子也不再让整个导入失败，而是保留在私有归档里并给出 `archived_parent` 警告。
 
+10. **私有归档记录的源 ID 重复。** 第三次演练在 preserved 阶段失败：`import conflict for archive:<misskey:poll> source identifier`。导出器用 `id or userId or noteId` 拼原始行的 ID，而 Misskey 的 `poll` 没有 `id` 列（主键是 `noteId`），于是同一作者的多个投票都拿到作者的 `userId`（14 个重复 ID、多出 67 行）。现在导出器从 `pg_index` 读取每张表真实的（可能是复合的）主键，复合主键按列顺序用 `/` 连接；目录里没有主键信息时只用已知表（`poll`/`promo_note` → `noteId`，`user_profile`/`user_keypair`/`user_publickey` → `userId`）或 `id`，否则用整行摘要，绝不退回到外键。同一张表出现重复 ID 时导出器立即失败；预检遇到含重复 ID 的旧 spool 报阻断错误 `duplicate_source_id`（表、数量、最多 5 个样例），`--apply` 直接拒绝。
+    `poll_votes` 的「143 行只有 136 个不同 ID」不是同一个原因：Misskey 多选投票每个选项一行（各自有 `id`），而 spool 的键只用了 `投票帖/用户`，没有带选项。导入回执本来就带选项，所以没有丢票；spool 键现在也带上选项。
+11. **归档原因明细。** 导入报告里每个被归档的记录都按 `类型:原因` 汇总成一条 info `archived_records`（数量 + 最多 5 个样例源 ID），例如 `post:quote_note`、`post:channel_note`、`post:chat_archive_only`、`post:unknown_visibility`、`post:boost_of_archived_post`、`post:archived_parent`、`post:reply_cycle_or_unpublished_parent`、`reaction:post_not_published`、`reaction:custom_emoji_not_imported`、`poll:post_not_published`、`poll_vote:poll_not_published`、`bookmark:post_not_published`。前几种是有意为之（目标端没有对应语义）；`*_not_published`、`reply_cycle_or_unpublished_parent` 要逐个看样例，判断是不是数据丢失。原始源行（`records`）照旧只计入 `archived.record`，不进明细。
+12. **收窄预测与导入一致。** 预检的 `reply_visibility_narrowed` 计数现在按导入器的规则逐条模拟：跨分块、父帖在后面出现、回复链、私信父帖、父帖被归档（回复照常发布但不收窄）、父帖成环或缺失（回复会被归档，不计入）、以及重跑时已按回执提交的帖子（不再重复计数）。测试用随机回复森林在 SQLite / PostgreSQL 上断言预检计数 == 导入报告计数 == 实际带 `import_visibility_narrowed_from` 的帖子数。旧 spool 首次打开时的原地加密改为每 500 行一个事务并截断 WAL，内存不再随 spool 大小增长。
+
 ## 重新执行 maid.lat 演练（隔离网络、只读源）
 
 前提：一台**不能访问公网**的演练机；源库是 maid.lat 的只读副本或恢复出来的快照，使用上面的只读角色；目标是一个空的 Community 数据库。
@@ -240,6 +245,24 @@ MISSKEY_DB_DSN='postgresql://community_export@10.0.0.5:5432/misskey?sslmode=requ
 COMMUNITY_DB_DSN='postgresql://community@127.0.0.1:5432/community_rehearsal' \
 COMMUNITY_BASE='http://127.0.0.1:8080' HOST_HEADER=maid.lat SAMPLE=200 \
 python3 scripts/migration/verify_misskey_import.py --seed 42 -v
+```
+
+### 全量重跑（第三次演练 preserved 阶段失败之后）
+
+旧 spool 里的原始行 ID 是错的，不能 `--reuse-spool`；目标库里已经有第三次演练写入的帖子回执和错误 ID 的归档记录，必须换一个**空的**目标库。
+
+```sh
+# 新版本二进制；.env 只改 DB_DSN 指向新的空库（APP_BASE_URL=https://maid.lat、ENCRYPTED_KEY 不变）
+# 旧工作目录整个移走（含明文的部分已加密；确认不再需要后安全删除）
+mv /srv/maid-rehearsal/work /srv/maid-rehearsal/work.round3
+# 1) 重新读取源库
+community-transfer "${COMMON[@]}" --fetch-only --max-rows-per-sec 20000
+# 2) 预检：期望 can_execute: true，没有 duplicate_source_id / column_too_narrow；
+#    reply_visibility_narrowed 的数量就是导入后会被收窄的帖子数
+community-transfer "${COMMON[@]}" --final-sync --report /srv/maid-rehearsal/report-validate-4.json
+# 3) 导入；之后在 report-import-4.json 里看 archived_records 明细
+TRANSFER_DEBUG=1 community-transfer "${COMMON[@]}" --reuse-spool --apply --report /srv/maid-rehearsal/report-import-4.json
+# 4) 核对：records 行数应等于不同 (kind, id) 的数量
 ```
 
 ### 从同一份已读取数据重跑（帖子阶段失败之后）

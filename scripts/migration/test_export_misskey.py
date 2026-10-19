@@ -221,6 +221,34 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(b["reactions"][0]["emoji"], ":custom@remote.test:")
         self.assertEqual(b["relations"][0]["expires_at"], "2000-01-01T00:00:00Z")
 
+    def test_preserved_record_ids_follow_real_primary_keys(self):
+        # Round 3: poll has no id column (PK noteId); ids fell back to the
+        # author's userId, so two polls of one author collided.
+        self.tables.update({"poll": [{"noteId": ident(8), "userId": self.a, "choices": ["a", "b"], "votes": [1, 1], "multiple": True},
+                                     {"noteId": ident(9), "userId": self.a, "choices": ["c"], "votes": [0], "multiple": False}],
+                            # A multiple-choice vote is one row per choice, each with its own id.
+                            "poll_vote": [{"id": ident(10), "noteId": ident(8), "userId": self.b, "choice": 0},
+                                          {"id": ident(11), "noteId": ident(8), "userId": self.b, "choice": 1}]})
+        b = self.converter().convert()
+        ids = {}
+        for r in b["records"]:
+            ids.setdefault(r["kind"], []).append(r["id"])
+        self.assertEqual(sorted(ids["misskey:poll"]), [ident(8), ident(9)])
+        self.assertEqual(sorted(ids["misskey:poll_vote"]), [ident(10), ident(11)])
+        for kind, values in ids.items():
+            self.assertEqual(len(values), len(set(values)), kind)
+        self.assertEqual(sorted(v["option"] for v in b["poll_votes"]), [0, 1])
+
+    def test_composite_primary_key_and_duplicate_ids_fail_fast(self):
+        self.assertEqual(m.source_record_id("t", {"a": "x", "b": 2}, ["a", "b"]), "x/2")
+        self.assertEqual(m.source_record_id("user_profile", {"userId": "u"}, m.KNOWN_PRIMARY_KEYS["user_profile"]), "u")
+        self.assertTrue(m.source_record_id("t", {"userId": "u"}, None).startswith("row:"), "never fall back to a foreign key")
+        self.tables["poll"] = [{"noteId": ident(8), "userId": self.a}, {"noteId": ident(9), "userId": self.a}]
+        staging = m.Staging.from_dict(self.tables)
+        staging.set_pkcols("poll", ["userId"])  # a wrong key yields duplicates
+        with self.assertRaisesRegex(m.ExportError, "duplicate source ids in table poll"):
+            self.converter(staging).convert()
+
     def test_note_emoji_domain_resolution_and_pending_activity(self):
         self.tables["emoji"] = [{"id": ident(10), "name": "local", "host": None}, {"id": ident(11), "name": "remote", "host": "remote.test"}]
         self.tables["user"][0]["emojis"] = ["local"]
