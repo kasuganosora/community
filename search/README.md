@@ -34,6 +34,12 @@ Meilisearch 索引名称常量：
 | `MEILISEARCH_API_KEY` | （空） | Master Key 或 Admin API Key。外部生产实例必填。只读 Search API Key 不能建索引 |
 | `MEILISEARCH_INDEX_PREFIX` | （空） | 共用外部引擎时的索引前缀，例如 `community` 会使用 `community_statuses` |
 | `MEILISEARCH_ENABLED` | `auto` | `auto` 或未设置：引擎在线就用，离线走数据库并持续重试。`true` 启动时先连一次。`false` 完全不用 |
+| `SEARCH_INDEX_FLUSH_INTERVAL_MS` | `3000` | 增量写入的批量间隔（100–60000） |
+| `SEARCH_INDEX_BATCH_MAX_DOCS` | `500` | 单个索引攒够这么多文档立即发送 |
+| `SEARCH_INDEX_BATCH_MAX_BYTES` | `5242880` | 单次请求的字节上限（约 5 MiB） |
+| `SEARCH_INDEX_QUEUE_MAX` | `50000` | 内存里最多排队的文档数，超出丢弃（回填会补上） |
+| `SEARCH_INDEX_MAX_RETRIES` | `5` | 失败批次的最大重试次数（指数退避 1s→60s） |
+| `SEARCH_INDEX_TASK_CHECK_INTERVAL_MS` | `5000` | 检查任务结果的间隔，最低 1000；一次 `GET /tasks` 查所有未完成批次 |
 
 ```bash
 # 本机。开发模式可不设密钥。
@@ -48,6 +54,22 @@ MEILISEARCH_ENABLED=auto
 ```
 
 > **自动适配**：未设置或 `auto` 时后台探测默认地址，通了就建索引并回填，断了立刻改走数据库，恢复后重新建索引并回填。显式 `false`/`off` 不会探测。
+
+## 增量写入批量队列
+
+`search/indexsync` 把嘟文增删改、资料更新和标签变化交给 `IndexQueue`（`index_queue.go`），
+请求处理不再等待 Meilisearch：
+
+- 每个（索引, 文档 id）只保留最后一次操作：先更新后删除只发删除，多次更新只发最后一份。
+- 每隔 `SEARCH_INDEX_FLUSH_INTERVAL_MS`，或单个索引达到文档数/字节上限时，每个索引发一次
+  `addDocuments` 和/或一次 `deleteDocuments`。
+- 不再逐个轮询 `/tasks`：所有未完成批次用一次 `GET /tasks?uids=…` 低频检查，只用于记录失败并
+  退避重试（失败批次对半拆分重试，重试不会覆盖更新的版本）。
+- 代价：新内容晚几秒可搜。进程被强杀时内存里未发出的变更会丢失，由每次连上引擎（包括每次启动）
+  时的全量回填补齐；搜索结果总是回数据库取，已删除的嘟文不会出现。正常关闭会先发送剩余批次
+  （`indexsync.Shutdown`）。
+
+运维说明见 `docs/ops/meilisearch.md`。
 
 ## 架构与结构
 
