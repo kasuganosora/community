@@ -82,22 +82,23 @@ func OpenSpool(path string) (*Spool, error) {
 	if h := s.Meta("header"); h != "" {
 		_ = json.Unmarshal([]byte(h), &s.Header)
 	}
-	if err := s.sealLegacyCredentials(); err != nil {
+	if err := s.sealLegacySecrets(); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
 }
 
-// sealLegacyCredentials seals credential records a spool written before
-// at-rest sealing still holds in plaintext (e.g. a failed rehearsal's work
-// directory). secure_delete zeroes the freed pages and the WAL is truncated,
-// so the old plaintext does not linger on disk.
-func (s *Spool) sealLegacyCredentials() error {
+// sealLegacySecrets seals records of secret-bearing sections that a spool
+// written by an older version still holds in plaintext (e.g. a failed
+// rehearsal's work directory: credentials, actor private keys, raw source
+// rows). secure_delete zeroes the freed pages, VACUUM rewrites the file and
+// the WAL is truncated, so the old plaintext does not linger on disk.
+func (s *Spool) sealLegacySecrets() error {
 	if !SpoolSealingAvailable() {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT seq, raw FROM rec WHERE section = 'credentials' AND substr(raw, 1, ?) <> ?`, len(sealedSpoolPrefix), sealedSpoolPrefix)
+	rows, err := s.db.Query(`SELECT seq, raw FROM rec WHERE section IN ('credentials', 'keys', 'records') AND substr(raw, 1, ?) <> ?`, len(sealedSpoolPrefix), sealedSpoolPrefix)
 	if err != nil {
 		return err
 	}
@@ -137,6 +138,12 @@ func (s *Spool) sealLegacyCredentials() error {
 		}
 	}
 	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`VACUUM`); err != nil {
 		return err
 	}
 	_, err = s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
@@ -229,15 +236,15 @@ func (s *Spool) add(section string, raw []byte) error {
 			return err
 		}
 	}
-	switch section {
-	case "credentials":
+	if section == "records" {
+		raw = redactPreservedRecord(raw)
+	}
+	if sealedSection(section) {
 		sealed, err := sealSpoolRecord(raw)
 		if err != nil {
 			return err
 		}
 		raw = sealed
-	case "records":
-		raw = redactPreservedRecord(raw)
 	}
 	if _, err := s.ins.Exec(section, id, acct, raw); err != nil {
 		return err

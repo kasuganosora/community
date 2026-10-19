@@ -200,6 +200,14 @@ func runDirectOnce(d direct, source string, apply bool, reportPath string, chunk
 	_ = datatransfer.TightenTree(*d.workDir)
 	state := filepath.Join(*d.workDir, "state")
 	spoolPath := filepath.Join(*d.workDir, "spool.sqlite3")
+	// Seal plaintext secrets an older exporter left in the fetch state; the
+	// exporter seals new rows itself with the key passed in its environment.
+	if n, err := datatransfer.SealExporterState(state); err != nil {
+		fmt.Fprintf(os.Stderr, "Fetch state could not be sealed (%s).\n", safeReason(err))
+		return 1
+	} else if n > 0 {
+		fmt.Fprintf(os.Stderr, "sealed secret fields of %d plaintext row(s) in %s\n", n, state)
+	}
 	var reportFile *os.File
 	if reportPath != "" && !*d.fetchOnly {
 		if reportFile, err = os.OpenFile(reportPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600); err != nil {
@@ -211,6 +219,7 @@ func runDirectOnce(d direct, source string, apply bool, reportPath string, chunk
 	if *d.fetchOnly {
 		out := filepath.Join(*d.workDir, "out-fetch")
 		cmd := exec.CommandContext(ctx, *d.python, exporterArgs(d, source, script, state, out)...)
+		cmd.Env = exporterEnv()
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		err := cmd.Run()
 		_ = datatransfer.TightenTree(*d.workDir)
@@ -240,6 +249,7 @@ func runDirectOnce(d direct, source string, apply bool, reportPath string, chunk
 	if !*d.reuseSpool || sp.Meta("complete") != "1" {
 		out = filepath.Join(*d.workDir, "out-"+time.Now().UTC().Format("20060102T150405"))
 		cmd := exec.CommandContext(ctx, *d.python, exporterArgs(d, source, script, state, out)...)
+		cmd.Env = exporterEnv()
 		cmd.Stderr = os.Stderr
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -463,4 +473,14 @@ func runStreamedBundle(ctx context.Context, conn *gorm.DB, input, bundlePath str
 // credentials; community-transfer never deletes operator-supplied input.
 func bundleNotice() {
 	fmt.Fprintln(os.Stderr, "NOTICE: the input bundle contains plaintext source credentials (password hashes, signing keys, TOTP secrets, backup codes). Once the import is verified, wipe it (e.g. shred -u bundle.json) and its copies.")
+}
+
+// exporterEnv passes the state sealing key (derived from ENCRYPTED_KEY) to
+// the exporter so secret fields never rest in plaintext in state/.
+func exporterEnv() []string {
+	env := os.Environ()
+	if k := datatransfer.StateKeyHex(); k != "" {
+		env = append(env, datatransfer.StateKeyEnv+"="+k)
+	}
+	return env
 }

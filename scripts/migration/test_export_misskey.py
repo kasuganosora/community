@@ -370,5 +370,40 @@ class RedactTwoFactorTests(unittest.TestCase):
                 self.assertNotIn(secret, out)
 
 
+class StagingSealTests(unittest.TestCase):
+    def test_secret_fields_are_sealed_at_rest_and_opened_on_read(self):
+        key = "ab" * 32
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"COMMUNITY_TRANSFER_STATE_KEY": key}):
+            path = Path(d) / "staging.sqlite3"
+            s = m.Staging(path)
+            s.set_pk("user_profile", "userId")
+            s.set_pk("access_token", None)
+            s.upsert("user_profile", [{"userId": "u0", "password": "$2b$10$hashvalue", "twoFactorSecret": "JBSWY3DPEHPK3PXP",
+                                       "twoFactorBackupSecret": ["code-one"], "usePasswordLessLogin": False}])
+            s.upsert("user_keypair", [{"userId": "u0", "privateKey": "TEST_PRIVATE_KEY"}], "userId")
+            row = {"userId": "u0", "token": "native-token"}
+            s.upsert("access_token", [row])
+            s.upsert("access_token", [row])  # keyed by plaintext: same row, not a duplicate
+            self.assertEqual(s.count("access_token"), 1)
+            p = s.get("user_profile", "u0")
+            self.assertEqual(p["twoFactorSecret"], "JBSWY3DPEHPK3PXP")
+            self.assertEqual(p["twoFactorBackupSecret"], ["code-one"])
+            self.assertIs(p["usePasswordLessLogin"], False)
+            self.assertEqual(next(s.rows("user_keypair"))["privateKey"], "TEST_PRIVATE_KEY")
+            self.assertEqual(s.by("user_profile", "userId", "u0")[0]["password"], "$2b$10$hashvalue")
+            self.assertEqual(s.get_meta("fields_sealed_v1"), "1")
+            s.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            disk = b"".join(p.read_bytes() for p in Path(d).iterdir())
+            for secret in (b"hashvalue", b"JBSWY3DPEHPK3PXP", b"code-one", b"TEST_PRIVATE_KEY", b"native-token"):
+                self.assertNotIn(secret, disk)
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"COMMUNITY_TRANSFER_STATE_KEY": key}):
+            s = m.Staging(Path(d) / "staging.sqlite3")
+            s.upsert("user_keypair", [{"userId": "u0", "privateKey": "TEST_PRIVATE_KEY"}], "userId")
+            with mock.patch.dict(os.environ, {"COMMUNITY_TRANSFER_STATE_KEY": "cd" * 32}):
+                other = m.Staging(Path(d) / "staging.sqlite3")
+                with self.assertRaises(m.ExportError):
+                    other.get("user_keypair", "u0")
+
+
 if __name__ == "__main__":
     unittest.main()

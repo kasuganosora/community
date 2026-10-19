@@ -13,8 +13,7 @@ import (
 	"github.com/kasuganosora/community/config"
 )
 
-// Credential records (password hashes, TOTP secrets, backup codes) are
-// sealed with AES-256-GCM before they reach spool.sqlite3, so the plaintext
+// Credential, key and raw-record spool entries are sealed with AES-256-GCM before they reach spool.sqlite3, so the plaintext
 // never rests in the work directory, whichever way a run ends: success
 // wipes the spool, but a failed or interrupted run keeps it for
 // --reuse-spool. The key derives from the target's ENCRYPTED_KEY, which
@@ -22,6 +21,14 @@ import (
 // have their second-factor fields redacted instead (they are never needed).
 
 var sealedSpoolPrefix = []byte("community-transfer-sealed:v1:")
+
+// sealedSection reports spool sections whose records are sealed whole:
+// credentials (password hashes, TOTP secrets, backup codes), keys (actor
+// private keys) and records (complete raw source rows: OAuth app secrets,
+// access tokens, webhook and instance API secrets, keypairs, profiles).
+func sealedSection(section string) bool {
+	return section == "credentials" || section == "keys" || section == "records"
+}
 
 // ErrSpoolKey is returned when sealed spool records cannot be opened with the
 // configured ENCRYPTED_KEY (it changed since the spool was written).

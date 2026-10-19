@@ -27,9 +27,11 @@ password argument. No remote URL is fetched. See README-misskey.md.
 Exit codes: 0 exported, 2 exported with blocking issues, 1 failed.
 """
 import argparse
+import base64
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -231,6 +233,68 @@ def sort_key(k):
     return k.rjust(24, "0") if k.isdigit() else k
 
 
+class FieldSealer:
+    """Seals secret-named fields of staged rows (format v1, see
+    datatransfer/state_seal.go): password hashes, TOTP secrets, private keys,
+    app/OAuth secrets, tokens and API keys never rest in plaintext in the
+    state directory. The key comes from community-transfer through
+    COMMUNITY_TRANSFER_STATE_KEY (derived from the target ENCRYPTED_KEY)."""
+
+    PREFIX = "enc1:"
+    NAME = re.compile(r"(secret|password|privatekey|private_key|authkey|apikey|accesskey|smtppass|^token$|^hash$|^auth$|^code$)", re.I)
+
+    def __init__(self, master):
+        self.enc = hmac.new(master, b"enc", hashlib.sha256).digest()
+        self.mac = hmac.new(master, b"mac", hashlib.sha256).digest()
+
+    @classmethod
+    def from_env(cls):
+        k = os.environ.get("COMMUNITY_TRANSFER_STATE_KEY", "")
+        return cls(bytes.fromhex(k)) if k else None
+
+    def _xor(self, nonce, data):
+        ks = hashlib.shake_256(self.enc + nonce).digest(len(data))
+        return (int.from_bytes(data, "big") ^ int.from_bytes(ks, "big")).to_bytes(len(data), "big") if data else b""
+
+    def seal_value(self, value):
+        plain = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+        nonce = os.urandom(16)
+        ct = self._xor(nonce, plain)
+        tag = hmac.new(self.mac, b"v1" + nonce + ct, hashlib.sha256).digest()[:16]
+        return self.PREFIX + base64.urlsafe_b64encode(nonce + ct + tag).decode().rstrip("=")
+
+    def open_value(self, token):
+        raw = base64.urlsafe_b64decode(token[len(self.PREFIX):] + "=" * (-len(token[len(self.PREFIX):]) % 4))
+        nonce, ct, tag = raw[:16], raw[16:-16], raw[-16:]
+        if not hmac.compare_digest(hmac.new(self.mac, b"v1" + nonce + ct, hashlib.sha256).digest()[:16], tag):
+            raise ExportError("state directory was sealed with a different ENCRYPTED_KEY")
+        return json.loads(self._xor(nonce, ct))
+
+    def seal_row(self, row):
+        if not isinstance(row, dict):
+            return row
+        out = None
+        for k, v in row.items():
+            if not self.NAME.search(k):
+                continue
+            if isinstance(v, str) and v and not v.startswith(self.PREFIX) or isinstance(v, (list, dict)) and v:
+                if out is None:
+                    out = dict(row)
+                out[k] = self.seal_value(v)
+        return out if out is not None else row
+
+    def open_row(self, row):
+        if not isinstance(row, dict):
+            return row
+        out = None
+        for k, v in row.items():
+            if isinstance(v, str) and v.startswith(self.PREFIX):
+                if out is None:
+                    out = dict(row)
+                out[k] = self.open_value(v)
+        return out if out is not None else row
+
+
 class Staging:
     """Disk-backed row store: one SQLite file, upserted by (table, key)."""
 
@@ -249,6 +313,9 @@ class Staging:
         """)
         self.indexes = set()
         self.pk_cache = None
+        self.sealer = FieldSealer.from_env() if path != ":memory:" else None
+        if self.sealer:
+            self.set_meta("fields_sealed_v1", "1")
 
     @classmethod
     def from_dict(cls, tables):
@@ -288,7 +355,12 @@ class Staging:
                 obj = r if isinstance(r, dict) else json.loads(r)
                 k = sid(obj.get(col))
             else:
+                # Keyed by the plaintext: sealing uses a random nonce.
                 k = hashlib.sha256(data.encode()).hexdigest()
+            if self.sealer:
+                sealed = self.sealer.seal_row(r if isinstance(r, dict) else json.loads(r))
+                if sealed is not r:
+                    data = json.dumps(sealed, ensure_ascii=False, separators=(",", ":"))
             batch.append((table, k, sort_key(k), data))
         self.db.executemany("INSERT INTO rows(tbl,k,sk,data) VALUES(?,?,?,?) ON CONFLICT(tbl,k) DO UPDATE SET data=excluded.data", batch)
         return len(batch)
@@ -307,7 +379,10 @@ class Staging:
 
     def get(self, table, k, default=None):
         r = self.db.execute("SELECT data FROM rows WHERE tbl=? AND k=?", (table, sid(k))).fetchone()
-        return json.loads(r[0]) if r else default
+        return self._open(json.loads(r[0])) if r else default
+
+    def _open(self, row):
+        return self.sealer.open_row(row) if self.sealer else row
 
     def rows(self, table):
         cur = self.db.execute("SELECT data FROM rows WHERE tbl=? ORDER BY sk", (table,))
@@ -316,7 +391,7 @@ class Staging:
             if not chunk:
                 return
             for (data,) in chunk:
-                yield json.loads(data)
+                yield self._open(json.loads(data))
 
     def keys(self, table):
         """Key batches by keyset, safe while rows of the table are deleted."""
@@ -337,7 +412,7 @@ class Staging:
             self.db.execute("CREATE INDEX IF NOT EXISTS %s ON rows(tbl, json_extract(data, '$.%s'), sk)" % (name, col))
             self.indexes.add((table, col))
         value = int(value) if isinstance(value, int) or (isinstance(value, str) and value.isdigit() and len(value) < 19) else value
-        out = [json.loads(d) for (d,) in self.db.execute(
+        out = [self._open(json.loads(d)) for (d,) in self.db.execute(
             "SELECT data FROM rows WHERE tbl=? AND json_extract(data, '$.%s') IN (?, ?) ORDER BY sk" % col, (table, value, sid(value)))]
         return out
 
