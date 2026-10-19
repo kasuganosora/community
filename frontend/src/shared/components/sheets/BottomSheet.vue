@@ -401,9 +401,11 @@ onBeforeUnmount(() => {
   flex-direction: column;
   width: 100%;
   max-height: calc(100dvh - var(--safe-top) - var(--space-3));
-  background: var(--material-thick);
-  -webkit-backdrop-filter: var(--material-blur-thick);
-  backdrop-filter: var(--material-blur-thick);
+  /* Solid elevated surface so page content (e.g. buttons behind a tall
+     sheet) never shows through the translucent material glass. */
+  background: var(--color-bg-elevated);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
   box-shadow: var(--shadow-sheet), inset 0 var(--hairline) 0 var(--material-edge);
   color: var(--color-label);
