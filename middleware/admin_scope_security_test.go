@@ -15,10 +15,10 @@ func TestAdminScopeRequiresCurrentAdminIdentity(t *testing.T) {
 		web, admin, scope, missingUser bool
 		want                           int
 	}{
-		{"ordinary web user", true, false, false, false, 401},
+		{"ordinary web user", true, false, false, false, 403},
 		{"admin web user", true, true, false, false, 204},
-		{"oauth scope cannot elevate ordinary user", false, false, true, false, 401},
-		{"oauth admin still needs scope", false, true, false, false, 401},
+		{"oauth scope cannot elevate ordinary user", false, false, true, false, 403},
+		{"oauth admin still needs scope", false, true, false, false, 403},
 		{"oauth admin and scope", false, true, true, false, 204},
 		{"oauth scope without user", false, false, true, true, 401},
 	} {

@@ -113,7 +113,7 @@ func TestDiscoveryRoutesOAuthScopesCoverCompatibilityAndNewEndpoints(t *testing.
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			response := f.request(tc.method, tc.path, tc.token, tc.body)
-			require.Equal(t, http.StatusUnauthorized, response.Code, response.Body.String())
+			require.Equal(t, http.StatusForbidden, response.Code, response.Body.String())
 		})
 	}
 	for _, path := range []string{"/api/v1/suggestions", "/api/v2/suggestions"} {

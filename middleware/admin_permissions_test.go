@@ -42,12 +42,12 @@ func TestDelegatedAdminCapabilityAndOAuthScopeBothRequired(t *testing.T) {
 		return w.Code
 	}
 	require.Equal(t, 204, request("/api/v1/admin/measures", false, false))
-	require.Equal(t, 401, request("/api/v1/admin/invites", false, false))
-	require.Equal(t, 401, request("/api/v1/admin/data/imports", false, false))
-	require.Equal(t, 401, request("/api/v1/admin/measures", true, false))
+	require.Equal(t, 403, request("/api/v1/admin/invites", false, false))
+	require.Equal(t, 403, request("/api/v1/admin/data/imports", false, false))
+	require.Equal(t, 403, request("/api/v1/admin/measures", true, false))
 	require.Equal(t, 204, request("/api/v1/admin/measures", true, true))
 	require.NoError(t, setup.GormDB().Delete(&binding).Error)
-	require.Equal(t, 401, request("/api/v1/admin/measures", false, false))
+	require.Equal(t, 403, request("/api/v1/admin/measures", false, false))
 }
 func TestAdminCapabilityPathBoundaries(t *testing.T) {
 	require.EqualValues(t, 0, adminRoutePermission("/api/v1/admin/invites-private"))

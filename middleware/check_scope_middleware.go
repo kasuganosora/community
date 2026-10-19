@@ -46,7 +46,7 @@ func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 				if !user.IsAdmin {
 					required := adminRoutePermission(c.Request.URL.Path)
 					if required == 0 {
-						returnUnauthorized(c)
+						returnInsufficientScope(c)
 						return
 					}
 					bits, err := models.EffectiveAdminPermissions(db.GetDB().WithContext(c.Request.Context()), user)
@@ -55,7 +55,7 @@ func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 						return
 					}
 					if bits&required != required {
-						returnUnauthorized(c)
+						returnInsufficientScope(c)
 						return
 					}
 				}
@@ -77,7 +77,7 @@ func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 		// Oauth的都需要检查scope
 		for _, scope := range scopes {
 			if tokenData.Scopes == nil || !tokenData.Scopes.HasScope(scope.Type, scope.Value) {
-				returnUnauthorized(c)
+				returnInsufficientScope(c)
 
 				return
 			}
@@ -94,4 +94,14 @@ func returnUnauthorized(c *gin.Context) {
 		"message": "Unauthorized",
 	})
 	c.Abort()
+}
+
+// InsufficientScopeError is the Mastodon-compatible body for a valid token
+// that lacks the scope or permission a route requires.
+const InsufficientScopeError = "This action is outside the authorized scopes"
+
+// returnInsufficientScope answers 403: the token is valid, so clients must
+// not treat it as a logout signal the way they treat 401.
+func returnInsufficientScope(c *gin.Context) {
+	c.AbortWithStatusJSON(403, gin.H{"error": InsufficientScopeError, "error_code": "insufficient_scope"})
 }

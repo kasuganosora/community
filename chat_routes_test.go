@@ -21,7 +21,7 @@ func TestCommunityChatUsesAuthenticatedIdentityAndWriteScope(t *testing.T) {
 		status                  int
 	}{
 		{"read", "GET", false, false, false, 200},
-		{"read-token-cannot-send", "POST", false, false, false, 401},
+		{"read-token-cannot-send", "POST", false, false, false, 403},
 		{"write", "POST", false, false, true, 200},
 		{"banned", "POST", true, false, true, 403},
 		{"foreign-account", "GET", false, true, false, 403},
@@ -62,10 +62,10 @@ func TestCommunityGroupReadScopeOnlyAllowsReadOnlyPosts(t *testing.T) {
 	}{
 		{"/api/v1/chat/group-sync", http.StatusOK},
 		{"/api/v1/chat/groups/resolve", http.StatusOK},
-		{"/api/v1/chat/groups", http.StatusUnauthorized},
-		{"/api/v1/chat/groups/join", http.StatusUnauthorized},
-		{"/api/v1/chat/groups/resolve/extra", http.StatusUnauthorized},
-		{"/api/v1/chat/groups/example/messages", http.StatusUnauthorized},
+		{"/api/v1/chat/groups", http.StatusForbidden},
+		{"/api/v1/chat/groups/join", http.StatusForbidden},
+		{"/api/v1/chat/groups/resolve/extra", http.StatusForbidden},
+		{"/api/v1/chat/groups/example/messages", http.StatusForbidden},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
 			r := gin.New()

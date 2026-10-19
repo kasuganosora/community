@@ -101,9 +101,12 @@ func AuthMiddleware() gin.HandlerFunc {
 		if token.ExternalClient == models.PersonalTokenClient {
 			reading := c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead || c.Request.Method == http.MethodOptions
 			if tokenData.Scopes == nil || (reading && tokenData.Scopes.ReadScope == 0) || (!reading && tokenData.Scopes.WriteScope == 0) {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient_scope"})
+				returnInsufficientScope(c)
 				return
 			}
+		} else if !oauthTokenMayWrite(c.Request, tokenData) {
+			returnInsufficientScope(c)
+			return
 		}
 
 		// 获取用户信息
@@ -196,6 +199,9 @@ func returnUnauthorizedAndRemoveCookie(c *gin.Context) {
 	c.Abort()
 }
 
+// tokenCacheValidPersonal marks a cached valid personal access token.
+const tokenCacheValidPersonal = "valid:personal"
+
 // tokenCacheTTL token 缓存的 TTL（30 秒）.
 const tokenCacheTTL = 30 * time.Second
 
@@ -272,6 +278,11 @@ func getTokenWithCacheContext(requestContext context.Context, tokenStr string) (
 			if cached == "valid" {
 				return &models.AuthToken{}, nil
 			}
+			// Personal tokens are cached separately so the coarse
+			// read/write scope check still applies on a cache hit.
+			if cached == tokenCacheValidPersonal {
+				return &models.AuthToken{ExternalClient: models.PersonalTokenClient}, nil
+			}
 		}
 		// A Redis outage is not a cache miss. Do not retry it after the SQL fallback.
 		canWriteCache = err == nil || errors.Is(err, redis.Nil)
@@ -287,7 +298,11 @@ func getTokenWithCacheContext(requestContext context.Context, tokenStr string) (
 		} else {
 			// SetNX: never overwrite a "revoked" marker written by a concurrent
 			// logout/revoke between our SQL read and this cache write.
-			_ = redisClient.SetNX(cacheContext, cacheKey, "valid", tokenCacheTTL).Err()
+			value := "valid"
+			if token.ExternalClient == models.PersonalTokenClient {
+				value = tokenCacheValidPersonal
+			}
+			_ = redisClient.SetNX(cacheContext, cacheKey, value, tokenCacheTTL).Err()
 		}
 	}
 	return token, nil
@@ -338,4 +353,24 @@ func isStreamingPath(path string) bool {
 		}
 	}
 	return false
+}
+
+// oauthTokenMayWrite is the coarse guard for OAuth tokens on state-changing
+// requests: a token granted none of write, admin:write, follow or push
+// (a read-only token) gets 403 on every write route, including routes that
+// carry no granular CheckScopeMiddleware. Granular route guards still apply.
+func oauthTokenMayWrite(r *http.Request, td *models.AuthTokenData) bool {
+	if td.AuthType != models.AuthTokenTypeOauth {
+		return true
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	// Mastodon grants translation with read:statuses even though it is a POST.
+	if strings.HasPrefix(r.URL.Path, "/api/v1/statuses/") && strings.HasSuffix(r.URL.Path, "/translate") {
+		return true
+	}
+	s := td.Scopes
+	return s != nil && (s.WriteScope != 0 || s.AdminScope&models.AppScopeAdminWrite != 0 || s.OtherScope&(models.AppScopeFollow|models.AppScopePush) != 0)
 }
