@@ -3,15 +3,16 @@ import AccessTokenSettings from './AccessTokenSettings.vue'
 import WebhookSettings from './WebhookSettings.vue'
 import ApiConsoleSettings from './ApiConsoleSettings.vue'
 import AuthorizedApps from './AuthorizedApps.vue'
+import SettingsSectionBoundary from './SettingsSectionBoundary.vue'
 </script>
 
 <template>
   <div class="connections">
     <header class="connections-banner"><t-icon name="link" size="36" aria-hidden="true" /><p>{{ $t('settings.Connections.intro') }}</p></header>
-    <AccessTokenSettings />
-    <details class="connection-panel"><summary>{{ $t('settings.SettingsPage.s15') }}</summary><div class="connection-body"><AuthorizedApps /></div></details>
-    <details class="connection-panel"><summary>{{ $t('settings.Connections.console') }}</summary><div class="connection-body"><ApiConsoleSettings /></div></details>
-    <WebhookSettings />
+    <SettingsSectionBoundary><AccessTokenSettings /></SettingsSectionBoundary>
+    <details class="connection-panel"><summary>{{ $t('settings.SettingsPage.s15') }}</summary><div class="connection-body"><SettingsSectionBoundary><AuthorizedApps /></SettingsSectionBoundary></div></details>
+    <details class="connection-panel"><summary>{{ $t('settings.Connections.console') }}</summary><div class="connection-body"><SettingsSectionBoundary><ApiConsoleSettings /></SettingsSectionBoundary></div></details>
+    <SettingsSectionBoundary><WebhookSettings /></SettingsSectionBoundary>
   </div>
 </template>
 

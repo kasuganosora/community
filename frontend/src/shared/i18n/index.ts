@@ -91,10 +91,18 @@ export function currentLocale(): Locale {
 /**
  * Translate. Positional args fill {0}, {1}…; the first numeric arg selects
  * the plural branch for messages written as "one | other" (or ru's 3 forms).
+ * A named-argument object such as { count: 3 } fills {count}; its `count`
+ * (or first numeric value) selects the plural branch.
  */
-export function t(key: string, args?: unknown[]): string {
+export function t(key: string, args?: unknown[] | Record<string, unknown>): string {
   const g = i18n.global
-  if (!args) return g.t(key)
+  if (args == null) return g.t(key)
+  if (!Array.isArray(args)) {
+    if (typeof args !== 'object') return g.t(key, [args])
+    const named = args as Record<string, unknown>
+    const n = typeof named.count === 'number' ? named.count : Object.values(named).find(a => typeof a === 'number') as number | undefined
+    return n === undefined ? g.t(key, named) : g.t(key, named, n)
+  }
   const n = args.find(a => typeof a === 'number') as number | undefined
   return n === undefined ? g.t(key, args) : g.t(key, args, n)
 }

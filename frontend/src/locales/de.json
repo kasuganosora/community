@@ -2833,7 +2833,8 @@
         "delivered": "Zugestellt",
         "failed": "Fehlgeschlagen",
         "cancelled": "Abgebrochen"
-      }
+      },
+      "sectionError": "Dieser Bereich konnte nicht geladen werden."
     },
     "AccountLifecycle": {
       "loading": "Kontoeinstellungen werden geladen…",

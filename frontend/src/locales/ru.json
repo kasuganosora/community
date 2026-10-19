@@ -2833,7 +2833,8 @@
         "delivered": "Доставлено",
         "failed": "Ошибка",
         "cancelled": "Отменено"
-      }
+      },
+      "sectionError": "Не удалось загрузить этот раздел."
     },
     "AccountLifecycle": {
       "loading": "Загрузка настроек аккаунта…",

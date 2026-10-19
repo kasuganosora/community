@@ -2833,7 +2833,8 @@
         "delivered": "已送達",
         "failed": "失敗",
         "cancelled": "已取消"
-      }
+      },
+      "sectionError": "此區塊載入失敗。"
     },
     "AccountLifecycle": {
       "loading": "正在載入帳號設定…",

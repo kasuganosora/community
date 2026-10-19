@@ -2833,7 +2833,8 @@
         "delivered": "已送达",
         "failed": "失败",
         "cancelled": "已取消"
-      }
+      },
+      "sectionError": "此部分加载失败。"
     },
     "AccountLifecycle": {
       "loading": "正在加载账号设置…",

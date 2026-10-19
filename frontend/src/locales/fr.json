@@ -2833,7 +2833,8 @@
         "delivered": "Envoyé",
         "failed": "Échec",
         "cancelled": "Annulé"
-      }
+      },
+      "sectionError": "Cette section n’a pas pu être chargée."
     },
     "AccountLifecycle": {
       "loading": "Chargement des paramètres du compte…",

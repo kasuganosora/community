@@ -2833,7 +2833,8 @@
         "delivered": "Delivered",
         "failed": "Failed",
         "cancelled": "Cancelled"
-      }
+      },
+      "sectionError": "This section failed to load."
     },
     "AccountLifecycle": {
       "loading": "Loading account settings…",
