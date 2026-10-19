@@ -401,6 +401,50 @@ def privacy_checks(mk, cm, origin, rep, extracted_at=None):
                      % (len(moved), "source lastActiveDate > --extracted-at " + extracted if extracted else "source newer than the imported value; pass --extracted-at for a strict bound"), sorted(moved))
 
 
+def source_exported_at(path):
+    """source.exported_at of a migration bundle, '' when unset or zero.
+
+    path may be bundle.json, a bundle directory, the community-transfer
+    --report JSON, a direct-mode --work-dir or its spool.sqlite3. Only the
+    header is read (bundle.json writes it before the record sections), so a
+    multi-GB bundle is not loaded."""
+    import sqlite3
+    from pathlib import Path
+    p = Path(path)
+    if p.is_dir():
+        for name in ("bundle.json", "spool.sqlite3"):
+            if (p / name).is_file():
+                p = p / name
+                break
+        else:
+            raise ValueError("%s has no bundle.json or spool.sqlite3" % path)
+    with p.open("rb") as f:
+        magic = f.read(16)
+    source = None
+    if magic.startswith(b"SQLite format 3"):
+        db = sqlite3.connect("file:%s?mode=ro" % p, uri=True)
+        try:
+            row = db.execute("SELECT v FROM meta WHERE k = 'header'").fetchone()
+        finally:
+            db.close()
+        source = (json.loads(row[0]) if row else {}).get("source")
+    else:
+        with p.open("r", encoding="utf-8", errors="replace") as f:
+            head = f.read(1 << 20)
+        m = re.search(r'"source"\s*:\s*', head)
+        if m:
+            try:
+                source, _ = json.JSONDecoder().raw_decode(head, m.end())
+            except ValueError:
+                source = None
+    value = (source or {}).get("exported_at") if isinstance(source, dict) else ""
+    value = value if isinstance(value, str) else ""
+    # Go encodes an unset time.Time as 0001-01-01T00:00:00Z.
+    if value.startswith("0001-01-01") or not norm_ts(value):
+        return ""
+    return value
+
+
 def active_after_extraction(want, got, extracted):
     """8m: the source last-active time moved on after extraction."""
     if not want:
@@ -602,6 +646,22 @@ def run(args):
     return 1 if failed else 0
 
 
+def default_extracted_at(args, out=sys.stderr):
+    """--extracted-at falls back to the bundle's source.exported_at (non-zero)."""
+    if args.extracted_at or not getattr(args, "bundle", None):
+        return
+    try:
+        value = source_exported_at(args.bundle)
+    except (OSError, ValueError) as e:
+        print("WARNING: could not read source.exported_at from --bundle (%s); 8m runs without --extracted-at" % e, file=out)
+        return
+    if value:
+        args.extracted_at = value
+        print("using --extracted-at %s (source.exported_at of --bundle)" % value, file=out)
+    else:
+        print("NOTE: --bundle has no source.exported_at; 8m runs without --extracted-at", file=out)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog="Exit codes: 0 all checks pass, 1 a check failed, 2 usage/connection error.")
@@ -615,6 +675,9 @@ def main():
     ap.add_argument("--skip-unattached-drive-files", action="store_true", help="the import ran with --skip-unattached-drive-files: 6b compares only files a note/avatar/banner references")
     ap.add_argument("--extracted-at", default=os.environ.get("EXTRACTED_AT"),
                     help="when the source was read (the bundle's source.exported_at, ISO 8601; env EXTRACTED_AT): 8m reports accounts active on the source after it as info")
+    ap.add_argument("--bundle", default=os.environ.get("BUNDLE"),
+                    help="bundle.json / bundle dir, community-transfer --report JSON, or direct-mode --work-dir (env BUNDLE): "
+                         "--extracted-at defaults to its source.exported_at when that is set")
     ap.add_argument("--forwarded-proto", default="https", help="X-Forwarded-Proto to send ('' to omit; default https)")
     ap.add_argument("--timeout", type=int, default=30, help="per query/request timeout seconds")
     ap.add_argument("-v", "--verbose", action="store_true", help="list every failure")
@@ -622,6 +685,7 @@ def main():
     missing = [n for n, v in (("MISSKEY_DB_DSN", args.misskey_dsn), ("COMMUNITY_DB_DSN", args.community_dsn), ("COMMUNITY_BASE", args.base)) if not v]
     if missing:
         ap.error("missing: " + ", ".join(missing))
+    default_extracted_at(args)
     try:
         sys.exit(run(args))
     except Exception as e:  # report without traceback (could contain DSNs)

@@ -104,7 +104,11 @@ those functions; the Go importer (`datatransfer/profile_extensions.go`: `splitAl
 * 8h–8m: account privacy columns. 8m (`lastActiveDate`) reports accounts whose source value is
   newer than the import as `[INFO]` (“active after extraction”) instead of failing: with
   `--extracted-at <bundle source.exported_at>` only source values later than that time are
-  tolerated; without it, any source value newer than a non-empty target value.
+  tolerated; without it, any source value newer than a non-empty target value. `--bundle`
+  (bundle.json or its directory, the `community-transfer --report` JSON, or a direct-mode
+  `--work-dir`) makes `--extracted-at` default to its `source.exported_at` when that is set.
+  `source.exported_at` is the UTC time the exporter first read the state directory (the start of
+  `--fetch-only`, kept through resumed runs and `--final-sync`), not the build time.
 * 9: pinned notes of local users, count compared; remote users' pins are `[INFO]` (skipped by design).
 * `compare_misskey_fields.py`: notes, reactions, polls, pins (local users' pins per note; remote
   users' pins `[INFO]`), channel archiving, emoji metadata and meta assets (read-only; ids and

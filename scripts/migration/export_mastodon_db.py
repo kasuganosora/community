@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from export_misskey import (QUIET, make_sink, SECTIONS, Converter, ExportError, FileSink, Run, Staging, StagingMap,  # noqa: E402
-                            StagingTables, add_common_args, origin, sid, summary)
+                            StagingTables, add_common_args, origin, sid, summary, utc_iso)
 
 SCHEMA = "community-transfer/v1"
 VISIBILITY = {0: "public", 1: "unlisted", 2: "private", 3: "direct", 4: "limited"}
@@ -68,7 +68,7 @@ class MastodonConverter:
     copy_asset = Converter.copy_asset
 
     def __init__(self, tables, base_url, output, media_dir=None, object_mode="", object_dir=None, object_base_url="",
-                 snapshot="", max_media_bytes=8 << 30, sink=None, progress=QUIET):
+                 snapshot="", max_media_bytes=8 << 30, sink=None, progress=QUIET, exported_at=""):
         self.staging = tables if isinstance(tables, Staging) else Staging.from_dict(tables)
         self.tables = StagingTables(self.staging)
         self.progress = progress
@@ -92,7 +92,7 @@ class MastodonConverter:
         header = {"schema": SCHEMA, "scope": "site", "source": {
             "platform": "mastodon", "version": "schema " + version if version else "", "base_url": self.base,
             "account_domain": urlsplit(self.base).hostname, "snapshot_id": snapshot,
-            "exported_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}}
+            "exported_at": utc_iso(exported_at) or utc_iso(datetime.now(timezone.utc))}}
         self.sink = sink
         self.bundle = sink.bundle if sink is not None else dict(header, **{key: [] for key in SECTIONS})
         self.header = header
@@ -534,7 +534,8 @@ def main(argv=None):
         args.output.mkdir(mode=0o700, parents=False, exist_ok=False)
         run.stage = "build"
         conv = MastodonConverter(run.staging, args.base_url, args.output, args.media_dir, args.object_storage_mode or "",
-                                 args.object_storage_dir, args.object_base_url, run.snapshot_id(), args.max_media_bytes, progress=run.progress)
+                                 args.object_storage_dir, args.object_base_url, run.snapshot_id(), args.max_media_bytes, progress=run.progress,
+                                 exported_at=run.exported_at())
         sink = make_sink(args, args.output, conv.header)
         conv.sink, conv.bundle, conv.trim_references = sink, sink.bundle, True
         conv.convert()

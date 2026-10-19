@@ -506,6 +506,49 @@ class ExportTests(unittest.TestCase):
         finally:
             os.umask(previous_umask)
 
+    def test_exported_at_is_fetch_start_kept_across_fetch_only(self):
+        """--fetch-only, later build: source.exported_at is when the state was first fetched (UTC), not build time."""
+        out, state = self.root / "bundle", self.root / "bundle.state"
+        args = ["--base-url", "https://source.test", "--id-method", "aidx", "--source-version", "2026.10.0",
+                "--source-dir", str(self.source), "--output", str(out)]
+        started = {}
+
+        def fetch_only(run, plan, labels):
+            started["bulk"] = run.staging.get_meta("bulk_started")
+            return 0
+        with mock.patch.object(m.Run, "fetch", fetch_only), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(m.main(args + ["--fetch-only"]), 0)
+        self.assertTrue(started["bulk"])
+        self.assertFalse(out.exists())
+        # Pretend the bulk pass started hours ago, in a non-UTC offset.
+        m.Staging(state / "staging.sqlite3").set_meta("bulk_started", "2026-10-19T09:02:03.456789+08:00")
+        staged = m.Staging.from_dict(self.tables)
+
+        def build(run, plan, labels):
+            staged.set_meta("bulk_started", run.staging.get_meta("bulk_started"))
+            run.staging = staged
+            return 1
+        for emit in ("bundle", "ndjson"):
+            target = out if emit == "bundle" else self.root / "direct"
+            stream = io.StringIO()
+            with mock.patch.object(m.Run, "fetch", build), contextlib.redirect_stdout(stream), contextlib.redirect_stderr(io.StringIO()):
+                m.main([a if a != str(out) else str(target) for a in args] + ["--state-dir", str(state), "--emit", emit])
+            if emit == "bundle":
+                header = json.loads((out / "bundle.json").read_text())
+            else:
+                header = json.loads(stream.getvalue().splitlines()[0])["header"]
+            self.assertEqual(header["source"]["exported_at"], "2026-10-19T01:02:03.456789Z", emit)
+        # A build-time fallback (no state) is still UTC with a Z suffix.
+        c = self.converter()
+        self.assertTrue(c.bundle["source"]["exported_at"].endswith("Z"))
+
+    def test_utc_iso(self):
+        self.assertEqual(m.utc_iso("2026-10-19T09:00:00+08:00"), "2026-10-19T01:00:00Z")
+        self.assertEqual(m.utc_iso("2026-10-19T01:00:00"), "2026-10-19T01:00:00Z")
+        self.assertEqual(m.utc_iso("2026-10-19T01:00:00.5Z"), "2026-10-19T01:00:00.500000Z")
+        self.assertEqual(m.utc_iso(""), "")
+        self.assertEqual(m.utc_iso("not a time"), "")
+
 class RedactTwoFactorTests(unittest.TestCase):
     def test_two_factor_secrets_are_redacted(self):
         samples = ['row {"twoFactorSecret": "JBSWY3DPEHPK3PXP", "x": 1}',

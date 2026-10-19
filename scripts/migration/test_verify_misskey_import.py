@@ -3,6 +3,10 @@ import argparse
 import contextlib
 import io
 import json
+from pathlib import Path
+import sqlite3
+import tempfile
+import types
 import unittest
 
 import verify_misskey_import as v
@@ -274,6 +278,63 @@ class LastActiveTest(unittest.TestCase):
         self.assertIn("pass --extracted-at", out)
         st, out = self.run_checks("2026-10-19 10:00:00+00", "", None)
         self.assertEqual(st, "FAIL", out)
+
+
+class ExtractedAtDefaultTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def args(self, bundle, extracted_at=None):
+        return types.SimpleNamespace(bundle=str(bundle), extracted_at=extracted_at)
+
+    def test_bundle_json_report_and_spool(self):
+        ts = "2026-10-19T01:02:03.456789Z"
+        d = self.root / "bundle"
+        d.mkdir()
+        (d / "bundle.json").write_text(json.dumps({"schema": "community-transfer/v1", "scope": "site",
+                                                     "source": {"platform": "misskey", "exported_at": ts},
+                                                     "posts": [{"extensions": {"source": {"exported_at": "x"}}}]}))
+        report = self.root / "report.json"
+        report.write_text(json.dumps({"can_execute": True, "source": {"platform": "misskey", "exported_at": ts}, "counts": {}}) + "\n")
+        work = self.root / "work"
+        work.mkdir()
+        db = sqlite3.connect(str(work / "spool.sqlite3"))
+        db.execute("CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)")
+        db.execute("INSERT INTO meta VALUES ('header', ?)", (json.dumps({"source": {"exported_at": ts}}),))
+        db.commit()
+        db.close()
+        for p in (d, d / "bundle.json", report, work, work / "spool.sqlite3"):
+            self.assertEqual(v.source_exported_at(p), ts, p)
+            a = self.args(p)
+            v.default_extracted_at(a, out=io.StringIO())
+            self.assertEqual(a.extracted_at, ts, p)
+
+    def test_zero_or_missing_exported_at_is_ignored(self):
+        for src in ({"exported_at": "0001-01-01T00:00:00Z"}, {"exported_at": ""}, {}):
+            p = self.root / "report.json"
+            p.write_text(json.dumps({"can_execute": True, "source": src}))
+            self.assertEqual(v.source_exported_at(p), "")
+            a, out = self.args(p), io.StringIO()
+            v.default_extracted_at(a, out=out)
+            self.assertIsNone(a.extracted_at)
+            self.assertIn("no source.exported_at", out.getvalue())
+
+    def test_explicit_extracted_at_wins(self):
+        p = self.root / "report.json"
+        p.write_text(json.dumps({"source": {"exported_at": "2026-10-19T01:00:00Z"}}))
+        a = self.args(p, "2026-10-18T00:00:00Z")
+        v.default_extracted_at(a, out=io.StringIO())
+        self.assertEqual(a.extracted_at, "2026-10-18T00:00:00Z")
+
+    def test_unreadable_bundle_warns(self):
+        a, out = self.args(self.root / "missing.json"), io.StringIO()
+        v.default_extracted_at(a, out=out)
+        self.assertIsNone(a.extracted_at)
+        self.assertIn("WARNING", out.getvalue())
 
 
 class PinCheckTest(unittest.TestCase):

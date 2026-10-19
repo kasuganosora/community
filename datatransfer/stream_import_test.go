@@ -216,3 +216,40 @@ func TestImportMapsRequireSigninToViewContents(t *testing.T) {
 	}
 	require.Equal(t, map[string]bool{"u0": true, "u1": false}, flags)
 }
+
+// The import report echoes source.exported_at and snapshot_id from the
+// exporter header (direct mode NDJSON and bundle.json alike); it used to
+// drop them, so ops read 0001-01-01 after --fetch-only + import.
+func TestReportKeepsSourceExportedAt(t *testing.T) {
+	sp, err := OpenSpool(filepath.Join(t.TempDir(), "s.sqlite3"))
+	require.NoError(t, err)
+	defer sp.Close()
+	in := `{"header":{"schema":"community-transfer/v1","scope":"site","source":{"platform":"misskey","base_url":"https://site.example","snapshot_id":"keyset:2026-10-19T01:02:03.456789+00:00/2026-10-19T02:00:00+00:00","exported_at":"2026-10-19T01:02:03.456789Z"}}}
+{"s":"accounts","v":{"id":"a","username":"a","local":true,"actor_uri":"https://site.example/users/a"}}
+`
+	_, err = sp.ReadNDJSON(context.Background(), strings.NewReader(in), nil)
+	require.NoError(t, err)
+	want := time.Date(2026, 10, 19, 1, 2, 3, 456789000, time.UTC)
+	require.True(t, sp.Header.Source.ExportedAt.Equal(want))
+	o := Options{Scope: "site", TargetBaseURL: "https://site.example", StorageDir: t.TempDir()}
+	report, err := ImportSpool(context.Background(), importerDB(t), sp, o, StreamOptions{ChunkSize: 2})
+	require.NoError(t, err)
+	require.True(t, report.Source.ExportedAt.Equal(want), "report source.exported_at = %v", report.Source.ExportedAt)
+	require.Equal(t, "keyset:2026-10-19T01:02:03.456789+00:00/2026-10-19T02:00:00+00:00", report.Source.SnapshotID)
+	out, err := json.Marshal(report)
+	require.NoError(t, err)
+	require.Contains(t, string(out), `"exported_at":"2026-10-19T01:02:03.456789Z"`)
+
+	// A reopened spool (--reuse-spool) keeps the header's exported_at.
+	path := sp.path
+	require.NoError(t, sp.Close())
+	again, err := OpenSpool(path)
+	require.NoError(t, err)
+	defer again.Close()
+	require.True(t, again.Header.Source.ExportedAt.Equal(want))
+
+	b := &Bundle{Source: Source{Platform: "misskey", SnapshotID: "x y;drop", ExportedAt: want}}
+	r := newReport(b)
+	require.Empty(t, r.Source.SnapshotID, "unsafe snapshot ids are not echoed")
+	require.True(t, r.Source.ExportedAt.Equal(want))
+}

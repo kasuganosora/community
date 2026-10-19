@@ -53,6 +53,25 @@ SECTIONS = ("accounts", "credentials", "keys", "posts", "media", "relations", "l
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def utc_iso(value):
+    """A datetime or ISO 8601 text as RFC 3339 UTC ("...Z"); "" when unset or unparsable.
+
+    bundle source.exported_at must parse as a Go time.Time, so naive values
+    are taken as UTC and every offset is converted."""
+    if isinstance(value, str):
+        if not value.strip():
+            return ""
+        try:
+            value = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return ""
+    if not isinstance(value, datetime):
+        return ""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 # Primary keys of Misskey tables that have no "id" column; used when the
 # staged catalog predates primary-key introspection (and by dict fixtures).
 KNOWN_PRIMARY_KEYS = {
@@ -951,7 +970,8 @@ class Fetcher:
 
 class Converter:
     def __init__(self, tables, base_url, method, source_dir, output, version="", snapshot="", max_media_bytes=8 << 30,
-                 object_mode="error", object_dir=None, object_base_url="", sink=None, progress=QUIET, skip_unattached=False):
+                 object_mode="error", object_dir=None, object_base_url="", sink=None, progress=QUIET, skip_unattached=False,
+                 exported_at=""):
         # tables: a Staging store (streaming export) or a {table: [rows]} dict (tests).
         self.staging = tables if isinstance(tables, Staging) else Staging.from_dict(tables)
         self.tables = StagingTables(self.staging)
@@ -981,7 +1001,7 @@ class Converter:
         self.copied = {}
         header = {"schema": SCHEMA, "scope": "site", "source": {
             "platform": "misskey", "version": version, "base_url": self.base,
-            "snapshot_id": snapshot, "exported_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}}
+            "snapshot_id": snapshot, "exported_at": utc_iso(exported_at) or utc_iso(datetime.now(timezone.utc))}}
         self.sink = sink
         if sink is None:
             self.bundle = dict(header, **{key: [] for key in SECTIONS})
@@ -1745,6 +1765,10 @@ class Run:
             raise ExportError("state directory belongs to another source platform")
         staging.set_meta("mode", mode)
         staging.set_meta("platform", self.platform)
+        # bulk_started is the extraction start: written once when the state
+        # directory is first fetched and kept across --fetch-only, resumed
+        # runs and --final-sync, so a later build reports when the source was
+        # first read (source.exported_at), not when bundle.json was written.
         if not staging.get_meta("bulk_started"):
             staging.set_meta("bulk_started", datetime.now(timezone.utc).isoformat())
         elif not a.final_sync:
@@ -1776,6 +1800,10 @@ class Run:
         if a.max_records and total > a.max_records:
             raise ExportError("%d staged rows exceed --max-records %d" % (total, a.max_records))
         return total
+
+    def exported_at(self):
+        """source.exported_at: UTC time the extraction into this state directory started."""
+        return utc_iso(self.staging.get_meta("bulk_started") or "")
 
     def snapshot_id(self):
         s = self.staging
@@ -1832,7 +1860,8 @@ def main(argv=None):
         run.stage = "build"
         conv = Converter(run.staging, args.base_url, args.id_method, args.source_dir, args.output, args.source_version, run.snapshot_id(),
                          args.max_media_bytes, args.object_storage_mode, args.object_storage_dir, args.object_base_url,
-                         sink=None, progress=run.progress, skip_unattached=args.skip_unattached_drive_files)
+                         sink=None, progress=run.progress, skip_unattached=args.skip_unattached_drive_files,
+                         exported_at=run.exported_at())
         sink = make_sink(args, args.output, {k: v for k, v in conv.bundle.items() if k not in SECTIONS})
         conv.sink, conv.bundle, conv.trim_references = sink, sink.bundle, True
         conv.convert()

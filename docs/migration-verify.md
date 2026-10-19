@@ -42,7 +42,7 @@ Prefer `PGPASSFILE`/`~/.pgpass` over passwords in the DSN.
 | 6 | Local custom emoji (`emoji.host IS NULL` vs `emojis.domain = ''`) and drive files (`drive_file` vs `media_attachments`) within `--tolerance` (2%) | |
 | 7 | `/users/<id>/inbox` is routed (POST-only, so `OPTIONS`/`GET` must not be 404) | |
 | 8a–8g | Misskey profile extensions per account (is_cat, language, location, birthday, followed_message, moved_to, also_known_as), local + imported remote; expected values follow the importer's value rules (values dropped by rule are `[INFO]`, not expected); 8d / 8g FAIL when the source has set values but none parsed | [field mapping](misskey-field-mapping.md#value-rules) |
-| 8h–8m | Account privacy settings; 8m `lastActiveDate` newer on the source than the import is `[INFO]` (active after extraction), bounded by `--extracted-at` (env `EXTRACTED_AT`, the bundle's `source.exported_at`) when given | |
+| 8h–8m | Account privacy settings; 8m `lastActiveDate` newer on the source than the import is `[INFO]` (active after extraction), bounded by `--extracted-at` (env `EXTRACTED_AT`, the bundle's `source.exported_at`) when given; defaults to `source.exported_at` of `--bundle` (env `BUNDLE`: bundle.json/dir, import `--report` JSON or direct-mode work dir) when that is set | |
 | 9 | Pinned notes of local users (count); remote users' pins are `[INFO]` (not imported by design) | Misskey `user_note_pining` |
 
 System actors (usernames with a dot, e.g. `instance.actor`, `relay.actor`) are

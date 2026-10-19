@@ -39,6 +39,13 @@ func sameOrigin(a, b string) bool {
 	y, e := url.Parse(b)
 	return e == nil && strings.EqualFold(x.Scheme, y.Scheme) && strings.EqualFold(x.Host, y.Host)
 }
+
+// reportSnapshotID accepts only the snapshot ids the exporters write (keyset
+// fetch timestamps from export_misskey.py / export_mastodon_db.py, or a
+// PostgreSQL txid_current_snapshot() from export_mastodon.rb); anything else
+// in an untrusted upload is not echoed into the report.
+var reportSnapshotID = regexp.MustCompile(`^(keyset:[0-9T:.+Z-]{10,40}/[0-9T:.+Z-]{10,40}(/final)?|[0-9]{1,20}:[0-9]{1,20}:[0-9,]{0,80})$`)
+
 func newReport(b *Bundle) *Report {
 	source := Source{Platform: b.Source.Platform}
 	if safeHTTPURL(b.Source.BaseURL) {
@@ -49,6 +56,15 @@ func newReport(b *Bundle) *Report {
 	}
 	if regexp.MustCompile(`^[a-zA-Z0-9.+_-]{1,64}$`).MatchString(b.Source.Version) {
 		source.Version = b.Source.Version
+	}
+	// exported_at / snapshot_id tell operators (and verify_misskey_import.py
+	// --bundle) when the source was read; without them the report showed
+	// 0001-01-01 for every streamed or direct import.
+	if !b.Source.ExportedAt.IsZero() {
+		source.ExportedAt = b.Source.ExportedAt.UTC()
+	}
+	if reportSnapshotID.MatchString(b.Source.SnapshotID) {
+		source.SnapshotID = b.Source.SnapshotID
 	}
 	if source.Platform != "community" && source.Platform != "mastodon" && source.Platform != "misskey" {
 		source.Platform = "unknown"
