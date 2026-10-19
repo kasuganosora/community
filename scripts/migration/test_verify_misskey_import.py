@@ -16,6 +16,9 @@ class FakeDB:
     def __init__(self, name, world):
         self.name, self.w = name, world
 
+    def has_table(self, table):
+        return False
+
     def scalar(self, sql):
         r = self.q(sql)
         return r[0][0] if r and r[0] else None
@@ -24,7 +27,9 @@ class FakeDB:
         w, s = self.w, sql
         if self.name == "misskey":
             if "instance.actor" in s:
-                return [[w["mk_instance_key"]]]
+                return [["9ia", w["mk_instance_key"]]]
+            if "relay.actor" in s:
+                return []
             if 'count(*) FROM "user"' in s:
                 return [[str(len(w["mk_users"]))]]
             if "user_keypair" in s:
@@ -39,8 +44,10 @@ class FakeDB:
         if "count(*) FROM accounts" in s:
             extra = 0 if "LIKE" in s or not w["cm_users"] else 1  # instance actor is local but not /users/*
             return [[str(len(w["cm_users"]) + extra)]]
+        if "system_settings" in s:
+            return [['"%s/users/9ia"' % O]] if w["cm_users"] and w.get("designated", True) else []
         if "account_keys" in s:
-            return [["1", w["cm_instance_key"], O + "/actor#main-key"]] if w["cm_users"] else []
+            return [["1", w["cm_instance_key"], O + "/users/9ia#main-key"]] if w["cm_users"] else []
         if "SELECT id FROM accounts" in s:
             for u in w["cm_users"]:
                 if u in s:
@@ -60,6 +67,8 @@ class FakeHTTP:
             return None, b"", "URLError: [Errno 111] Connection refused"
         if path.startswith("/users/") and path.endswith("/inbox"):
             return 405, b"", None
+        if path in ("/actor", "/users/9ia"):
+            return 200, json.dumps({"id": O + "/users/9ia", "publicKey": {"id": O + "/users/9ia#main-key", "publicKeyPem": self.w["cm_instance_key"]}}).encode(), None
         if path.startswith("/users/"):
             uid = path.split("/")[2]
             if uid not in self.w["cm_users"]:
@@ -70,8 +79,6 @@ class FakeHTTP:
             return 200, json.dumps({"links": [{"rel": "self", "href": O + "/users/" + uid}]}).encode(), None
         if path.startswith("/notes/"):
             return 200, json.dumps({"id": O + path}).encode(), None
-        if path == "/actor":
-            return 200, json.dumps({"id": O + "/actor", "publicKey": {"publicKeyPem": self.w["cm_instance_key"]}}).encode(), None
         return 404, b"", None
 
     def req(self, path, method="GET", accept=None):
@@ -120,6 +127,12 @@ class VerifyTests(unittest.TestCase):
 
     def test_instance_actor_key_compared_with_misskey(self):
         code, out = run(world(cm_instance_key=PEM))
+        self.assertEqual(code, 1)
+        self.assertIn("[FAIL] 5 instance actor key", out)
+
+    def test_instance_actor_must_be_designated(self):
+        # Key imported but the server would still mint and sign as <base>/actor.
+        code, out = run(world(designated=False))
         self.assertEqual(code, 1)
         self.assertIn("[FAIL] 5 instance actor key", out)
 

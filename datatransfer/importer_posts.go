@@ -140,8 +140,19 @@ func (i *importer) importPost(p Post) error {
 			id, _ := i.ref("post", p.ReblogID)
 			target.ReblogId = &id
 		}
+		if p.QuoteID != "" {
+			target.Properties[quoteSourceProperty] = p.QuoteID
+			if p.QuoteURI != "" {
+				target.Properties[quoteURIProperty] = p.QuoteURI
+			}
+			target.Properties[quotePendingProperty] = i.namespace
+			target.Properties[quoteOwnSourceProp] = p.ID
+		}
 		if err = tx.Create(&target).Error; err != nil {
 			return 0, err
+		}
+		if p.QuoteID != "" {
+			i.quotes = append(i.quotes, pendingQuote{status: target.Id, source: p.ID, quote: p.QuoteID})
 		}
 		text := p.Text
 		if source.Local || i.personal() {

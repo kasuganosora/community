@@ -34,7 +34,7 @@ type Spool struct {
 
 // spoolSections are the bundle array sections, in bundle.json order.
 var spoolSections = []string{"accounts", "credentials", "keys", "posts", "media", "relations", "lists", "reactions", "bookmarks",
-	"polls", "poll_votes", "emojis", "records", "issues"}
+	"polls", "poll_votes", "emojis", "relays", "records", "issues"}
 
 func knownSection(s string) bool {
 	for _, v := range spoolSections {

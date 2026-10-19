@@ -262,20 +262,45 @@ def run(args):
             ok_n += 1
     rep.add("4 follower/following counts", bool(sample) and not fails, "%d/%d sampled users match" % (ok_n, len(sample)), fails)
 
-    # (5) instance actor
-    row = cm.q("SELECT a.id, k.public_key, k.key_id FROM accounts a LEFT JOIN account_keys k ON k.account_id = a.id "
-               "WHERE a.domain IS NULL AND a.deleted_at IS NULL AND a.local_actor_uri = %s ORDER BY a.id LIMIT 1" % lit(origin + "/actor"))
-    db_h = key_hash(row[0][1]) if row else None
-    st, actor = http.json("/actor")
-    pk = (actor or {}).get("publicKey") or {} if isinstance(actor, dict) else {}
-    http_h = key_hash(pk.get("publicKeyPem")) if isinstance(pk, dict) else None
-    # Misskey's instance actor is the local system user `instance.actor`; its key must survive the move,
-    # otherwise remote servers that cached it reject relayed/signed fetches.
-    mk_h = key_hash(mk.scalar('SELECT k."publicKey" FROM "user" u JOIN user_keypair k ON k."userId" = u.id '
-                              'WHERE u.host IS NULL AND u.username = \'instance.actor\' LIMIT 1'))
-    ok = bool(db_h) and bool(mk_h) and http_h == db_h == mk_h and (actor or {}).get("id") == origin + "/actor"
-    rep.add("5 instance actor key", ok, "misskey instance.actor key sha256=%s; db account=%s key sha256=%s; GET /actor %s id=%r key sha256=%s" %
-            (mk_h, row[0][0] if row else None, db_h, http.describe(st), (actor or {}).get("id") if isinstance(actor, dict) else None, http_h))
+    # (5) instance / relay actor. Misskey's system users instance.actor and
+    # relay.actor are imported keeping their actor URI (<origin>/users/<id>),
+    # keyId (<uri>#main-key) and keypair, and are designated through
+    # system_settings, so remote caches and relay subscriptions stay valid.
+    def system_actor(username, setting, name, http_paths):
+        mk_row = mk.q('SELECT u.id, k."publicKey" FROM "user" u LEFT JOIN user_keypair k ON k."userId" = u.id '
+                      "WHERE u.host IS NULL AND u.username = %s LIMIT 1" % lit(username))
+        if not mk_row:
+            rep.add(name, None if username == "relay.actor" else False, "misskey has no local %s user" % username)
+            return None
+        mk_id, mk_pem = mk_row[0][0], mk_row[0][1]
+        uri = origin + "/users/" + mk_id
+        mk_h = key_hash(mk_pem)
+        row = cm.q("SELECT a.id, k.public_key, k.key_id FROM accounts a LEFT JOIN account_keys k ON k.account_id = a.id "
+                   "WHERE a.domain IS NULL AND a.deleted_at IS NULL AND a.local_actor_uri = %s ORDER BY a.id LIMIT 1" % lit(uri))
+        db_h = key_hash(row[0][1]) if row else None
+        key_id = (row[0][2] or uri + "#main-key") if row else None
+        designated = cm.scalar("SELECT s.val FROM system_settings s WHERE s.key = %s" % lit(setting))
+        designated = (designated or "").strip().strip('"')
+        fails, seen = [], []
+        for path in http_paths(mk_id):
+            st, actor = http.json(path)
+            actor = actor if isinstance(actor, dict) else {}
+            pk = actor.get("publicKey") if isinstance(actor.get("publicKey"), dict) else {}
+            seen.append("GET %s %s id=%r keyId=%r" % (path, http.describe(st), actor.get("id"), pk.get("id")))
+            if actor.get("id") != uri or pk.get("id") != uri + "#main-key" or key_hash(pk.get("publicKeyPem")) != mk_h:
+                fails.append("%s: id=%r keyId=%r key sha256=%s" % (path, actor.get("id"), pk.get("id"), key_hash(pk.get("publicKeyPem"))))
+        ok = bool(mk_h) and db_h == mk_h and key_id == uri + "#main-key" and designated == uri and not fails
+        rep.add(name, ok, "misskey %s uri=%s key sha256=%s; db account=%s key sha256=%s keyId=%s; %s=%r; %s" %
+                (username, uri, mk_h, row[0][0] if row else None, db_h, key_id, setting, designated or None, "; ".join(seen)), fails)
+        return uri
+
+    system_actor("instance.actor", "federation.instance_actor_uri", "5 instance actor key",
+                 lambda mk_id: ["/users/" + mk_id, "/actor"])
+    relay_uri = system_actor("relay.actor", "federation.relay_actor_uri", "5b relay actor key", lambda mk_id: ["/users/" + mk_id])
+    mk_relays = int(mk.scalar("SELECT count(*) FROM relay") or 0) if mk.has_table("relay") else 0
+    if mk_relays:
+        cm_relays = int(cm.scalar("SELECT count(*) FROM relays WHERE deleted_at IS NULL AND actor_uri = %s" % lit(relay_uri or "")) or 0)
+        rep.add("5c relay subscriptions", cm_relays == mk_relays, "misskey relays=%d community relays followed by relay.actor=%d" % (mk_relays, cm_relays))
 
     # (6) emoji + drive files
     mk_emoji = int(mk.scalar("SELECT count(*) FROM emoji WHERE host IS NULL"))

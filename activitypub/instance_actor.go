@@ -36,9 +36,38 @@ var (
 	cachedInstanceActor                    *models.Account
 )
 
-// InstanceActorURI is the instance actor's id: <base>/actor.
+// InstanceActorURI is the instance actor's id: <base>/actor, or the actor
+// imported from the source server (federation.instance_actor_uri, e.g.
+// Misskey's <base>/users/<id>) so its URI and keyId survive the migration.
 func InstanceActorURI() string {
+	if uri := importedActorURI(models.SettingInstanceActorURI); uri != "" {
+		return uri
+	}
+	return defaultInstanceActorURI()
+}
+
+func defaultInstanceActorURI() string {
 	return strings.TrimRight(systemsettings.GetBaseURL(), "/") + "/actor"
+}
+
+// RelayActorURI is the actor that subscribes to relays: the imported relay
+// actor (Misskey relay.actor) when set, else the instance actor.
+func RelayActorURI() string {
+	if uri := importedActorURI(models.SettingRelayActorURI); uri != "" {
+		return uri
+	}
+	return InstanceActorURI()
+}
+
+// importedActorURI reads an imported system actor setting; only a local
+// URI under the base URL is honoured.
+func importedActorURI(key string) string {
+	uri := strings.TrimSpace(systemsettings.GetString(key, ""))
+	base := strings.TrimRight(systemsettings.GetBaseURL(), "/")
+	if uri == "" || base == "" || !strings.HasPrefix(uri, base+"/") {
+		return ""
+	}
+	return uri
 }
 
 // isInstanceActor reports whether a local account is the instance actor.
@@ -146,6 +175,10 @@ func findOrCreateInstanceActor(ctx context.Context, conn *gorm.DB) (*models.Acco
 			return nil
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
+		}
+		if InstanceActorURI() != defaultInstanceActorURI() {
+			// Never mint a new identity under an imported actor's URI.
+			return fmt.Errorf("imported instance actor %s (%s) not found", InstanceActorURI(), models.SettingInstanceActorURI)
 		}
 		created := &models.Account{
 			Username:      instanceActorUsername(),

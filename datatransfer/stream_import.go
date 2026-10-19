@@ -39,7 +39,7 @@ type StreamProgress struct {
 var streamStages = []struct{ stage, section string }{
 	{"emojis", "emojis"}, {"accounts", "accounts"}, {"credentials", "credentials"}, {"keys", "keys"}, {"media", "media"}, {"posts", "posts"}, {"polls", "polls"},
 	{"relations", "relations"}, {"lists", "lists"}, {"reactions", "reactions"}, {"bookmarks", "bookmarks"},
-	{"poll_votes", "poll_votes"}, {"records", "records"},
+	{"poll_votes", "poll_votes"}, {"relays", "relays"}, {"records", "records"},
 }
 
 // StreamStageNames lists the chunked import stages in order.
@@ -89,6 +89,7 @@ func ImportSpool(ctx context.Context, conn *gorm.DB, sp *Spool, o Options, so St
 	if o.ParentVisibility == nil {
 		o.ParentVisibility = map[string]uint8{}
 	}
+	o.DeferQuoteLinks = true
 	hdr := sp.Header
 	r := &streamRun{seenIssues: map[string]bool{}, ctx: ctx, conn: conn, sp: sp, o: o, so: so, namespace: transferNamespace(&hdr, o),
 		total: &Report{CanExecute: true, Source: newReport(&hdr).Source, Counts: map[string]int{}, Created: map[string]int{}, Skipped: map[string]int{}, Archived: map[string]int{}}}
@@ -115,6 +116,17 @@ func ImportSpool(ctx context.Context, conn *gorm.DB, sp *Spool, o Options, so St
 	for _, st := range streamStages {
 		if err := r.stage(st.stage, st.section); err != nil {
 			return r.total, err
+		}
+		if st.section == "posts" {
+			var err error
+			if so.Apply {
+				err = r.finishQuotes()
+			} else {
+				err = r.previewQuotes()
+			}
+			if err != nil {
+				return r.total, err
+			}
 		}
 		if !r.total.CanExecute && !so.Apply {
 			// keep previewing so the report lists every problem
@@ -310,6 +322,11 @@ func appendRecord(b *Bundle, section string, raw json.RawMessage) error {
 		var v PreservedRecord
 		if err = json.Unmarshal(raw, &v); err == nil {
 			b.Records = append(b.Records, v)
+		}
+	case "relays":
+		var v SourceRelay
+		if err = json.Unmarshal(raw, &v); err == nil {
+			b.Relays = append(b.Relays, v)
 		}
 	case "issues":
 		var v Issue
@@ -650,7 +667,7 @@ func sortSeqPairs(raws []json.RawMessage, seqs []int64) {
 }
 
 func (r *streamRun) run(b *Bundle) error {
-	if len(b.Accounts)+len(b.Posts)+len(b.Media)+len(b.Emojis)+len(b.Relations)+len(b.Lists)+len(b.Reactions)+len(b.Bookmarks)+len(b.Polls)+len(b.PollVotes)+len(b.Records)+len(b.Issues) == 0 {
+	if len(b.Accounts)+len(b.Posts)+len(b.Media)+len(b.Emojis)+len(b.Relations)+len(b.Lists)+len(b.Reactions)+len(b.Bookmarks)+len(b.Polls)+len(b.PollVotes)+len(b.Records)+len(b.Relays)+len(b.Issues) == 0 {
 		return nil
 	}
 	var rep *Report

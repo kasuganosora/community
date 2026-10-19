@@ -37,6 +37,10 @@ CREATE TABLE "__chart__notes"(id serial PRIMARY KEY, date int NOT NULL, "___loca
 -- 50 local users (ids 1..50), 5000 remote users (ids 1001..6000) on 100 hosts
 INSERT INTO "user"(id, username, host, uri, "createdAt")
 SELECT mkid(n), 'local' || n, NULL, NULL, now() - interval '400 days' FROM generate_series(1, 50) n;
+-- Misskey system actors
+INSERT INTO "user"(id, username, host, uri, "createdAt") VALUES (mkid(60), 'instance.actor', NULL, NULL, now() - interval '500 days'), (mkid(61), 'relay.actor', NULL, NULL, now() - interval '500 days');
+CREATE TABLE relay(id varchar(32) PRIMARY KEY, inbox varchar(512) NOT NULL UNIQUE, status varchar(16) NOT NULL);
+INSERT INTO relay VALUES (mkid(450000001), 'https://relay.test/inbox', 'accepted');
 INSERT INTO "user"(id, username, host, uri, inbox, "createdAt", "avatarId")
 SELECT mkid(n), 'r' || n, 'host' || (n % 100) || '.test', 'https://host' || (n % 100) || '.test/users/' || n, 'https://host' || (n % 100) || '.test/inbox',
        now() - interval '300 days', CASE WHEN n % 10 = 0 THEN mkid(900000000 + n) END

@@ -208,6 +208,9 @@ tootctl two-factor scrub-preserved     # 清除旧导入归档里的明文 secre
 11. **归档原因明细。** 导入报告里每个被归档的记录都按 `类型:原因` 汇总成一条 info `archived_records`（数量 + 最多 5 个样例源 ID），例如 `post:quote_note`、`post:channel_note`、`post:chat_archive_only`、`post:unknown_visibility`、`post:boost_of_archived_post`、`post:archived_parent`、`post:reply_cycle_or_unpublished_parent`、`reaction:post_not_published`、`reaction:custom_emoji_not_imported`、`poll:post_not_published`、`poll_vote:poll_not_published`、`bookmark:post_not_published`。前几种是有意为之（目标端没有对应语义）；`*_not_published`、`reply_cycle_or_unpublished_parent` 要逐个看样例，判断是不是数据丢失。原始源行（`records`）照旧只计入 `archived.record`，不进明细。
 12. **收窄预测与导入一致。** 预检的 `reply_visibility_narrowed` 计数现在按导入器的规则逐条模拟：跨分块、父帖在后面出现、回复链、私信父帖、父帖被归档（回复照常发布但不收窄）、父帖成环或缺失（回复会被归档，不计入）、以及重跑时已按回执提交的帖子（不再重复计数）。测试用随机回复森林在 SQLite / PostgreSQL 上断言预检计数 == 导入报告计数 == 实际带 `import_visibility_narrowed_from` 的帖子数。旧 spool 首次打开时的原地加密改为每 500 行一个事务并截断 WAL，内存不再随 spool 大小增长。
 
+13. **引用帖（quote）以前全部被归档。** 第四次演练 317 条 `post:quote_note` 被归档（其中 314 条的目标在源库里），连带 49 条转发（`boost_of_archived_post`）和 137 个回应（`post_not_published`）。现在带内容的 renote（`renoteId` 且有 text / cw / 文件 / 投票）作为普通帖子导入，并用 `statuses.quote_id` 指向导入后的目标（本地或远端），与站内自己发的引用一致；纯 renote 仍是转发。链接在帖子写入之后进行，所以顺序无关：同一分块内在帖子阶段之后立即链接，目标在后面分块的，在流式导入的帖子阶段结束后再统一补链一次（帖子属性 `import_quote_pending` 在补链后删除）。和站内引用规则一致，只链接**公开或不公开（unlisted）**的目标，仅关注者 / 私信目标绝不通过引用暴露。没能链接的引用仍作为普通帖子导入（不归档），目标 URI 保存在 `properties.import_quote_uri`，原因记在 `properties.import_quote_unlinked`，报告里是非阻断警告 `quote_unlinked`，按原因汇总：`post:target_missing`（目标不在导出里）、`post:target_not_quotable`（目标是仅关注者 / 私信）、`post:target_archived`（目标在私有归档里）。预检对这三类给出与导入一致的数量和样例。转发和回应随之正常导入。
+14. **实例 Actor / 中继 Actor 以前没有迁移身份。** 核对第 5 项报 `db account=None`：Misskey 的 `instance.actor`、`relay.actor` 虽作为本地账号导入，但 Community 仍以新生成的 `<base>/actor` 身份签名。现在导出器把这两个用户标为 `system_role`（`instance_actor` / `relay_actor`），导入时保留原 actor URI `https://maid.lat/users/<id>`、keyId `<uri>#main-key` 和密钥对，并写入 `system_settings`：`federation.instance_actor_uri`、`federation.relay_actor_uri`。服务端（**需要部署新版本**）据此：实例 Actor 就是该账号，签名用原 keyId；`/users/<id>` 和 `/actor` 都返回同一个文档（id 为原 URI）；WebFinger `acct:instance.actor@maid.lat`、原 URI 均可解析；设置存在但账号缺失时报错而不是另生成新身份。Misskey 的 `relay` 表也会迁移：每个中继以 `relay.actor` 为订阅者（`relays.actor_uri`，新迁移 `RelayActorURIScript`），Follow id 保留 Misskey 的 `https://maid.lat/activities/follow-relay/<relay id>`，状态（accepted / requesting / rejected）照搬，中继无需重新订阅，之后的 Undo 也用同一 actor 和 id。新加的中继同样由 `relay.actor` 订阅。核对脚本第 5 项现在检查：账号存在、密钥与 Misskey 相同、keyId 为 `<uri>#main-key`、设置指向原 URI、`/users/<id>` 与 `/actor` 都返回原 id 和密钥；5b 检查 relay.actor，5c 检查中继订阅数量。
+
 ## 重新执行 maid.lat 演练（隔离网络、只读源）
 
 前提：一台**不能访问公网**的演练机；源库是 maid.lat 的只读副本或恢复出来的快照，使用上面的只读角色；目标是一个空的 Community 数据库。
@@ -246,6 +249,24 @@ COMMUNITY_DB_DSN='postgresql://community@127.0.0.1:5432/community_rehearsal' \
 COMMUNITY_BASE='http://127.0.0.1:8080' HOST_HEADER=maid.lat SAMPLE=200 \
 python3 scripts/migration/verify_misskey_import.py --seed 42 -v
 ```
+
+### 全量重跑（第四次演练之后：引用帖、实例 / 中继 Actor）
+
+导出格式变了（引用帖不再是 archive_only，新增 `system_role` 和 `relays`），必须重新读取并换一个**空的**目标库；先在目标机部署新版本服务端（新增迁移 `RelayActorURIScript`，启动时自动执行）。
+
+```sh
+# .env：DB_DSN 指向新的空库；APP_BASE_URL=https://maid.lat、ENCRYPTED_KEY 不变
+mv /srv/maid-rehearsal/work /srv/maid-rehearsal/work.round4
+community-transfer "${COMMON[@]}" --fetch-only --max-rows-per-sec 20000
+# 预检：期望 can_execute: true；quote_unlinked 只剩 target_missing（约 3 条）及少量 not_quotable / archived；
+#       archived_records 里不应再有 post:quote_note
+community-transfer "${COMMON[@]}" --final-sync --report /srv/maid-rehearsal/report-validate-5.json
+TRANSFER_DEBUG=1 community-transfer "${COMMON[@]}" --reuse-spool --apply --report /srv/maid-rehearsal/report-import-5.json
+# 启动（或重启）目标实例后再核对：system_settings 在启动时读入
+python3 scripts/migration/verify_misskey_import.py ...   # 第 5 / 5b / 5c 项应为 PASS
+```
+
+SQL 抽查：`SELECT count(*) FROM statuses WHERE quote_id IS NOT NULL;`（预期约 311）；`SELECT * FROM system_settings WHERE key LIKE 'federation.%';`；`SELECT inbox_url, state, actor_uri, follow_activity_id FROM relays;`。
 
 ### 全量重跑（第三次演练 preserved 阶段失败之后）
 

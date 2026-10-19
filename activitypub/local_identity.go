@@ -25,7 +25,7 @@ func localActorQuery(conn *gorm.DB, uri string) *gorm.DB {
 }
 func localActorRouteQuery(conn *gorm.DB, c *gin.Context) *gorm.DB {
 	if isImportedSystemActorPath(c.Request.URL.Path) {
-		return localActorQuery(conn, strings.TrimRight(systemsettings.GetBaseURL(), "/")+"/actor")
+		return localActorQuery(conn, InstanceActorURI())
 	}
 	prefix := "/users/"
 	if strings.HasPrefix(c.Request.URL.Path, "/ap/users/") {

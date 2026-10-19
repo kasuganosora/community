@@ -98,11 +98,14 @@ func (s *RelayService) EnableRelay(relayID uint64) error {
 		return errors.New("relay is already enabled")
 	}
 
-	// The Follow is sent and signed by the instance actor; make sure it
-	// exists (with its key) before the delivery is queued.
-	if _, err := getInstanceActor(context.Background()); err != nil {
-		return fmt.Errorf("instance actor unavailable: %w", err)
+	// The Follow is sent and signed by the relay actor (the instance actor
+	// unless one was imported); make sure it exists with its key before the
+	// delivery is queued.
+	actor := RelayActorURI()
+	if err := ensureLocalActor(actor); err != nil {
+		return fmt.Errorf("relay actor unavailable: %w", err)
 	}
+	relay.ActorURI = actor
 
 	// 生成 Follow 活动. Mastodon-style relays expect exactly this shape:
 	// object as:Public and no "to" (Activity-Relay ignores a Follow
@@ -111,8 +114,8 @@ func (s *RelayService) EnableRelay(relayID uint64) error {
 	activity := map[string]any{
 		"@context": RelayContext, //nolint:goconst
 		"id":       activityID,
-		"type":     "Follow",                                       //nolint:goconst
-		"actor":    s.GetInstanceActorURI(),                        //nolint:goconst
+		"type":     "Follow", //nolint:goconst
+		"actor":    actor,
 		"object":   "https://www.w3.org/ns/activitystreams#Public", //nolint:goconst
 	}
 
@@ -161,6 +164,7 @@ func (s *RelayService) DisableRelay(relayID uint64) error {
 	}
 
 	followID := relay.FollowActivityID
+	actor := relayActor(relay)
 	relay.State = models.RelayStateIdle
 	relay.FollowActivityID = ""
 	if followID == "" {
@@ -174,11 +178,11 @@ func (s *RelayService) DisableRelay(relayID uint64) error {
 		"@context": RelayContext,
 		"id":       activityID,
 		"type":     "Undo", //nolint:goconst
-		"actor":    s.GetInstanceActorURI(),
+		"actor":    actor,
 		"object": map[string]any{
 			"id":     followID,
 			"type":   "Follow",
-			"actor":  s.GetInstanceActorURI(),
+			"actor":  actor,
 			"object": "https://www.w3.org/ns/activitystreams#Public",
 		},
 	}
@@ -293,4 +297,26 @@ func SerializeRelays(relays []models.Relay) []RelaySerializer {
 	}
 
 	return result
+}
+
+// relayActor is the local actor that followed relay (and so must undo it).
+func relayActor(relay *models.Relay) string {
+	if relay.ActorURI != "" {
+		return relay.ActorURI
+	}
+	return InstanceActorURI()
+}
+
+// ensureLocalActor makes sure actor is a local account with a signing key.
+func ensureLocalActor(actor string) error {
+	if actor == InstanceActorURI() {
+		_, err := getInstanceActor(context.Background())
+		return err
+	}
+	var account models.Account
+	if err := localActorQuery(db.GetDB(), actor).First(&account).Error; err != nil {
+		return err
+	}
+	_, err := localAccountKeyWith(db.GetDB(), &account)
+	return err
 }

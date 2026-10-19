@@ -127,7 +127,7 @@ func handleRelayFollowResponse(ctx context.Context, c *gin.Context, id string, o
 		return true
 	}
 	if object != nil {
-		if a, ok := object["actor"].(string); ok && a != InstanceActorURI() {
+		if a, ok := object["actor"].(string); ok && a != relayActor(&relay) {
 			c.JSON(403, gin.H{"error": "follow identity mismatch"})
 			return true
 		}

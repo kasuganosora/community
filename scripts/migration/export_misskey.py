@@ -49,7 +49,7 @@ from urllib.parse import unquote, urlsplit
 SCHEMA = "community-transfer/v1"
 METHODS = ("aid", "aidx", "meid", "meidg", "objectid", "ulid")
 SECTIONS = ("accounts", "credentials", "keys", "posts", "media", "relations", "lists", "reactions", "bookmarks",
-            "polls", "poll_votes", "emojis", "records", "issues")
+            "polls", "poll_votes", "emojis", "relays", "records", "issues")
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -59,6 +59,10 @@ KNOWN_PRIMARY_KEYS = {
     "poll": ["noteId"], "promo_note": ["noteId"],
     "user_profile": ["userId"], "user_keypair": ["userId"], "user_publickey": ["userId"],
 }
+
+
+# Misskey's local system actors (username, host NULL) and their target roles.
+SYSTEM_ROLES = {"instance.actor": "instance_actor", "relay.actor": "relay_actor"}
 
 
 def source_record_id(table, row, cols):
@@ -975,6 +979,12 @@ class Converter:
                  "suspended": bool(u.get("isSuspended")), "noindex": bool(p.get("noCrawle")),
                  "hide_collections": any(p.get(k) not in (None, "public") for k in ("followingVisibility", "followersVisibility")), "created_at": self.time(u),
                  "settings": {k: v for k, v in u.items() if k in ("isDeleted", "chatScope", "requireSigninToViewContents", "makeNotesFollowersOnlyBefore", "makeNotesHiddenBefore", "movedToUri", "alsoKnownAs", "movedAt")}}
+            role = SYSTEM_ROLES.get(u.get("username") or "") if a["local"] else None
+            if role:
+                # Misskey's instance.actor / relay.actor keep their actor URI
+                # (<base>/users/<id>) and keypair; the target serves and signs
+                # with them as its instance / relay actor.
+                a["system"], a["system_role"] = True, role
             for src, dst in (("url", "url"), ("inbox", "inbox"), ("sharedInbox", "shared_inbox"), ("updatedAt", "updated_at")):
                 if u.get(src):
                     a[dst] = u[src]
@@ -989,6 +999,13 @@ class Converter:
                     "two_factor": bool(p.get("twoFactorEnabled") or p.get("securityKeysAvailable") or p.get("usePasswordLessLogin")),
                     "extensions": ({k: p[k] for k in ("twoFactorEnabled", "twoFactorSecret", "twoFactorBackupSecret", "usePasswordLessLogin", "securityKeysAvailable") if p.get(k)}
                                    if p.get("twoFactorEnabled") or p.get("usePasswordLessLogin") or p.get("securityKeysAvailable") else {})})
+        relay_actor = next((uid for uid, u in self.users.items() if u.get("host") is None and u.get("username") == "relay.actor"), "")
+        for r in self.tables.get("relay", []):
+            # Misskey follows relays as relay.actor with Follow id
+            # <base>/activities/follow-relay/<relay id>; keeping both lets the
+            # relay's existing subscription (and later Undo) match.
+            self.bundle["relays"].append({"id": sid(r["id"]), "inbox": r.get("inbox") or "", "state": r.get("status") or "",
+                "actor_id": relay_actor, "actor_uri": self.actor(self.users.get(relay_actor)) if relay_actor else "", "follow_activity_id": self.base + "/activities/follow-relay/" + sid(r["id"])})
         key_users = set()
         self.stage("keys", "user_keypair")
         for k in self.tables.get("user_keypair", []):
@@ -1190,6 +1207,13 @@ class Converter:
             files = [sid(x) for x in r.get("fileIds") or []]
             file_rows = [self.staging.get("drive_file", f) for f in files]
             reply_id, renote_id = sid(r.get("replyId")), sid(r.get("renoteId"))
+            # A renote with its own content is a quote, not a boost.
+            is_quote = bool(renote_id) and bool(r.get("text") or r.get("cw") or r.get("fileIds") or r.get("hasPoll"))
+            quote_uri = ""
+            if is_quote:
+                target = self.staging.get("note", renote_id)
+                if target:
+                    quote_uri = target.get("uri") or (self.base + "/notes/" + renote_id if target.get("userHost") is None else "")
             recipients = [sid(x) for x in r.get("visibleUserIds") or []]
             if self.trim_references:
                 for ref, what in ((reply_id, "a reply target"), (renote_id, "a renote/quote target")):
@@ -1206,7 +1230,7 @@ class Converter:
                  # Official NoteCreateService: reply.threadId ?? reply.id; roots have null threadId.
                  "conversation_id": "note-thread:" + sid(r.get("threadId") or id_),
                  "visibility": visibility.get(r.get("visibility"), "direct"), "local_only": bool(r.get("localOnly")),
-                 "recipient_ids": recipients, "reply_id": reply_id, "reblog_id": renote_id,
+                 "recipient_ids": recipients, "reply_id": reply_id, "reblog_id": "" if is_quote else renote_id,
                  "media_ids": files, "tags": r.get("tags") or [], "emoji_ids": self.note_emoji_ids(r), "pinned": id_ in pinned,
                  "created_at": self.time(r), "sensitive": any(f and f.get("isSensitive") for f in file_rows),
                  "extensions": {"format": "mfm", "source": r}}
@@ -1216,9 +1240,12 @@ class Converter:
             if r.get("channelId"):
                 p["archive_only"] = True
                 self.issue("warning", "channel_note_archive", "note", id_, "Channel semantics need an explicit adapter; note remains archive-only.")
-            if r.get("renoteId") and (r.get("text") or r.get("cw") or r.get("fileIds") or r.get("hasPoll")):
-                p["archive_only"] = True
-                self.issue("warning", "quote_note_archive", "note", id_, "Quote-note semantics must not silently become a pure boost.")
+            if is_quote:
+                # Imported as a normal post linked to its target (quote_id);
+                # quote_uri is the fallback link when the target is not imported.
+                p["quote_id"] = renote_id
+                if quote_uri:
+                    p["quote_uri"] = quote_uri
             self.bundle["posts"].append(p)
         rooms = {sid(r["id"]): r for r in self.tables.get("chat_room", [])}
         memberships = defaultdict(set)

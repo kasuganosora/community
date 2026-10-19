@@ -24,6 +24,8 @@ type importer struct {
 	mediaPaths map[string]string
 	// archiveReason labels the record preserve() is archiving.
 	archiveReason string
+	// quotes created by this run, linked after the posts phase.
+	quotes []pendingQuote
 }
 
 type importFailure struct {
@@ -81,8 +83,8 @@ func Import(ctx context.Context, conn *gorm.DB, b *Bundle, o Options, onProgress
 				name string
 				run  func() error
 			}{
-				{"accounts", runner.importAccounts}, {"media", runner.importMedia}, {"emojis", runner.importEmojis}, {"posts", runner.importPosts},
-				{"relations", runner.importRelations}, {"extras", runner.importExtras}, {"preserved", runner.importPreserved},
+				{"accounts", runner.importAccounts}, {"media", runner.importMedia}, {"emojis", runner.importEmojis}, {"posts", runner.importPosts}, {"quotes", runner.linkBundleQuotes},
+				{"relations", runner.importRelations}, {"extras", runner.importExtras}, {"federation", runner.importFederation}, {"preserved", runner.importPreserved},
 			}
 			for _, p := range phases {
 				phase = p.name

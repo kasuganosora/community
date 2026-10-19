@@ -42,15 +42,31 @@ type Bundle struct {
 	PollVotes   []PollVote        `json:"poll_votes,omitempty"`
 	Emojis      []Emoji           `json:"emojis,omitempty"`
 	Records     []PreservedRecord `json:"records,omitempty"`
+	Relays      []SourceRelay     `json:"relays,omitempty"`
 	Issues      []Issue           `json:"issues,omitempty"`
 }
 
+// SourceRelay is a relay subscription of the source instance. FollowID is the
+// id of the Follow the source sent (Misskey: <base>/activities/follow-relay/<id>)
+// and ActorURI the local actor that follows (Misskey: relay.actor).
+type SourceRelay struct {
+	ID       string `json:"id"`
+	Inbox    string `json:"inbox"`
+	State    string `json:"state"`
+	ActorID  string `json:"actor_id,omitempty"`
+	ActorURI string `json:"actor_uri,omitempty"`
+	FollowID string `json:"follow_activity_id,omitempty"`
+}
+
 type Account struct {
-	ID                    string         `json:"id"`
-	Username              string         `json:"username"`
-	Domain                string         `json:"domain,omitempty"`
-	Local                 bool           `json:"local"`
-	System                bool           `json:"system,omitempty"`
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Domain   string `json:"domain,omitempty"`
+	Local    bool   `json:"local"`
+	System   bool   `json:"system,omitempty"`
+	// SystemRole marks a source system actor that becomes the target's
+	// instance_actor or relay_actor with its URI and keys unchanged.
+	SystemRole            string         `json:"system_role,omitempty"`
 	ActorURI              string         `json:"actor_uri"`
 	URL                   string         `json:"url,omitempty"`
 	Inbox                 string         `json:"inbox,omitempty"`
@@ -109,20 +125,24 @@ type FederationKey struct {
 }
 
 type Post struct {
-	ID             string          `json:"id"`
-	AuthorID       string          `json:"author_id"`
-	URI            string          `json:"uri,omitempty"`
-	URL            string          `json:"url,omitempty"`
-	Text           string          `json:"text,omitempty"`
-	HTML           string          `json:"html,omitempty"`
-	SpoilerText    string          `json:"spoiler_text,omitempty"`
-	Visibility     string          `json:"visibility"`
-	LocalOnly      bool            `json:"local_only,omitempty"`
-	Sensitive      bool            `json:"sensitive,omitempty"`
-	Language       string          `json:"language,omitempty"`
-	RecipientIDs   []string        `json:"recipient_ids,omitempty"`
-	ReplyID        string          `json:"reply_id,omitempty"`
-	ReblogID       string          `json:"reblog_id,omitempty"`
+	ID           string   `json:"id"`
+	AuthorID     string   `json:"author_id"`
+	URI          string   `json:"uri,omitempty"`
+	URL          string   `json:"url,omitempty"`
+	Text         string   `json:"text,omitempty"`
+	HTML         string   `json:"html,omitempty"`
+	SpoilerText  string   `json:"spoiler_text,omitempty"`
+	Visibility   string   `json:"visibility"`
+	LocalOnly    bool     `json:"local_only,omitempty"`
+	Sensitive    bool     `json:"sensitive,omitempty"`
+	Language     string   `json:"language,omitempty"`
+	RecipientIDs []string `json:"recipient_ids,omitempty"`
+	ReplyID      string   `json:"reply_id,omitempty"`
+	ReblogID     string   `json:"reblog_id,omitempty"`
+	// QuoteID is the quoted post (Misskey renote with content); QuoteURI the
+	// fallback link kept when the target is not imported.
+	QuoteID        string          `json:"quote_id,omitempty"`
+	QuoteURI       string          `json:"quote_uri,omitempty"`
 	MediaIDs       []string        `json:"media_ids,omitempty"`
 	Tags           []string        `json:"tags,omitempty"`
 	EmojiIDs       []string        `json:"emoji_ids,omitempty"`
@@ -295,4 +315,8 @@ type Options struct {
 	// bundle (earlier chunks of a streamed run). Preview adds this bundle's
 	// posts to it, so reply narrowing is reported across chunks.
 	ParentVisibility map[string]uint8
+	// DeferQuoteLinks leaves quotes whose target is not imported yet pending
+	// for the streamed run's final link pass instead of settling them as
+	// missing.
+	DeferQuoteLinks bool
 }

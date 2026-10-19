@@ -249,6 +249,40 @@ class ExportTests(unittest.TestCase):
         with self.assertRaisesRegex(m.ExportError, "duplicate source ids in table poll"):
             self.converter(staging).convert()
 
+    def test_quote_notes_become_linked_posts_not_archives(self):
+        self.tables["note"] = [
+            {"id": ident(20), "userId": self.c, "userHost": "remote.test", "visibility": "public", "text": "target", "uri": "https://remote.test/notes/t"},
+            {"id": ident(21), "userId": self.a, "visibility": "public", "text": "quote", "renoteId": ident(20)},
+            {"id": ident(22), "userId": self.b, "visibility": "public", "renoteId": ident(21)},  # pure renote of the quote
+            {"id": ident(23), "userId": self.a, "visibility": "public", "cw": "cw only", "renoteId": ident(21)},
+        ]
+        posts = {p["id"]: p for p in self.converter().convert()["posts"]}
+        q = posts[ident(21)]
+        self.assertFalse(q.get("archive_only"))
+        self.assertEqual(q["quote_id"], ident(20))
+        self.assertEqual(q["reblog_id"], "")
+        self.assertEqual(q["quote_uri"], "https://remote.test/notes/t")
+        self.assertEqual(posts[ident(22)]["reblog_id"], ident(21), "a pure renote stays a boost")
+        self.assertNotIn("quote_id", posts[ident(22)])
+        self.assertEqual(posts[ident(23)]["quote_id"], ident(21))
+        self.assertEqual(posts[ident(23)]["quote_uri"], "https://source.test/notes/" + ident(21), "local target URI")
+
+    def test_system_actors_and_relays(self):
+        ia, ra = ident(30), ident(31)
+        self.tables["user"] += [{"id": ia, "username": "instance.actor", "host": None}, {"id": ra, "username": "relay.actor", "host": None}]
+        self.tables["user_keypair"] += [{"userId": ia, "publicKey": "IA_PUB", "privateKey": "IA_PRIV"}, {"userId": ra, "publicKey": "RA_PUB", "privateKey": "RA_PRIV"}]
+        self.tables["relay"] = [{"id": ident(40), "inbox": "https://relay.example/inbox", "status": "accepted"}]
+        b = self.converter().convert()
+        accounts = {a["id"]: a for a in b["accounts"]}
+        self.assertEqual(accounts[ia]["system_role"], "instance_actor")
+        self.assertEqual(accounts[ia]["actor_uri"], "https://source.test/users/" + ia)
+        self.assertEqual(accounts[ra]["system_role"], "relay_actor")
+        self.assertTrue(accounts[ia]["system"])
+        keys = {k["account_id"]: k for k in b["keys"] if k.get("private_key")}
+        self.assertEqual(keys[ia]["key_id"], "https://source.test/users/" + ia + "#main-key")
+        self.assertEqual(b["relays"], [{"id": ident(40), "inbox": "https://relay.example/inbox", "state": "accepted", "actor_id": ra,
+                                        "actor_uri": "https://source.test/users/" + ra, "follow_activity_id": "https://source.test/activities/follow-relay/" + ident(40)}])
+
     def test_note_emoji_domain_resolution_and_pending_activity(self):
         self.tables["emoji"] = [{"id": ident(10), "name": "local", "host": None}, {"id": ident(11), "name": "remote", "host": "remote.test"}]
         self.tables["user"][0]["emojis"] = ["local"]
