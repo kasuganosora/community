@@ -352,6 +352,13 @@ func widthIssue(table, column string, limit int64, count, max int, samples []str
 		Count: count, MaxLength: max, Limit: limit, SampleIDs: samples}
 }
 
+func firstN(s []string, n int) []string {
+	if len(s) > n {
+		return append([]string(nil), s[:n]...)
+	}
+	return append([]string(nil), s...)
+}
+
 func firstOr(s []string) string {
 	if len(s) == 0 {
 		return ""
@@ -359,7 +366,8 @@ func firstOr(s []string) string {
 	return s[0]
 }
 
-// widthTally accumulates column_too_narrow issues across streamed chunks.
+// widthTally accumulates column_too_narrow and reply_visibility_narrowed
+// issues across streamed chunks, counting each source record once.
 type widthTally struct {
 	order  []string
 	issues map[string]*Issue
@@ -370,17 +378,18 @@ func (t *widthTally) add(is Issue) {
 	if t.issues == nil {
 		t.issues, t.ids = map[string]*Issue{}, map[string]map[string]bool{}
 	}
-	cur, ok := t.issues[is.Kind]
+	key := is.Code + "\x00" + is.Kind
+	cur, ok := t.issues[key]
 	if !ok {
 		cp := is
 		cp.violators = nil
 		cp.Count = 0
 		cp.SampleIDs = nil
-		t.issues[is.Kind], t.ids[is.Kind] = &cp, map[string]bool{}
-		t.order = append(t.order, is.Kind)
+		t.issues[key], t.ids[key] = &cp, map[string]bool{}
+		t.order = append(t.order, key)
 		cur = &cp
 	}
-	ids := t.ids[is.Kind]
+	ids := t.ids[key]
 	for _, id := range is.violators {
 		if ids[id] {
 			continue
@@ -395,8 +404,17 @@ func (t *widthTally) add(is Issue) {
 		cur.MaxLength = is.MaxLength
 	}
 	sort.Strings(cur.SampleIDs)
+	if cur.Code == ReplyNarrowedCode {
+		*cur = replyNarrowedIssue(cur.Count, cur.SampleIDs, nil)
+		return
+	}
 	table, column, _ := strings.Cut(cur.Kind, ".")
 	*cur = widthIssue(table, column, cur.Limit, cur.Count, cur.MaxLength, cur.SampleIDs)
+}
+
+// aggregatedIssue reports issues the streamed run folds into one total.
+func aggregatedIssue(code string) bool {
+	return code == ColumnTooNarrowCode || code == ReplyNarrowedCode
 }
 
 // list returns the merged issues in first-seen order.
@@ -404,6 +422,30 @@ func (t *widthTally) list() []Issue {
 	out := make([]Issue, 0, len(t.order))
 	for _, k := range t.order {
 		out = append(out, *t.issues[k])
+	}
+	return out
+}
+
+// foldAggregated merges repeated aggregated issues in one report (Preview
+// and the importer may both report the same narrowed reply), keeping every
+// offending id so a streamed run can merge reports again.
+func foldAggregated(issues []Issue) []Issue {
+	var t widthTally
+	out := make([]Issue, 0, len(issues))
+	for _, is := range issues {
+		if aggregatedIssue(is.Code) {
+			t.add(is)
+			continue
+		}
+		out = append(out, is)
+	}
+	for _, key := range t.order {
+		is := *t.issues[key]
+		for id := range t.ids[key] {
+			is.violators = append(is.violators, id)
+		}
+		sort.Strings(is.violators)
+		out = append(out, is)
 	}
 	return out
 }

@@ -102,6 +102,7 @@ func Import(ctx context.Context, conn *gorm.DB, b *Bundle, o Options, onProgress
 		})
 		if err == nil {
 			committed = true
+			report.Issues = foldAggregated(report.Issues)
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			cacheErr := runner.invalidateCaches(cleanupCtx, conn)
 			cancel()

@@ -291,4 +291,8 @@ type Options struct {
 	// Widths caches target schema introspection across the chunks of one
 	// streamed run; nil introspects on every Preview.
 	Widths *WidthCache
+	// ParentVisibility holds the effective visibility of posts outside the
+	// bundle (earlier chunks of a streamed run). Preview adds this bundle's
+	// posts to it, so reply narrowing is reported across chunks.
+	ParentVisibility map[string]uint8
 }

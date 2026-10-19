@@ -385,6 +385,13 @@ func Preview(ctx context.Context, conn *gorm.DB, b *Bundle, o Options) (*Report,
 	if err := checkColumnWidths(conn.WithContext(ctx), b, o.Widths, r); err != nil {
 		return r, err
 	}
+	narrowed, err := replyAudiences(ctx, conn, b, o, o.ParentVisibility)
+	if err != nil {
+		return r, err
+	}
+	if len(narrowed) > 0 {
+		r.Issues = append(r.Issues, replyNarrowedIssue(len(narrowed), firstN(narrowed, maxWidthSamples), narrowed))
+	}
 	return r, nil
 }
 

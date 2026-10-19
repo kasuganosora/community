@@ -68,7 +68,16 @@ func (i *importer) importPosts() error {
 				}
 				return nil
 			}
-			return errors.New("cyclic or archived live post reference")
+			// Site imports degrade per record too: posts whose parent can
+			// never be published (cycle, or missing live parent) stay in the
+			// private archive with a warning instead of failing the run.
+			for _, p := range next {
+				if err := i.preserve("post", p.ID, p); err != nil {
+					return err
+				}
+				i.report.Issues = append(i.report.Issues, Issue{Severity: "warning", Code: "archived_parent", Kind: "post", SourceID: p.ID, Message: "post depends on a cyclic or unpublished parent and was kept in the private archive"})
+			}
+			return nil
 		}
 		pending = next
 	}
@@ -87,6 +96,9 @@ func (i *importer) importPost(p Post) error {
 			return 0, err
 		}
 		source := i.sourceAccount(p.AuthorID)
+		// Set when a reply is narrowed to direct under a direct parent: only
+		// the parent's participants may stay recipients.
+		var directParent map[uint64]bool
 		target := models.Status{LocalOnly: p.LocalOnly, AccountId: author, Visibility: visibility(p.Visibility), Sensitive: p.Sensitive, Language: p.Language, CreatedAt: timePointer(p.CreatedAt), UpdatedAt: timePointer(p.UpdatedAt), Properties: map[string]any{}}
 		if !i.personal() && source.Local {
 			target.LocalObjectURI = p.URI
@@ -108,6 +120,18 @@ func (i *importer) importPost(p Post) error {
 				return 0, err
 			}
 			target.InReplyToAccountId = &parent.AccountId
+			// Never widen the parent's audience: narrow the reply instead of
+			// failing the run (e.g. an unlisted reply to a followers-only post).
+			if v, narrowed := narrowVisibility(target.Visibility, parent.Visibility); narrowed {
+				target.Properties["import_visibility_narrowed_from"] = p.Visibility
+				target.Visibility = v
+				i.report.Issues = append(i.report.Issues, replyNarrowedIssue(1, []string{p.ID}, []string{p.ID}))
+				if v == models.StatusVisibilityDirect {
+					if directParent, err = directAudience(tx, &parent); err != nil {
+						return 0, err
+					}
+				}
+			}
 			if !models.ValidateReplyVisibility(&parent, target.Visibility) {
 				return 0, errors.New("reply widens parent audience")
 			}
@@ -137,11 +161,21 @@ func (i *importer) importPost(p Post) error {
 			return 0, err
 		}
 		participants := map[uint64]bool{author: true}
+		var recipients []uint64
 		for _, ref := range p.RecipientIDs {
 			id, e := i.ref("account", ref)
 			if e != nil {
 				return 0, e
 			}
+			if directParent == nil || directParent[id] {
+				recipients = append(recipients, id)
+			}
+		}
+		if directParent != nil && target.InReplyToAccountId != nil {
+			// The parent's author is always addressed by a narrowed reply.
+			recipients = append(recipients, *target.InReplyToAccountId)
+		}
+		for _, id := range recipients {
 			if participants[id] {
 				continue
 			}
