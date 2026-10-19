@@ -58,8 +58,8 @@ type Status struct { //nolint:recvcheck
 	Language           string         `gorm:"type:varchar(16)"              json:"language"`
 	FavouritesCount    uint64         `gorm:"not null;default:0"            json:"favourites_count"`
 	ScheduledAt        *time.Time     `gorm:"index"                         json:"scheduled_at"`
-	OriginUri          *string        `gorm:"type:varchar(255)"             json:"origin_uri"`
-	OriginUrl          *string        `gorm:"type:varchar(255)"             json:"origin_url"`
+	OriginUri          *string        `gorm:"type:varchar(2048)"            json:"origin_uri"`
+	OriginUrl          *string        `gorm:"type:varchar(2048)"            json:"origin_url"`
 	CreatedAt          *time.Time     `gorm:"not null;autoCreateTime;index" json:"created_at"`
 	UpdatedAt          *time.Time     `gorm:"not null;autoUpdateTime"       json:"updated_at"`
 	DeletedAt          *time.Time     `gorm:"index"                         json:"-"`

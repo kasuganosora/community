@@ -29,13 +29,13 @@ type MediaAttachment struct {
 	FileName      string    `gorm:"size:255;not null"                  json:"file_name"`
 	FilePath      string    `gorm:"size:500;not null"                  json:"file_path"`
 	FileSize      int64     `gorm:"not null"                           json:"file_size"`
-	ContentType   string    `gorm:"size:100;not null"                  json:"content_type"`
+	ContentType   string    `gorm:"size:128;not null"                  json:"content_type"`
 	Type          MediaType `gorm:"size:20;not null;default:'unknown'" json:"type"`
 	Width         *int      `json:"width"`
 	Height        *int      `json:"height"`
 	Duration      *float64  `json:"duration"`
 	ThumbnailPath *string   `gorm:"size:500"                           json:"thumbnail_path"`
-	RemoteUrl     string    `gorm:"size:500"                           json:"remote_url"` // original URL of federated media
+	RemoteUrl     string    `gorm:"size:2048"                          json:"remote_url"` // original URL of federated media
 	Description   string    `gorm:"type:text"                          json:"description"`
 	Blurhash      string    `gorm:"size:255"                           json:"blurhash"`
 	// Sensitive is the per-file flag federated servers send (Misskey, Mastodon).

@@ -62,6 +62,7 @@ type streamRun struct {
 	dropped    int
 	firstDone  bool
 	seenIssues map[string]bool
+	widths     widthTally
 }
 
 // ImportSpool imports (or previews) a spooled site transfer chunk by chunk.
@@ -82,6 +83,9 @@ func ImportSpool(ctx context.Context, conn *gorm.DB, sp *Spool, o Options, so St
 		so.MaxIssues = 10000
 	}
 	conn = conn.Session(&gorm.Session{Logger: logger.Discard})
+	if o.Widths == nil {
+		o.Widths = NewWidthCache()
+	}
 	hdr := sp.Header
 	r := &streamRun{seenIssues: map[string]bool{}, ctx: ctx, conn: conn, sp: sp, o: o, so: so, namespace: transferNamespace(&hdr, o),
 		total: &Report{CanExecute: true, Source: newReport(&hdr).Source, Counts: map[string]int{}, Created: map[string]int{}, Skipped: map[string]int{}, Archived: map[string]int{}}}
@@ -103,6 +107,11 @@ func ImportSpool(ctx context.Context, conn *gorm.DB, sp *Spool, o Options, so St
 	for _, kv := range [][2]string{{"accounts", "account"}, {"media", "media"}, {"emojis", "emoji"}, {"posts", "post"}, {"relations", "relation"},
 		{"reactions", "reaction"}, {"bookmarks", "bookmark"}, {"polls", "poll"}, {"poll_votes", "poll_vote"}, {"lists", "list"}, {"records", "record"}} {
 		r.total.Counts[kv[1]] = sp.Count(kv[0])
+	}
+	// One total per too-narrow column, ahead of the per-record issues.
+	if w := r.widths.list(); len(w) > 0 {
+		r.total.Issues = append(w, r.total.Issues...)
+		r.total.CanExecute = false
 	}
 	if r.dropped > 0 {
 		r.total.Issues = append(r.total.Issues, Issue{Severity: "info", Code: "issues_truncated", Message: fmt.Sprintf("%d further issues were omitted from this report", r.dropped)})
@@ -697,6 +706,10 @@ func (r *streamRun) merge(rep *Report, b *Bundle, first bool) {
 		t.Counts[k] += v
 	}
 	for _, is := range rep.Issues {
+		if is.Code == ColumnTooNarrowCode {
+			r.widths.add(is)
+			continue
+		}
 		// Accounts pulled into several chunks would repeat the same issue.
 		key := is.Severity + "\x00" + is.Code + "\x00" + is.Kind + "\x00" + is.SourceID + "\x00" + is.Message
 		if r.seenIssues[key] && !first {

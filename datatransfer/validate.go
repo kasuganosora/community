@@ -382,6 +382,9 @@ func Preview(ctx context.Context, conn *gorm.DB, b *Bundle, o Options) (*Report,
 	if err := validateExistingReceipts(ctx, conn, b, o, r); err != nil {
 		return r, err
 	}
+	if err := checkColumnWidths(conn.WithContext(ctx), b, o.Widths, r); err != nil {
+		return r, err
+	}
 	return r, nil
 }
 

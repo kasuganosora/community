@@ -9,7 +9,7 @@ import (
 
 type Emoji struct {
 	Id              uint64   `gorm:"primary_key;autoIncrement"        json:"id"`
-	Shortcode       string   `gorm:"not null;type:varchar(36);uniqueIndex:idx_emoji_shortcode_domain,priority:1" json:"shortcode"`
+	Shortcode       string   `gorm:"not null;type:varchar(255);uniqueIndex:idx_emoji_shortcode_domain,priority:1" json:"shortcode"`
 	Url             string   `gorm:"type:varchar(2048);not null"       json:"url"`
 	StaticUrl       string   `gorm:"type:varchar(2048);not null"       json:"static_url"`
 	VisibleInPicker bool     `json:"visible_in_picker"`

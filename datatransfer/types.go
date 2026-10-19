@@ -242,6 +242,15 @@ type Issue struct {
 	Kind     string `json:"kind,omitempty"`
 	SourceID string `json:"source_id,omitempty"`
 	Message  string `json:"message"`
+	// Width details, set on column_too_narrow issues only.
+	Count     int      `json:"count,omitempty"`
+	MaxLength int      `json:"max_length,omitempty"`
+	Limit     int64    `json:"limit,omitempty"`
+	SampleIDs []string `json:"sample_ids,omitempty"`
+	// violators lists every offending source id of a column_too_narrow
+	// issue so streamed chunks (which repeat closure records) count each
+	// record once.
+	violators []string
 }
 
 type Report struct {
@@ -279,4 +288,7 @@ type Options struct {
 	// References to seeded records are valid even though the records are not
 	// part of this bundle.
 	Seed map[string]map[string]uint64
+	// Widths caches target schema introspection across the chunks of one
+	// streamed run; nil introspects on every Preview.
+	Widths *WidthCache
 }
