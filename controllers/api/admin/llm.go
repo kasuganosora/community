@@ -88,6 +88,10 @@ func UpdateLLMSettings(c *gin.Context) {
 	for _, in := range req.Providers {
 		p := in.ProviderConfig
 		p.Name, p.Model, p.BaseURL = strings.TrimSpace(p.Name), strings.TrimSpace(p.Model), strings.TrimRight(strings.TrimSpace(p.BaseURL), "/")
+		p.ChatPath = strings.TrimSpace(p.ChatPath)
+		if p.Type != llmsvc.TypeOpenAICompatible {
+			p.ChatPath = ""
+		}
 		p.Currency = strings.ToUpper(strings.TrimSpace(p.Currency))
 		p.APIKeyEnc, p.APIKeySalt, p.APIKeyHint = "", "", ""
 		if old, ok := current.Find(p.ID); ok && p.ID != "" {

@@ -27,3 +27,24 @@ and LLM-backed status translation.
   options and media descriptions are translated in the same request. Results
   are cached in `translation_caches` keyed by a hash of the translated input,
   target language and backend, shared across statuses.
+
+## Chat endpoint of OpenAI-compatible providers
+
+`chat_path` (admin: External services > LLM > Chat path) overrides the Chat
+Completions path; it may be a path relative to the base URL or a full endpoint
+URL. Empty = automatic (`ResolveChatPath`, mirroring ThinkBot's
+`config.resolveChatPath`): a base URL ending in a version segment (`/v1`, `/v4`,
+`/api/paas/v4`, `/v1beta`) gets `/chat/completions`, otherwise
+`/v1/chat/completions`. The connection test reports the resolved `endpoint`
+(no key, no query string).
+
+## Translation fallback
+
+In LLM mode an unusable answer (`llm_empty_output`, `llm_refusal`,
+`llm_length_ratio`, `llm_unchanged_output`, `llm_bad_output`) or a provider
+error (`llm_timeout`, `llm_unreachable`, ...) falls back to the traditional
+backend only if `LIBRETRANSLATE_URL` is explicitly set to a non-default URL
+(never the public libretranslate.de). Each fallback is logged with its reason.
+The response carries `provider` and `engine` (`llm` | `traditional`). Without a
+fallback the error is `translation_failed` (422) or `translation_unavailable`
+(424), never a 5xx.

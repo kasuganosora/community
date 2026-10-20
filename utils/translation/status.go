@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"math/rand/v2"
 	"strconv"
 	"strings"
@@ -95,6 +94,17 @@ var (
 	ErrUnavailable          = newErr(503, "translation_unavailable", "The translation service is unavailable")
 	ErrVisibilityRestricted = newErr(403, "translation_visibility_restricted", "Only public and unlisted posts can be translated on this server")
 	ErrFailed               = newErr(502, "translation_failed", "The translation service could not translate this post")
+
+	// LLM mode without an explicit traditional fallback: the same stable
+	// codes, but never a 5xx (the server itself is healthy).
+	ErrLLMFailed      = newErr(422, "translation_failed", "The translation service could not translate this post")
+	ErrLLMUnavailable = newErr(424, "translation_unavailable", "The translation service is unavailable")
+)
+
+// Engines reported in StatusTranslation.Engine.
+const (
+	EngineLLM         = "llm"
+	EngineTraditional = "traditional"
 )
 
 // PollTranslation / MediaTranslation follow Mastodon's Translation entity.
@@ -119,6 +129,8 @@ type StatusTranslation struct {
 	DetectedSourceLanguage string             `json:"detected_source_language"`
 	Language               string             `json:"language"`
 	Provider               string             `json:"provider"`
+	// Engine is "llm" or "traditional" (extra field, ignored by Mastodon clients).
+	Engine string `json:"engine"`
 }
 
 var langPattern = func(s string) bool {
@@ -259,18 +271,47 @@ func TranslateStatus(ctx context.Context, s *models.Status, account *models.Acco
 	key := cacheKey(backend, target, payload)
 
 	var out *llmsvc.TranslationOutput
-	providerName := ""
+	providerName, engine := "", EngineTraditional
+	if mode == ModeLLM {
+		engine = EngineLLM
+	}
 	if cached, name := lookupCache(key); cached != nil {
 		out, providerName = cached, name
+	} else if mode == ModeLLM {
+		var reason string
+		var err *Error
+		out, reason, err = translateLLM(ctx, provider, account, payload, s.Language, target)
+		providerName = provider.Name
+		if err != nil {
+			if reason == "" {
+				return nil, err
+			}
+			fb, ok := FallbackService()
+			if !ok {
+				log.Warn("LLM translation fallback unavailable (provider %s, reason %s): no explicit traditional backend", provider.ID, reason)
+				return nil, err
+			}
+			log.Warn("LLM translation fallback to traditional (provider %s, reason %s)", provider.ID, reason)
+			fbKey := cacheKey("traditional:"+fb.GetProviderName(), target, payload)
+			if cached, name := lookupCache(fbKey); cached != nil {
+				out, providerName = cached, name
+			} else {
+				fout, ferr := translateTraditional(fb, payload, s.Language, target)
+				if ferr != nil {
+					log.Warn("LLM translation fallback failed (provider %s, reason %s, traditional %s)", provider.ID, reason, fb.GetProviderName())
+					return nil, err
+				}
+				out, providerName = fout, fb.GetProviderName()
+				storeCache(fbKey, contentHash(payload), target, providerName, out)
+			}
+			engine = EngineTraditional
+		} else {
+			storeCache(key, contentHash(payload), target, providerName, out)
+		}
 	} else {
 		var err *Error
-		if mode == ModeLLM {
-			out, err = translateLLM(ctx, provider, account, payload, target)
-			providerName = provider.Name
-		} else {
-			out, err = translateTraditional(payload, s.Language, target)
-			providerName = GetService().GetProviderName()
-		}
+		out, err = translateTraditional(GetService(), payload, s.Language, target)
+		providerName = GetService().GetProviderName()
 		if err != nil {
 			return nil, err
 		}
@@ -281,7 +322,7 @@ func TranslateStatus(ctx context.Context, s *models.Status, account *models.Acco
 	}
 
 	res := &StatusTranslation{
-		Content: out.Content, SpoilerText: out.SpoilerText, Language: target, Provider: providerName,
+		Content: out.Content, SpoilerText: out.SpoilerText, Language: target, Provider: providerName, Engine: engine,
 		DetectedSourceLanguage: out.DetectedSourceLanguage, MediaAttachments: []MediaTranslation{},
 	}
 	if res.DetectedSourceLanguage == "" {
@@ -301,25 +342,29 @@ func TranslateStatus(ctx context.Context, s *models.Status, account *models.Acco
 	return res, nil
 }
 
-func translateLLM(ctx context.Context, p llmsvc.ProviderConfig, account *models.Account, payload llmsvc.TranslationPayload, target string) (*llmsvc.TranslationOutput, *Error) {
+// translateLLM returns a non-empty fallback reason when the failure may be
+// served by the traditional backend (unusable output, provider/network error);
+// limit errors carry no reason.
+func translateLLM(ctx context.Context, p llmsvc.ProviderConfig, account *models.Account, payload llmsvc.TranslationPayload, source, target string) (*llmsvc.TranslationOutput, string, *Error) {
 	if !burst.allow(account.Id, systemsettings.GetInt(KeyUserPerMinute, DefaultUserPerMinute)) {
-		return nil, ErrRateLimited
+		return nil, "", ErrRateLimited
 	}
 	if limit := systemsettings.GetInt64(KeyUserDailyLimit, DefaultUserDailyLimit); limit > 0 && llmsvc.UserCallsToday(llmsvc.FeatureTranslation, account.Id) >= limit {
-		return nil, ErrUserQuota
+		return nil, "", ErrUserQuota
 	}
 	if limit := systemsettings.GetInt64(KeyDailyLimit, DefaultDailyLimit); limit > 0 && llmsvc.CallsToday(llmsvc.FeatureTranslation) >= limit {
-		return nil, ErrDailyQuota
+		return nil, "", ErrDailyQuota
 	}
 	llmsvc.IncrementUserCalls(llmsvc.FeatureTranslation, account.Id)
-	out, err := llmsvc.TranslateWithLLM(ctx, p, payload, target)
+	out, err := llmsvc.TranslateWithLLM(ctx, p, payload, source, target)
 	if err != nil {
-		if errors.Is(err, llmsvc.ErrBadOutput) {
-			log.Warn("LLM translation returned unusable output (provider %s)", p.ID)
-			return nil, ErrFailed
+		if reason := llmsvc.OutputReason(err); reason != "" {
+			log.Warn("LLM translation returned unusable output (provider %s, reason %s)", p.ID, reason)
+			return nil, reason, ErrLLMFailed
 		}
-		log.Warn("LLM translation failed (provider %s): %s", p.ID, llmsvc.ErrorCode(err))
-		return nil, ErrUnavailable
+		reason := llmsvc.ErrorCode(err)
+		log.Warn("LLM translation failed (provider %s, reason %s)", p.ID, reason)
+		return nil, reason, ErrLLMUnavailable
 	}
 	out.Content = htmlsafe.Sanitize(out.Content)
 	out.SpoilerText = htmlsafe.StripTags(out.SpoilerText)
@@ -329,11 +374,10 @@ func translateLLM(ctx context.Context, p llmsvc.ProviderConfig, account *models.
 	for i := range out.MediaDescriptions {
 		out.MediaDescriptions[i] = htmlsafe.StripTags(out.MediaDescriptions[i])
 	}
-	return out, nil
+	return out, "", nil
 }
 
-func translateTraditional(p llmsvc.TranslationPayload, source, target string) (*llmsvc.TranslationOutput, *Error) {
-	service := GetService()
+func translateTraditional(service *Service, p llmsvc.TranslationPayload, source, target string) (*llmsvc.TranslationOutput, *Error) {
 	if source == "" {
 		source = "auto"
 	}

@@ -102,7 +102,9 @@ type TestResult struct {
 	Message   string `json:"message,omitempty"`
 	LatencyMS int64  `json:"latency_ms"`
 	Model     string `json:"model"`
-	Reply     string `json:"reply,omitempty"`
+	// Endpoint is the resolved request URL (no key, no query string).
+	Endpoint string `json:"endpoint,omitempty"`
+	Reply    string `json:"reply,omitempty"`
 }
 
 // ErrorCode maps an llm error to a stable code. The message of the provider is

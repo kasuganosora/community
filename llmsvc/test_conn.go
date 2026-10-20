@@ -21,7 +21,7 @@ func Test(ctx context.Context, p ProviderConfig) TestResult {
 		Messages:  []llm.Message{llm.UserMessage("ping")},
 		MaxTokens: &maxTokens,
 	})
-	out := TestResult{LatencyMS: time.Since(start).Milliseconds(), Model: p.Model}
+	out := TestResult{LatencyMS: time.Since(start).Milliseconds(), Model: p.Model, Endpoint: p.Endpoint()}
 	if err != nil {
 		out.Code = ErrorCode(err)
 		return out

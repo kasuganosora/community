@@ -7,6 +7,8 @@ export interface LlmProvider {
   name: string
   type: LlmProviderType
   base_url?: string
+  /** openai_compatible only: path or full URL; empty = automatic. */
+  chat_path?: string
   model: string
   timeout_seconds?: number
   max_tokens?: number
@@ -44,7 +46,7 @@ export interface LlmProviderInput extends Omit<LlmProvider, 'api_key_set' | 'api
   clear_api_key?: boolean
 }
 
-export interface LlmTestResult { ok: boolean; code?: string; latency_ms: number; model: string; reply?: string }
+export interface LlmTestResult { ok: boolean; code?: string; latency_ms: number; model: string; endpoint?: string; reply?: string }
 
 export interface LlmUsageDay {
   day: string

@@ -115,7 +115,7 @@ type LibreTranslateProvider struct {
 func NewLibreTranslateProvider() *LibreTranslateProvider {
 	baseURL := os.Getenv("LIBRETRANSLATE_URL")
 	if baseURL == "" {
-		baseURL = "https://libretranslate.de" // 默认公共实例
+		baseURL = PublicLibreTranslateURL // 默认公共实例
 	}
 
 	return &LibreTranslateProvider{

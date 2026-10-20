@@ -50,10 +50,14 @@ var Services = []string{ServiceTranslation}
 // APIKeyEnc holds the AES-encrypted key; the plaintext never leaves this package
 // except towards the provider itself.
 type ProviderConfig struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Type        string   `json:"type"`
-	BaseURL     string   `json:"base_url,omitempty"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	BaseURL string `json:"base_url,omitempty"`
+	// ChatPath overrides the Chat Completions path of openai_compatible
+	// providers: a path relative to BaseURL or a full endpoint URL. Empty =
+	// automatic (see ResolveChatPath).
+	ChatPath    string   `json:"chat_path,omitempty"`
 	Model       string   `json:"model"`
 	APIKeyEnc   string   `json:"api_key_enc,omitempty"`
 	APIKeySalt  string   `json:"api_key_salt,omitempty"`
@@ -170,6 +174,9 @@ func Validate(cfg Config) error {
 			}
 		} else if p.Type == TypeOpenAICompatible {
 			return invalid("llm_base_url_required", field+".base_url")
+		}
+		if !validChatPath(p.ChatPath) {
+			return invalid("llm_invalid_chat_path", field+".chat_path")
 		}
 		if p.TimeoutSec < 0 || p.TimeoutSec > 600 {
 			return invalid("llm_invalid_timeout", field+".timeout_seconds")
@@ -314,7 +321,7 @@ func buildProvider(p ProviderConfig) (llm.Provider, error) {
 			opts = append(opts, openai.WithBaseURL(p.BaseURL))
 		}
 		if p.Type == TypeOpenAICompatible {
-			opts = append(opts, openai.WithChatMode())
+			opts = append(opts, openai.WithChatMode(), openai.WithChatPath(ResolveChatPath(p.BaseURL, p.ChatPath)))
 		}
 		return openai.New(opts...), nil
 	case TypeAnthropic:

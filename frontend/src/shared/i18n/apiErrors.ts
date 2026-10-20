@@ -30,6 +30,7 @@ const API_ERRORS: Record<string, string> = {
   "llm_invalid_type": 'llmInvalidType',
   "llm_invalid_base_url": 'llmInvalidBaseUrl',
   "llm_base_url_required": 'llmBaseUrlRequired',
+  "llm_invalid_chat_path": 'llmInvalidChatPath',
   "llm_invalid_timeout": 'llmInvalidTimeout',
   "llm_invalid_max_tokens": 'llmInvalidMaxTokens',
   "llm_invalid_temperature": 'llmInvalidTemperature',

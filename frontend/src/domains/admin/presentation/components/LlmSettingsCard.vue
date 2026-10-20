@@ -10,6 +10,7 @@ import { AdminAlert, AdminBadge, AdminButton, AdminCheck, AdminEmpty, AdminField
 import { llmAdminApi as api, type LlmProviderType, type LlmSettings, type LlmTestResult, type LlmTranslationSettings, type LlmUsage } from '../../infrastructure/llmAdminApi'
 import { t } from '@/shared/i18n'
 import { translateApiError } from '@/shared/i18n/apiErrors'
+import { chatEndpoint, DEFAULT_CHAT_PATH } from '../../application/llmEndpoint'
 
 interface Draft {
   ref: string
@@ -17,6 +18,7 @@ interface Draft {
   name: string
   type: LlmProviderType
   base_url: string
+  chat_path: string
   model: string
   api_key: string
   clear_api_key: boolean
@@ -48,7 +50,7 @@ function num(v: number | undefined | null): number | '' { return typeof v === 'n
 function install(s: LlmSettings) {
   loaded.value = s
   drafts.value = s.providers.map(p => ({
-    ref: p.id, id: p.id, name: p.name, type: p.type, base_url: p.base_url || '', model: p.model, api_key: '', clear_api_key: false,
+    ref: p.id, id: p.id, name: p.name, type: p.type, base_url: p.base_url || '', chat_path: p.chat_path || '', model: p.model, api_key: '', clear_api_key: false,
     api_key_set: p.api_key_set, api_key_mask: p.api_key_mask || '', timeout_seconds: num(p.timeout_seconds), max_tokens: num(p.max_tokens),
     temperature: typeof p.temperature === 'number' ? p.temperature : '', input_price_per_1m: num(p.input_price_per_1m), output_price_per_1m: num(p.output_price_per_1m), currency: p.currency || '',
   }))
@@ -67,7 +69,7 @@ async function load() {
 function touch() { dirty.value = true; notice.value = '' }
 function addProvider() {
   const ref = `new-${++seq}`
-  drafts.value.push({ ref, id: '', name: '', type: 'openai', base_url: '', model: '', api_key: '', clear_api_key: false, api_key_set: false, api_key_mask: '', timeout_seconds: '', max_tokens: '', temperature: '', input_price_per_1m: '', output_price_per_1m: '', currency: 'USD' })
+  drafts.value.push({ ref, id: '', name: '', type: 'openai', base_url: '', chat_path: '', model: '', api_key: '', clear_api_key: false, api_key_set: false, api_key_mask: '', timeout_seconds: '', max_tokens: '', temperature: '', input_price_per_1m: '', output_price_per_1m: '', currency: 'USD' })
   editing.value = ref
   touch()
 }
@@ -90,7 +92,7 @@ async function save() {
   const providers = drafts.value.map((d, i) => {
     if (translationService.value === d.ref) services.translation = d.id || `#${i}`
     const out: Record<string, unknown> = {
-      id: d.id, name: d.name.trim(), type: d.type, base_url: d.base_url.trim(), model: d.model.trim(),
+      id: d.id, name: d.name.trim(), type: d.type, base_url: d.base_url.trim(), chat_path: d.type === 'openai_compatible' ? d.chat_path.trim() : '', model: d.model.trim(),
       timeout_seconds: d.timeout_seconds || 0, max_tokens: d.max_tokens || 0, temperature: d.temperature === '' ? null : d.temperature,
       input_price_per_1m: d.input_price_per_1m || 0, output_price_per_1m: d.output_price_per_1m || 0, currency: d.currency.trim(),
     }
@@ -164,11 +166,16 @@ onMounted(load)
               <AdminButton size="sm" variant="danger" :disabled="busy" @click="removeProvider(d)">{{ $t('admin.Llm.remove') }}</AdminButton>
             </div>
           </div>
-          <p v-if="d.id && tests[d.id]" class="llm-provider__test" :class="tests[d.id]!.ok ? 'is-ok' : 'is-error'" role="status">{{ testText(tests[d.id]!) }}</p>
+          <div v-if="d.id && tests[d.id]" class="llm-provider__test" :class="tests[d.id]!.ok ? 'is-ok' : 'is-error'" role="status">
+            <p>{{ testText(tests[d.id]!) }}</p>
+            <p v-if="tests[d.id]!.endpoint" class="llm-provider__endpoint">{{ $t('admin.Llm.testEndpoint', [tests[d.id]!.endpoint]) }}</p>
+          </div>
           <div v-if="editing === d.ref" class="llm-provider__form">
             <AdminField :label="$t('admin.Llm.name')" :error="errorField.endsWith('.name') ? ' ' : undefined"><template #default="{ id }"><input :id="id" v-model="d.name" maxlength="64" required autocomplete="off" :placeholder="$t('admin.Llm.namePlaceholder')" @input="touch" /></template></AdminField>
             <AdminField :label="$t('admin.Llm.type')"><template #default="{ id }"><select :id="id" v-model="d.type" @change="touch"><option v-for="tp in loaded.provider_types" :key="tp" :value="tp">{{ TYPE_LABELS[tp] || tp }}</option></select></template></AdminField>
             <AdminField :label="$t('admin.Llm.baseUrl')" :hint="d.type === 'openai_compatible' ? $t('admin.Llm.baseUrlRequired') : $t('admin.Llm.baseUrlHint')"><template #default="{ id, describedBy }"><input :id="id" v-model="d.base_url" type="url" inputmode="url" autocapitalize="off" spellcheck="false" maxlength="2048" :aria-describedby="describedBy" placeholder="https://api.example.com/v1" @input="touch" /></template></AdminField>
+            <AdminField v-if="d.type === 'openai_compatible'" :label="$t('admin.Llm.chatPath')" :hint="$t('admin.Llm.chatPathHint')" :error="errorField.endsWith('.chat_path') ? ' ' : undefined"><template #default="{ id, describedBy }"><input :id="id" v-model="d.chat_path" type="text" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" maxlength="512" :aria-describedby="describedBy" :placeholder="DEFAULT_CHAT_PATH" data-testid="llm-chat-path" @input="touch" /></template></AdminField>
+            <p v-if="d.type === 'openai_compatible' && d.base_url.trim()" class="llm-card__note llm-provider__endpoint" data-testid="llm-endpoint-preview">{{ $t('admin.Llm.endpointPreview', [chatEndpoint(d.base_url, d.chat_path)]) }}</p>
             <AdminField :label="$t('admin.Llm.model')"><template #default="{ id }"><input :id="id" v-model="d.model" maxlength="128" required autocapitalize="off" spellcheck="false" placeholder="example-model" @input="touch" /></template></AdminField>
             <AdminField :label="$t('admin.Llm.apiKey')" :hint="d.api_key_set ? $t('admin.Llm.apiKeyKeep') : $t('admin.Llm.apiKeyHint')">
               <template #default="{ id, describedBy }">
@@ -257,6 +264,9 @@ onMounted(load)
 .llm-provider__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .llm-provider__advanced summary { cursor: pointer; color: var(--admin-accent); font-size: 13px; min-height: 32px; align-content: center; }
 .llm-provider__test { margin: 8px 0 0; font-size: 13px; }
+.llm-provider__test p { margin: 0; }
+.llm-provider__endpoint { overflow-wrap: anywhere; font-family: var(--font-mono, ui-monospace, monospace); font-size: 12px; }
+.llm-provider__test .llm-provider__endpoint { margin-top: 4px; color: var(--color-label-secondary); }
 .llm-provider__test.is-ok { color: var(--color-success, #1a7f37); }
 .llm-provider__test.is-error { color: var(--color-danger, #d33); }
 .llm-card__usage { margin-top: 8px; }
