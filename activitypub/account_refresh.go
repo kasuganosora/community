@@ -62,6 +62,7 @@ func RefreshRemoteAccount(ctx context.Context, conn *gorm.DB, client ActorFetche
 	if dryRun {
 		return nil
 	}
+	addLocationEmojiTags(ctx, actor)
 	if err := conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		dialect.AsyncCommit(tx) // remote profile refresh
 		return applyActorProfile(tx, account, actor)

@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm/clause"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/kasuganosora/community/htmlsafe"
@@ -356,6 +357,7 @@ func (r *Resolver) refreshAccount(uri string) {
 		return
 	}
 
+	addLocationEmojiTags(ctx, actor)
 	if err := db.GetDB().Transaction(func(tx *gorm.DB) error {
 		return applyActorProfile(tx, &account, actor)
 	}); err != nil {
@@ -373,6 +375,11 @@ func (r *Resolver) createAccountFromActor(actor *Actor) (models.Account, error) 
 	return createRemoteAccount(db.GetDB(), actor)
 }
 func createRemoteAccount(conn *gorm.DB, actor *Actor) (models.Account, error) {
+	if !testing.Testing() {
+		ectx, cancel := context.WithTimeout(context.Background(), 2*locationEmojiTimeout)
+		addLocationEmojiTags(ectx, actor)
+		cancel()
+	}
 	now := time.Now()
 	uri := actor.ID
 	domain := utils.ExtractDomainFromURI(uri)

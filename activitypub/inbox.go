@@ -561,6 +561,12 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		}
 		if _, ok := object["vcard:Address"]; ok {
 			updates["location"] = remoteLocation(&profile)
+			ectx, ecancel := context.WithTimeout(ctx, 2*locationEmojiTimeout)
+			addLocationEmojiTags(ectx, &profile)
+			ecancel()
+			if profile.Tag != nil {
+				object["tag"] = profile.Tag
+			}
 		}
 		if _, ok := object["vcard:bday"]; ok {
 			updates["birthday"] = remoteBirthday(&profile)

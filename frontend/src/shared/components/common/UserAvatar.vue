@@ -11,6 +11,8 @@ const props = defineProps<{
   decorations?: AvatarDecorationPlacement[]
   /** Show the Misskey-style online indicator (profile header). */
   showOnline?: boolean
+  /** Play an animated avatar (profile header); elsewhere only on hover. */
+  animated?: boolean
 }>()
 
 // Only this server's decoration endpoint and the media proxy are trusted:
@@ -75,13 +77,32 @@ function withCacheSize(url: string): string {
   const bucket = SIZE_BUCKETS.find(s => s >= want) ?? 400
   return `${url}${url.includes('?') ? '&' : '?'}size=${bucket}`
 }
-const primaryUrl = computed(() => avatarUrl(props.account.avatar))
+// Lists, timelines and search show avatar_static (a small first-frame
+// still); the animated original only plays where asked for, or while the
+// pointer is over the avatar, and never with prefers-reduced-motion.
+const reducedMotion = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+const hoverAnimated = ref(false)
+const stillUrl = computed(() => avatarUrl(props.account.avatar_static || props.account.avatar))
+const animatedUrl = computed(() => avatarUrl(props.account.avatar))
+const primaryUrl = computed(() => (!reducedMotion && (props.animated || hoverAnimated.value)) ? animatedUrl.value : stillUrl.value)
+let hoverToken = 0
+function hoverStart(event: PointerEvent) {
+  if (reducedMotion || props.animated || event.pointerType !== 'mouse' || animatedUrl.value === stillUrl.value) return
+  const token = ++hoverToken
+  const url = animatedUrl.value
+  // Swap only once the animated file is ready, so the still never blanks.
+  const probe = new Image()
+  probe.onload = () => { if (token === hoverToken) hoverAnimated.value = true }
+  probe.src = url
+}
+function hoverEnd() { hoverToken++; hoverAnimated.value = false }
 const defaultUrl = computed(() => avatarUrl(props.account.avatar_default))
 const failedUrls = ref<string[]>([])
 watch(() => [props.account.id, primaryUrl.value, defaultUrl.value], () => {
   failedUrls.value = []
 }, { flush: 'sync' })
-const imageUrl = computed(() => [primaryUrl.value, defaultUrl.value].find(url => url && !failedUrls.value.includes(url)) || '')
+// A still that fails (e.g. an old server without ?static) falls back to the original.
+const imageUrl = computed(() => [primaryUrl.value, animatedUrl.value, defaultUrl.value].find(url => url && !failedUrls.value.includes(url)) || '')
 const pattern = computed(() => identiconPattern(avatarIdentity(props.account), defaultUrl.value || primaryUrl.value))
 // Loading state: a shimmer in the avatar's own shape until the image has
 // decoded, then a short fade. Images the browser already has (complete on
@@ -110,7 +131,7 @@ function imageFailed(event: Event) {
 </script>
 
 <template>
-  <span class="avatar-frame" :style="{ width: `${avatarSize}px`, height: `${avatarSize}px` }">
+  <span class="avatar-frame" :style="{ width: `${avatarSize}px`, height: `${avatarSize}px` }" @pointerenter="hoverStart" @pointerleave="hoverEnd">
     <svg v-if="account.is_cat" class="avatar-cat-ears" viewBox="0 0 100 60" aria-hidden="true" focusable="false">
       <path class="avatar-cat-ears__fur" d="M7 54 C4 35 3 10 10 3 C21 6 34 22 39 37 Z M61 37 C66 22 79 6 90 3 C97 10 96 35 93 54 Z" />
       <path class="avatar-cat-ears__inner" d="M13 40 Q9 20 12 13 Q24 22 29 34 Z M71 34 Q76 22 88 13 Q91 20 87 40 Z" />

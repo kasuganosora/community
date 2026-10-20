@@ -1,14 +1,17 @@
 package status
 
 import (
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils/translation"
 )
 
 // Translate handles POST /api/v1/statuses/:id/translate (Mastodon: optional
-// "lang" form/JSON/query parameter, defaulting to English) and the legacy
+// "lang" form/JSON/query parameter, defaulting to the user's language, Accept-Language, then English) and the legacy
 // POST /api/v1/statuses/:id/translate/:lang. It returns Mastodon's
 // Translation entity. Errors carry an English "error" for Mastodon clients
 // and a stable "error_code" that the web UI localises.
@@ -34,7 +37,7 @@ func Translate(c *gin.Context) {
 		targetLang = c.Query("lang")
 	}
 	if targetLang == "" {
-		targetLang = "en"
+		targetLang = defaultTargetLang(account, c.GetHeader("Accept-Language"))
 	}
 
 	result, err := translation.TranslateStatus(c.Request.Context(), status, account, targetLang)
@@ -44,6 +47,23 @@ func Translate(c *gin.Context) {
 		return
 	}
 	c.JSON(200, result)
+}
+
+// defaultTargetLang is the target when the client names none: the signed-in
+// user's preferred language, then the browser's Accept-Language, then English.
+func defaultTargetLang(account *models.Account, acceptLanguage string) string {
+	if account != nil {
+		if l := strings.TrimSpace(account.Language); l != "" {
+			return l
+		}
+	}
+	for _, part := range strings.Split(acceptLanguage, ",") {
+		tag := strings.TrimSpace(strings.SplitN(part, ";", 2)[0])
+		if tag != "" && tag != "*" && len(tag) <= 35 {
+			return tag
+		}
+	}
+	return "en"
 }
 
 // TranslationLanguages handles GET /api/v1/instance/translation_languages.

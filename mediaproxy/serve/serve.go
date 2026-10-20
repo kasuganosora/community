@@ -604,7 +604,12 @@ func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediapro
 		return false
 	}
 	size := avatarcache.NormalizeSize(c.Query("size"))
-	entry, err := cache.Get(c.Request.Context(), "remote|"+rawURL, size, avatarcache.RemoteTTL(), func(ctx context.Context) ([]byte, error) {
+	cacheKey, render := "remote|"+rawURL, avatarcache.Render
+	if c.Query("static") == "1" {
+		// avatar_static: the first frame of an animated avatar.
+		cacheKey, render = "remote-static|"+rawURL, avatarcache.RenderStatic
+	}
+	entry, err := cache.GetRendered(c.Request.Context(), cacheKey, size, avatarcache.RemoteTTL(), func(ctx context.Context) ([]byte, error) {
 		if _, cooling := hostCooling(host); cooling || !hostAllowed(host) {
 			return nil, errBusy
 		}
@@ -624,7 +629,7 @@ func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediapro
 			coolHost(host, up.retryAfter)
 		}
 		return data, err
-	})
+	}, render)
 	if err != nil {
 		var f failure
 		switch {

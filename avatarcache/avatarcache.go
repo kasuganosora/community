@@ -136,6 +136,12 @@ func (c *Cache) lookup(base string) (*Entry, bool) {
 // Get returns the rendition of key at size. ttl > 0 makes entries older
 // than ttl refetch; when that refetch fails the stale entry is still served.
 func (c *Cache) Get(ctx context.Context, key string, size int, ttl time.Duration, fetch Fetcher) (*Entry, error) {
+	return c.GetRendered(ctx, key, size, ttl, fetch, Render)
+}
+
+// GetRendered is Get with a custom renderer (e.g. RenderStatic); key must
+// differ per renderer.
+func (c *Cache) GetRendered(ctx context.Context, key string, size int, ttl time.Duration, fetch Fetcher, render func([]byte, int) ([]byte, string, error)) (*Entry, error) {
 	base := c.fileBase(key, size)
 	stale, ok := c.lookup(base)
 	if ok && (ttl <= 0 || c.now().Sub(stale.ModTime) < ttl) {
@@ -157,7 +163,7 @@ func (c *Cache) Get(ctx context.Context, key string, size int, ttl time.Duration
 		if len(src) > MaxSourceBytes {
 			return nil, ErrTooLarge
 		}
-		data, ext, err := Render(src, size)
+		data, ext, err := render(src, size)
 		if err != nil {
 			return nil, err
 		}
@@ -270,6 +276,12 @@ func Render(src []byte, size int) ([]byte, string, error) {
 		}
 		return nil, "", ErrInvalidType
 	}
+	return encodeScaled(img, size)
+}
+
+// encodeScaled center-crops and scales img, as PNG when it has transparency
+// and JPEG otherwise.
+func encodeScaled(img image.Image, size int) ([]byte, string, error) {
 	out := scale(img, size)
 	var buf bytes.Buffer
 	if hasAlpha(out) {

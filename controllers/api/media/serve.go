@@ -179,7 +179,11 @@ func serveResized(c *gin.Context, backend storage.Backend, media *models.MediaAt
 	}
 	size := avatarcache.NormalizeSize(c.Query("size"))
 	cacheKey := "local|" + strconv.FormatUint(media.Id, 10) + "|" + key + "|" + strconv.FormatInt(media.UpdatedAt.UnixNano(), 10) + "|" + strconv.FormatInt(media.FileSize, 10)
-	entry, err := cache.Get(c.Request.Context(), cacheKey, size, 0, func(ctx context.Context) ([]byte, error) {
+	render := avatarcache.Render
+	if c.Query("static") == "1" {
+		cacheKey, render = "static|"+cacheKey, avatarcache.RenderStatic
+	}
+	entry, err := cache.GetRendered(c.Request.Context(), cacheKey, size, 0, func(ctx context.Context) ([]byte, error) {
 		rc, _, err := backend.Open(ctx, key)
 		if err != nil {
 			return nil, err
@@ -193,7 +197,7 @@ func serveResized(c *gin.Context, backend storage.Backend, media *models.MediaAt
 			return nil, avatarcache.ErrTooLarge
 		}
 		return data, nil
-	})
+	}, render)
 	if err != nil {
 		return false // fall back to the original
 	}

@@ -142,6 +142,8 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 	static := proxiedAccountMedia(account, mediaproxy.KindAvatar, account.AvatarStatic)
 	if defaultavatar.IsPlaceholder(account.AvatarStatic, systemsettings.GetBaseURL()) {
 		static = avatar
+	} else {
+		static = stillAvatarURL(static)
 	}
 
 	acc = &Account{
@@ -367,6 +369,18 @@ func proxiedAccountMedia(account *models.Account, kind, raw string) string {
 	}
 
 	return mediaproxy.URL(kind, raw)
+}
+
+// stillAvatarURL asks the media proxy's avatar cache for the first frame
+// (a small still) instead of a possibly animated, multi-megabyte original.
+func stillAvatarURL(u string) string {
+	if !strings.Contains(u, "/proxy/media/") || strings.Contains(u, "static=1") {
+		return u
+	}
+	if strings.Contains(u, "?") {
+		return u + "&static=1"
+	}
+	return u + "?static=1"
 }
 
 // mediaOrDefault never lets an avatar/header URL be empty: Mastodon clients
