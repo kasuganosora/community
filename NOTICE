@@ -11,3 +11,8 @@ third_party/gomatrixserverlib
   licensed under the Apache License, Version 2.0. Its license text is kept
   unmodified in third_party/gomatrixserverlib/LICENSE. That directory remains
   under Apache-2.0; the MIT License does not apply to it.
+
+github.com/kasuganosora/thinkbot (llm package)
+  The LLM client library (llm, llm/openai, llm/anthropic, llm/google,
+  llm/grok) is used as a Go module dependency, pinned in go.mod. It is
+  published by the same owner under the MIT License.

@@ -6,6 +6,7 @@ import (
 	accountapi "github.com/kasuganosora/community/controllers/api/account"
 	oauthapi "github.com/kasuganosora/community/controllers/api/oauth"
 	datatransfer "github.com/kasuganosora/community/datatransfer"
+	"github.com/kasuganosora/community/llmsvc"
 	"github.com/kasuganosora/community/migrate"
 	models "github.com/kasuganosora/community/models"
 )
@@ -17,6 +18,7 @@ import (
 // TableName method is added without being listed here.
 var appModels = []any{
 	&models.ProfileFieldVerification{},
+	&llmsvc.UsageDaily{}, &llmsvc.UserUsageDaily{}, &llmsvc.TranslationCache{},
 	&models.AccountDeletion{}, &models.PersonalAccessToken{}, &models.UserWebhook{}, &models.UserWebhookDelivery{}, &models.ListHashtag{},
 	&migrate.Migration{},
 	&activitypub.Delivery{},

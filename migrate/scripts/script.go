@@ -72,6 +72,7 @@ var ScripsType = []MigrationScript{
 	TokenLastUsedScript{},
 	AccountPrivacyScript{},
 	PersonalTokenScopeBitsScript{},
+	LLMTranslationScript{},
 }
 
 type MigrationScript interface {

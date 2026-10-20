@@ -1218,8 +1218,9 @@ func TestTranslate_PublicStatus(t *testing.T) {
 
 	safeHandler(c, Translate)
 
-	// Translation may fail gracefully, returning original content with "error" provider
-	assert.Equal(t, 200, w.Code)
+	// Translation is disabled by default: stable error code, no fake content.
+	assert.Equal(t, 403, w.Code)
+	assert.Contains(t, w.Body.String(), "translation_disabled")
 }
 
 func TestTranslate_NoLangParam(t *testing.T) {
@@ -1229,7 +1230,8 @@ func TestTranslate_NoLangParam(t *testing.T) {
 
 	safeHandler(c, Translate)
 
-	assert.Equal(t, 400, w.Code)
+	// Mastodon defaults "lang"; with translation disabled the request is refused.
+	assert.Equal(t, 403, w.Code)
 }
 
 func TestTranslate_PrivateStatus_NotFound(t *testing.T) {
@@ -1828,22 +1830,6 @@ func TestContextResponse_Structure(t *testing.T) {
 
 	assert.NotNil(t, resp.Ancestors)
 	assert.NotNil(t, resp.Descendants)
-}
-
-// ============== TranslationResponse type test ==============
-
-func TestTranslationResponse_Fields(t *testing.T) {
-	resp := TranslationResponse{
-		Content:          "translated text",
-		Language:         "en",
-		DetectedLanguage: "zh",
-		Provider:         "test",
-	}
-
-	assert.Equal(t, "translated text", resp.Content)
-	assert.Equal(t, "en", resp.Language)
-	assert.Equal(t, "zh", resp.DetectedLanguage)
-	assert.Equal(t, "test", resp.Provider)
 }
 
 // ============== CreateStatusRequest validation tests ==============

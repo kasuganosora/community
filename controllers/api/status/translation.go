@@ -4,70 +4,49 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
-	"github.com/kasuganosora/community/log"
-	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils/translation"
 )
 
-// TranslationResponse represents the translation response.
-type TranslationResponse struct {
-	Content          string `json:"content"`
-	Language         string `json:"language"`
-	DetectedLanguage string `json:"detected_source_language"`
-	Provider         string `json:"provider"`
-}
-
-// Translate handles POST /api/v1/statuses/:id/translate
-// Translates a status content to the specified language.
+// Translate handles POST /api/v1/statuses/:id/translate (Mastodon: optional
+// "lang" form/JSON/query parameter, defaulting to English) and the legacy
+// POST /api/v1/statuses/:id/translate/:lang. It returns Mastodon's
+// Translation entity. Errors carry an English "error" for Mastodon clients
+// and a stable "error_code" that the web UI localises.
 func Translate(c *gin.Context) {
-	status := controllers.GetIdFromContext(&models.Status{}, c, db.GetDB(), models.StatusLoadAllQuery)
+	status := getRealStatus(c)
 	account := controllers.GetAccount(c)
-
 	abortUnlessVisible(c, db.GetDB(), status, account)
 
-	// Get target language from URL parameter
 	targetLang := c.Param("lang")
 	if targetLang == "" {
-		c.JSON(400, gin.H{"error": "target language required"})
-
-		return
+		targetLang = c.PostForm("lang")
 	}
-
-	// Use translation service
-	service := translation.GetService()
-
-	// Detect source language if not provided
-	sourceLang := status.Language
-	if sourceLang == "" {
-		detected, err := service.DetectLanguage(status.Content.Content)
-		if err != nil {
-			log.Warn("Failed to detect language: %v", err)
-
-			sourceLang = "auto"
-		} else {
-			sourceLang = detected
+	if targetLang == "" {
+		var body struct {
+			Lang string `json:"lang"`
 		}
+		if c.ContentType() == "application/json" {
+			_ = c.ShouldBindJSON(&body)
+		}
+		targetLang = body.Lang
+	}
+	if targetLang == "" {
+		targetLang = c.Query("lang")
+	}
+	if targetLang == "" {
+		targetLang = "en"
 	}
 
-	// Perform translation
-	result, err := service.Translate(status.Content.Content, sourceLang, targetLang)
+	result, err := translation.TranslateStatus(c.Request.Context(), status, account, targetLang)
 	if err != nil {
-		log.Error("Translation failed: %v", err)
-		// Return original content if translation fails
-		c.JSON(200, TranslationResponse{
-			Content:          status.Content.Content,
-			Language:         targetLang,
-			DetectedLanguage: sourceLang,
-			Provider:         "error",
-		})
+		c.JSON(err.Status, gin.H{"error": err.Message, "error_code": err.Code})
 
 		return
 	}
+	c.JSON(200, result)
+}
 
-	c.JSON(200, TranslationResponse{
-		Content:          result.Text,
-		Language:         targetLang,
-		DetectedLanguage: result.DetectedSource,
-		Provider:         result.Provider,
-	})
+// TranslationLanguages handles GET /api/v1/instance/translation_languages.
+func TranslationLanguages(c *gin.Context) {
+	c.JSON(200, translation.LanguagePairs())
 }

@@ -215,7 +215,9 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroupV1.GET("/instance/activity", instance.Activity)
 
 	// 状态翻译（公开/可选认证）
+	maybeAuthGroupV1.POST("/statuses/:id/translate", status.Translate)
 	maybeAuthGroupV1.POST("/statuses/:id/translate/:lang", status.Translate)
+	maybeAuthGroupV1.GET("/instance/translation_languages", status.TranslationLanguages)
 
 	// 邀请码查询（公开）
 	v1ApiGroup.GET("/invites/:code", account.GetInvite)

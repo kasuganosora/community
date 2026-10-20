@@ -13,6 +13,7 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
+	"github.com/kasuganosora/community/utils/translation"
 )
 
 // InstanceResponse is the Mastodon v2 instance document (GET /api/v2/instance).
@@ -34,7 +35,7 @@ type InstanceResponse struct {
 	Thumbnail InstanceThumbnail `json:"thumbnail"`
 	Icon      []InstanceIcon    `json:"icon"`
 
-	Languages     []string `json:"languages"`
+	Languages []string `json:"languages"`
 	// DefaultLocale is the instance UI language chosen in the setup wizard;
 	// the web frontend uses it when the browser matches no supported one.
 	DefaultLocale string `json:"default_locale,omitempty"`
@@ -345,7 +346,7 @@ func GetInstanceDetail(c *gin.Context) {
 	fillMedia(&resp.Configuration.MediaAttachments)
 	fillPolls(&resp.Configuration.Polls)
 	resp.Configuration.TimelinesAccess = timelinesAccess()
-	resp.Configuration.Translation.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableTranslation, nil)
+	resp.Configuration.Translation.Enabled = translation.Enabled()
 	resp.Registrations.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, false)
 	resp.Registrations.ApprovalRequired = systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, false)
 	resp.Registrations.InviteRequired = systemsettings.GetBool(systemsettings.KeyRegistrationInviteRequired, false)

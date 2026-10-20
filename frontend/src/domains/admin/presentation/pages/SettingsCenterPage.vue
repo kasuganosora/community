@@ -14,6 +14,7 @@ import { tokenService } from '@/shared/api/client'
 import { loadBranding } from '@/shared/composables/useBranding'
 import { AdminAlert, AdminButton, AdminCheck, AdminField, AdminPageHeader } from '../components/ui'
 import SettingsAdminPage from './SettingsAdminPage.vue'
+import LlmSettingsCard from '../components/LlmSettingsCard.vue'
 
 import { t } from '@/shared/i18n'
 const props = defineProps<{ section: string }>()
@@ -209,6 +210,7 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
       <div class="admin-form-actions"><AdminButton :loading="testing" :disabled="busy || testing || dirty" @click="testConnection">{{ testing ? $t('admin.SettingsCenterPage.s34') : $t('admin.SettingsCenterPage.s35') }}</AdminButton></div>
       <p v-if="testNotice" role="status">{{ testNotice }}</p>
     </section>
+    <LlmSettingsCard v-if="section === 'external' && data" />
   </div>
 </template>
 <style scoped>

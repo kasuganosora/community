@@ -22,6 +22,7 @@ import { markBidiNumbers } from '@/shared/utils/bidi'
 import { t } from '@/shared/i18n'
 import { speaksAsCat } from '@/shared/utils/nyaize'
 import { useNyaizeDisplay } from '@/shared/composables/useNyaizeDisplay'
+import { languageName, needsTranslation, translateStatus, translationErrorMessage, useTranslationEnabled, type StatusTranslation } from '@/shared/composables/useStatusTranslation'
 const props = defineProps<{
   status: MastodonStatus
   textClass?: string
@@ -31,7 +32,35 @@ const props = defineProps<{
 const router = useRouter()
 const { enabled: nyaizeEnabled } = useNyaizeDisplay()
 const nyaize = computed(() => nyaizeEnabled.value && speaksAsCat(props.status.account))
-const bodyHtml = computed(() => props.compactReply ? withoutLeadingReplyMention(props.status.content, props.status.reply?.account) : props.status.content)
+const translationEnabled = useTranslationEnabled()
+const translation = ref<StatusTranslation | null>(null)
+const showTranslation = ref(false)
+const translating = ref(false)
+const translationError = ref('')
+const canTranslate = computed(() => translationEnabled.value && !props.compactReply && needsTranslation(props.status.language) && !!(props.status.content || props.status.spoiler_text))
+const translated = computed(() => showTranslation.value ? translation.value : null)
+async function toggleTranslation() {
+  translationError.value = ''
+  if (showTranslation.value) { showTranslation.value = false; return }
+  if (translation.value) { showTranslation.value = true; return }
+  if (translating.value) return
+  translating.value = true
+  const id = props.status.id
+  try {
+    const result = await translateStatus(id)
+    if (props.status.id !== id) return
+    translation.value = result
+    showTranslation.value = true
+  } catch (cause) {
+    if (props.status.id === id) translationError.value = translationErrorMessage(cause)
+  } finally {
+    translating.value = false
+    void measure()
+  }
+}
+const contentHtml = computed(() => translated.value?.content ?? props.status.content)
+const spoilerText = computed(() => translated.value?.spoiler_text || props.status.spoiler_text)
+const bodyHtml = computed(() => props.compactReply ? withoutLeadingReplyMention(contentHtml.value, props.status.reply?.account) : contentHtml.value)
 const cwOpen = useTimelineRowFlag('cwOpen')
 const mediaRevealed = useTimelineRowFlag('mediaRevealed')
 const pollOverride = ref<MastodonPoll | null>(null)
@@ -45,6 +74,10 @@ watch(() => props.status.id, () => {
   mediaRevealed.value = false
   pollOverride.value = null
   expanded.value = false
+  translation.value = null
+  showTranslation.value = false
+  translationError.value = ''
+  translating.value = false
   void measure()
 })
 watch(() => props.status.content, () => { void measure() })
@@ -55,7 +88,13 @@ function textDir(language?: string | null): 'rtl' | 'auto' {
 }
 const hasCw = computed(() => !!props.status.spoiler_text)
 const bodyVisible = computed(() => !hasCw.value || cwOpen.value)
-const poll = computed(() => pollOverride.value ?? props.status.poll)
+const basePoll = computed(() => pollOverride.value ?? props.status.poll)
+const poll = computed(() => {
+  const p = basePoll.value
+  const titles = translated.value?.poll?.options
+  if (!p || !titles || titles.length !== p.options.length) return p
+  return { ...p, options: p.options.map((o, i) => ({ ...o, title: titles[i]!.title || o.title })) }
+})
 // Media marked sensitive without a CW still needs a click to reveal.
 const { mode: mediaMode } = useMediaMode()
 // Gated media is shown as a BlurHash placeholder and is not requested at all
@@ -109,7 +148,7 @@ onMounted(measure)
 <template>
   <div ref="contentEl" class="post-content">
     <div v-if="hasCw" class="post-content__cw">
-      <span class="post-content__cw-text" dir="auto"><EmojiText :text="status.spoiler_text" :emojis="status.emojis" /></span>
+      <span class="post-content__cw-text" dir="auto"><EmojiText :text="spoilerText" :emojis="status.emojis" /></span>
       <span v-if="!cwOpen && hiddenSummary" class="post-content__cw-meta">{{ hiddenSummary }}</span>
       <button
         type="button"
@@ -121,6 +160,14 @@ onMounted(measure)
         {{ cwOpen ? $t('shared.PostContent.s1') : $t('shared.PostContent.s2') }}
       </button>
     </div>
+    <div v-if="canTranslate && !bodyVisible" class="post-content__translate">
+      <p v-if="translated" class="post-content__translate-meta">{{ $t('shared.Translation.from', [languageName(translated.detected_source_language || status.language), translated.provider]) }}</p>
+      <button type="button" class="post-content__translate-toggle" :disabled="translating" :aria-busy="translating || undefined" @click.stop="toggleTranslation">
+        <span v-if="translating" class="post-content__spinner" aria-hidden="true" />
+        {{ translating ? $t('shared.Translation.translating') : translated ? $t('shared.Translation.showOriginal') : $t('shared.Translation.translate') }}
+      </button>
+      <p v-if="translationError" class="post-content__translate-error" role="alert">{{ translationError }}</p>
+    </div>
     <div v-show="bodyVisible" :id="contentId">
       <div ref="textEl" class="post-content__text" :class="{ 'is-clamped': long && !expanded }">
         <RichText :html="bodyHtml" :emojis="status.emojis" :nyaize="nyaize" :class="textClass" :dir="textDir(status.language)" />
@@ -128,6 +175,14 @@ onMounted(measure)
       <button v-if="long" type="button" class="post-content__more" @click.stop="expanded = !expanded">
         {{ expanded ? $t('shared.PostContent.s1') : $t('shared.PostContent.s3') }}
       </button>
+      <div v-if="canTranslate && bodyVisible" class="post-content__translate">
+        <p v-if="translated" class="post-content__translate-meta">{{ $t('shared.Translation.from', [languageName(translated.detected_source_language || status.language), translated.provider]) }}</p>
+        <button type="button" class="post-content__translate-toggle" :disabled="translating" :aria-busy="translating || undefined" @click.stop="toggleTranslation">
+          <span v-if="translating" class="post-content__spinner" aria-hidden="true" />
+          {{ translating ? $t('shared.Translation.translating') : translated ? $t('shared.Translation.showOriginal') : $t('shared.Translation.translate') }}
+        </button>
+        <p v-if="translationError" class="post-content__translate-error" role="alert">{{ translationError }}</p>
+      </div>
       <div v-if="status.media_attachments?.length" class="post-content__media">
         <PostMedia :attachments="status.media_attachments" :status-id="status.id" :hidden="mediaHidden" />
         <button
@@ -209,6 +264,54 @@ onMounted(measure)
   margin-top: var(--space-1);
   color: var(--color-accent-text);
   font-weight: var(--weight-semibold);
+}
+
+.post-content__translate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.post-content__translate-meta {
+  margin: 0;
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote);
+}
+
+.post-content__translate-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 2rem;
+  color: var(--color-accent-text);
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+}
+
+.post-content__translate-toggle:disabled {
+  opacity: 0.7;
+}
+
+.post-content__translate-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-danger, #d33);
+  font-size: var(--text-footnote);
+}
+
+.post-content__spinner {
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: post-content-spin 0.8s linear infinite;
+}
+
+@keyframes post-content-spin {
+  to { transform: rotate(360deg); }
 }
 
 .post-content__text.is-clamped {
@@ -299,7 +402,8 @@ onMounted(measure)
   .post-content__cw-toggle,
   .post-content__sensitive,
   .post-content__rehide,
-  .post-content__more {
+  .post-content__more,
+  .post-content__translate-toggle {
     min-height: 2.75rem;
   }
 

@@ -1,0 +1,29 @@
+# llmsvc
+
+LLM integration for Community: provider configuration, usage/cost recording
+and LLM-backed status translation.
+
+- **Client library**: ThinkBot's `llm` package
+  (`github.com/kasuganosora/thinkbot/llm` and its `openai`, `anthropic`,
+  `google`, `grok` subpackages) is imported directly as a Go module
+  dependency, pinned in `go.mod` (master `3d8a25b`). It brings its retries,
+  unified `*llm.LLMError` classification, `StatsRecordingProvider` and
+  `ComputeCost`. Update with `go get github.com/kasuganosora/thinkbot@<commit>`.
+- **Configuration** lives in `system_settings` under `config.llm.config`
+  (JSON object: providers + service → provider mapping). Nothing is read
+  from `.env`.
+- **API keys** are AES-encrypted with a key derived from `ENCRYPTED_KEY`
+  plus a random per-key salt (`utils.AesEncrypt` / `utils.GetEncryptKey`).
+  Admin APIs return only `api_key_set` and a mask; keys are write-only and are
+  never logged. Provider error texts are reduced to stable codes.
+- **Usage**: every call is aggregated per UTC day / feature / provider /
+  model in `llm_usage_daily` (calls, errors, tokens, cost from configured
+  per-1M-token prices). `llm_user_usage_daily` counts per-account calls for
+  the per-user daily quota.
+- **Translation** (`TranslateWithLLM`): mentions, hashtags, links, custom
+  emoji (`:shortcode:` and `<img>`), inline/block code and URLs are replaced
+  by `{{n}}` placeholders before the request and restored afterwards (dropped
+  placeholders are appended, so nothing is lost). Content warnings, poll
+  options and media descriptions are translated in the same request. Results
+  are cached in `translation_caches` keyed by a hash of the translated input,
+  target language and backend, shared across statuses.
