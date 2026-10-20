@@ -28,6 +28,7 @@ const (
 	KeyUserDailyLimit = "config.translations.llm_user_daily_limit" // LLM calls per user per UTC day, 0 = unlimited
 	KeyDailyLimit     = "config.translations.llm_daily_limit"      // LLM calls per UTC day for the instance, 0 = unlimited
 	KeyUserPerMinute  = "config.translations.llm_user_per_minute"  // burst limit per user, 0 = unlimited
+	KeyAllowPrivate   = "config.translations.llm_allow_private"    // allow LLM translation of followers-only/direct posts
 
 	ModeTraditional = "traditional"
 	ModeLLM         = "llm"
@@ -46,6 +47,16 @@ func Mode() string {
 }
 
 // Enabled reports whether translation is switched on and has a usable backend.
+// PublicOnly reports whether translation is limited to public and unlisted
+// posts (LLM mode without the "allow private posts" admin toggle).
+func PublicOnly() bool {
+	return Mode() == ModeLLM && !systemsettings.GetBool(KeyAllowPrivate, false)
+}
+
+func visibilityAllowed(s *models.Status) bool {
+	return s.Visibility == models.StatusVisibilityPublic || s.Visibility == models.StatusVisibilityUnlisted
+}
+
 func Enabled() bool {
 	if !systemsettings.GetBool(systemsettings.KeyIsEnableTranslation, false) {
 		return false
@@ -73,16 +84,17 @@ func newErr(status int, code, msg string) *Error {
 
 // Stable error codes.
 var (
-	ErrDisabled           = newErr(403, "translation_disabled", "Translation is not enabled on this server")
-	ErrLoginRequired      = newErr(401, "translation_login_required", "Translation requires a signed-in account")
-	ErrInvalidLanguage    = newErr(422, "translation_invalid_language", "Invalid target language")
-	ErrNothingToTranslate = newErr(422, "translation_nothing_to_translate", "This post has no text to translate")
-	ErrSameLanguage       = newErr(422, "translation_same_language", "This post is already in the target language")
-	ErrRateLimited        = newErr(429, "translation_rate_limited", "Too many translation requests, please try again later")
-	ErrUserQuota          = newErr(429, "translation_user_quota_exceeded", "You have reached your daily translation limit")
-	ErrDailyQuota         = newErr(429, "translation_daily_quota_exceeded", "This server has reached its daily translation limit")
-	ErrUnavailable        = newErr(503, "translation_unavailable", "The translation service is unavailable")
-	ErrFailed             = newErr(502, "translation_failed", "The translation service could not translate this post")
+	ErrDisabled             = newErr(403, "translation_disabled", "Translation is not enabled on this server")
+	ErrLoginRequired        = newErr(401, "translation_login_required", "Translation requires a signed-in account")
+	ErrInvalidLanguage      = newErr(422, "translation_invalid_language", "Invalid target language")
+	ErrNothingToTranslate   = newErr(422, "translation_nothing_to_translate", "This post has no text to translate")
+	ErrSameLanguage         = newErr(422, "translation_same_language", "This post is already in the target language")
+	ErrRateLimited          = newErr(429, "translation_rate_limited", "Too many translation requests, please try again later")
+	ErrUserQuota            = newErr(429, "translation_user_quota_exceeded", "You have reached your daily translation limit")
+	ErrDailyQuota           = newErr(429, "translation_daily_quota_exceeded", "This server has reached its daily translation limit")
+	ErrUnavailable          = newErr(503, "translation_unavailable", "The translation service is unavailable")
+	ErrVisibilityRestricted = newErr(403, "translation_visibility_restricted", "Only public and unlisted posts can be translated on this server")
+	ErrFailed               = newErr(502, "translation_failed", "The translation service could not translate this post")
 )
 
 // PollTranslation / MediaTranslation follow Mastodon's Translation entity.
@@ -233,6 +245,9 @@ func TranslateStatus(ctx context.Context, s *models.Status, account *models.Acco
 		if account == nil {
 			return nil, ErrLoginRequired
 		}
+		if PublicOnly() && !visibilityAllowed(s) {
+			return nil, ErrVisibilityRestricted
+		}
 		provider, ok = llmsvc.ServiceProvider(llmsvc.ServiceTranslation)
 		if !ok {
 			return nil, ErrDisabled
@@ -259,7 +274,10 @@ func TranslateStatus(ctx context.Context, s *models.Status, account *models.Acco
 		if err != nil {
 			return nil, err
 		}
-		storeCache(key, target, providerName, out)
+		storeCache(key, contentHash(payload), target, providerName, out)
+	}
+	if s.Id != 0 {
+		rememberStatusHash(s.Id, contentHash(payload))
 	}
 
 	res := &StatusTranslation{
@@ -389,7 +407,7 @@ func lookupCache(key string) (*llmsvc.TranslationOutput, string) {
 	return &c.TranslationOutput, row.Provider
 }
 
-func storeCache(key, target, provider string, out *llmsvc.TranslationOutput) {
+func storeCache(key, hash, target, provider string, out *llmsvc.TranslationOutput) {
 	conn := db.GetDB()
 	if conn == nil {
 		return
@@ -400,12 +418,12 @@ func storeCache(key, target, provider string, out *llmsvc.TranslationOutput) {
 	}
 	// Replace an expired row, keep a concurrent fresh one.
 	conn.Where("cache_key = ? AND created_at < ?", key, time.Now().Add(-cacheTTL)).Delete(&llmsvc.TranslationCache{})
-	row := llmsvc.TranslationCache{CacheKey: key, TargetLang: target, Provider: provider, Result: base64.StdEncoding.EncodeToString(raw), CreatedAt: time.Now()}
+	row := llmsvc.TranslationCache{CacheKey: key, ContentHash: hash, TargetLang: target, Provider: provider, Result: base64.StdEncoding.EncodeToString(raw), CreatedAt: time.Now()}
 	if err := conn.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
 		log.Warn("translation cache: could not store entry")
 	}
 	if rand.IntN(200) == 0 {
-		conn.Where("created_at < ?", time.Now().Add(-cacheTTL)).Delete(&llmsvc.TranslationCache{})
+		PruneExpiredCache()
 	}
 }
 

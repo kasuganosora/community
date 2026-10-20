@@ -43,7 +43,9 @@ type UserUsageDaily struct {
 func (UserUsageDaily) TableName() string { return "llm_user_usage_daily" }
 
 // Models lists the tables owned by this package (for migrations).
-func Models() []any { return []any{&UsageDaily{}, &UserUsageDaily{}, &TranslationCache{}} }
+func Models() []any {
+	return []any{&UsageDaily{}, &UserUsageDaily{}, &TranslationCache{}, &TranslationCacheRef{}}
+}
 
 // Today returns the current UTC day key.
 func Today() string { return time.Now().UTC().Format("2006-01-02") }

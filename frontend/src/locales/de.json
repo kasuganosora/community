@@ -1713,7 +1713,9 @@
       "errors": "Fehler",
       "inputTokens": "Eingabe-Token",
       "outputTokens": "Ausgabe-Token",
-      "cost": "Kosten"
+      "cost": "Kosten",
+      "allowPrivate": "Übersetzung von Beiträgen nur für Follower und Direktnachrichten erlauben",
+      "allowPrivateHint": "Standardmäßig aus: Im LLM-Modus werden nur öffentliche und nicht gelistete Beiträge übersetzt, private Inhalte werden nie an den externen LLM-Dienst gesendet."
     }
   },
   "auth": {
@@ -3758,6 +3760,7 @@
     "llmInvalidApiKey": "Ungültiger API-Schlüssel",
     "llmTranslationProviderRequired": "Für LLM-Übersetzung muss ein LLM-Anbieter für Übersetzung gewählt werden",
     "translationInvalidLimit": "Limits müssen ganze Zahlen von 0 bis 1000000 sein",
-    "llmTooManyProviders": "Es können höchstens 20 LLM-Anbieter hinzugefügt werden"
+    "llmTooManyProviders": "Es können höchstens 20 LLM-Anbieter hinzugefügt werden",
+    "translationVisibilityRestricted": "Auf diesem Server können nur öffentliche und nicht gelistete Beiträge übersetzt werden"
   }
 }

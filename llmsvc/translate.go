@@ -17,15 +17,29 @@ import (
 // translated input, target language and backend, so identical content is
 // translated once and shared across statuses.
 type TranslationCache struct {
-	ID         uint64    `gorm:"primaryKey;autoIncrement"`
-	CacheKey   string    `gorm:"size:64;not null;uniqueIndex:idx_translation_caches_key"`
-	TargetLang string    `gorm:"size:35;not null"`
-	Provider   string    `gorm:"size:64;not null;default:''"`
-	Result     string    `gorm:"type:text;not null"` // base64(JSON), robust against driver escaping
-	CreatedAt  time.Time `gorm:"index"`
+	ID       uint64 `gorm:"primaryKey;autoIncrement"`
+	CacheKey string `gorm:"size:64;not null;uniqueIndex:idx_translation_caches_key"`
+	// ContentHash identifies the source text regardless of target/backend, so
+	// all entries for a status's content can be purged when it changes.
+	ContentHash string    `gorm:"size:64;not null;default:'';index:idx_translation_caches_content"`
+	TargetLang  string    `gorm:"size:35;not null"`
+	Provider    string    `gorm:"size:64;not null;default:''"`
+	Result      string    `gorm:"type:text;not null"` // base64(JSON), robust against driver escaping
+	CreatedAt   time.Time `gorm:"index"`
 }
 
 func (TranslationCache) TableName() string { return "translation_caches" }
+
+// TranslationCacheRef links a status to the content hash it was translated
+// with, so edits and deletions can purge the shared cache entries.
+type TranslationCacheRef struct {
+	ID          uint64    `gorm:"primaryKey;autoIncrement"`
+	StatusID    uint64    `gorm:"not null;uniqueIndex:idx_translation_cache_refs_status_hash,priority:1"`
+	ContentHash string    `gorm:"size:64;not null;uniqueIndex:idx_translation_cache_refs_status_hash,priority:2;index:idx_translation_cache_refs_hash"`
+	CreatedAt   time.Time `gorm:"index"`
+}
+
+func (TranslationCacheRef) TableName() string { return "translation_cache_refs" }
 
 // TranslationPayload is the translatable part of a status.
 type TranslationPayload struct {

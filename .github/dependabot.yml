@@ -45,3 +45,7 @@ updates:
       frontend:
         patterns:
           - "*"
+    ignore:
+      # vue-tsc 3.3.x does not support TypeScript 7 yet; keep 6.x until it does.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]

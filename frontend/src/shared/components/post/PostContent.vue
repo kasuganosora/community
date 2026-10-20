@@ -22,7 +22,7 @@ import { markBidiNumbers } from '@/shared/utils/bidi'
 import { t } from '@/shared/i18n'
 import { speaksAsCat } from '@/shared/utils/nyaize'
 import { useNyaizeDisplay } from '@/shared/composables/useNyaizeDisplay'
-import { languageName, needsTranslation, translateStatus, translationErrorMessage, useTranslationEnabled, type StatusTranslation } from '@/shared/composables/useStatusTranslation'
+import { languageName, needsTranslation, translateStatus, translationErrorMessage, useTranslationEnabled, useTranslationPublicOnly, visibilityAllowsTranslation, type StatusTranslation } from '@/shared/composables/useStatusTranslation'
 const props = defineProps<{
   status: MastodonStatus
   textClass?: string
@@ -33,11 +33,12 @@ const router = useRouter()
 const { enabled: nyaizeEnabled } = useNyaizeDisplay()
 const nyaize = computed(() => nyaizeEnabled.value && speaksAsCat(props.status.account))
 const translationEnabled = useTranslationEnabled()
+const translationPublicOnly = useTranslationPublicOnly()
 const translation = ref<StatusTranslation | null>(null)
 const showTranslation = ref(false)
 const translating = ref(false)
 const translationError = ref('')
-const canTranslate = computed(() => translationEnabled.value && !props.compactReply && needsTranslation(props.status.language) && !!(props.status.content || props.status.spoiler_text))
+const canTranslate = computed(() => translationEnabled.value && visibilityAllowsTranslation(props.status.visibility, translationPublicOnly.value) && !props.compactReply && needsTranslation(props.status.language) && !!(props.status.content || props.status.spoiler_text))
 const translated = computed(() => showTranslation.value ? translation.value : null)
 async function toggleTranslation() {
   translationError.value = ''

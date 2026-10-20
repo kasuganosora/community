@@ -46,6 +46,7 @@ import (
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/userwebhook"
 	"github.com/kasuganosora/community/utils"
+	"github.com/kasuganosora/community/utils/translation"
 )
 
 func main() {
@@ -167,6 +168,7 @@ func main() {
 	accountlifecycle.Start(transferContext, db.GetDB())
 	profileverify.Start(transferContext, db.GetDB())
 	moderation.StartInactivityChecker(serviceContext)
+	translation.StartCacheJanitor(serviceContext)
 
 	event.GetEventManager("status")
 

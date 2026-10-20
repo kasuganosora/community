@@ -19,6 +19,7 @@ type llmTranslationSettings struct {
 	UserDailyLimit      int    `json:"user_daily_limit"`
 	DailyLimit          int    `json:"daily_limit"`
 	UserPerMinute       int    `json:"user_per_minute"`
+	AllowPrivate        bool   `json:"allow_private"`
 	TraditionalProvider string `json:"traditional_provider,omitempty"`
 }
 
@@ -42,6 +43,7 @@ func llmSettingsPayload() llmSettingsResponse {
 		UserDailyLimit:      systemsettings.GetInt(translation.KeyUserDailyLimit, translation.DefaultUserDailyLimit),
 		DailyLimit:          systemsettings.GetInt(translation.KeyDailyLimit, translation.DefaultDailyLimit),
 		UserPerMinute:       systemsettings.GetInt(translation.KeyUserPerMinute, translation.DefaultUserPerMinute),
+		AllowPrivate:        systemsettings.GetBool(translation.KeyAllowPrivate, false),
 		TraditionalProvider: translation.GetService().GetProviderName(),
 	}
 	return out
@@ -154,6 +156,7 @@ func UpdateLLMSettings(c *gin.Context) {
 			translation.KeyUserDailyLimit:         tr.UserDailyLimit,
 			translation.KeyDailyLimit:             tr.DailyLimit,
 			translation.KeyUserPerMinute:          tr.UserPerMinute,
+			translation.KeyAllowPrivate:           tr.AllowPrivate,
 		}
 		for k, v := range extra {
 			changedKeys[k] = v

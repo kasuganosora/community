@@ -1713,7 +1713,9 @@
       "errors": "失败",
       "inputTokens": "输入 Token",
       "outputTokens": "输出 Token",
-      "cost": "费用"
+      "cost": "费用",
+      "allowPrivate": "允许翻译仅关注者和私信帖子",
+      "allowPrivateHint": "默认关闭：LLM 模式下只翻译公开和不公开列出的帖子，私密内容不会发送给外部 LLM 服务。"
     }
   },
   "auth": {
@@ -3758,6 +3760,7 @@
     "llmInvalidApiKey": "API 密钥无效",
     "llmTranslationProviderRequired": "LLM 翻译模式需要先为“翻译”选择一个 LLM 服务",
     "translationInvalidLimit": "限额须为 0–1000000 的整数",
-    "llmTooManyProviders": "最多只能添加 20 个 LLM 服务"
+    "llmTooManyProviders": "最多只能添加 20 个 LLM 服务",
+    "translationVisibilityRestricted": "此服务器只能翻译公开和不公开列出的帖子"
   }
 }

@@ -1713,7 +1713,9 @@
       "errors": "Errors",
       "inputTokens": "Input tokens",
       "outputTokens": "Output tokens",
-      "cost": "Cost"
+      "cost": "Cost",
+      "allowPrivate": "Allow translating followers-only and direct posts",
+      "allowPrivateHint": "Off by default: in LLM mode only public and unlisted posts are translated, so private content is never sent to the external LLM service."
     }
   },
   "auth": {
@@ -3758,6 +3760,7 @@
     "llmInvalidApiKey": "Invalid API key",
     "llmTranslationProviderRequired": "LLM translation needs an LLM provider selected for Translation",
     "translationInvalidLimit": "Limits must be whole numbers from 0 to 1000000",
-    "llmTooManyProviders": "At most 20 LLM providers can be added"
+    "llmTooManyProviders": "At most 20 LLM providers can be added",
+    "translationVisibilityRestricted": "Only public and unlisted posts can be translated on this server"
   }
 }

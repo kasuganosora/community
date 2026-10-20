@@ -1713,7 +1713,9 @@
       "errors": "失敗",
       "inputTokens": "輸入 Token",
       "outputTokens": "輸出 Token",
-      "cost": "費用"
+      "cost": "費用",
+      "allowPrivate": "允許翻譯僅追蹤者及私訊貼文",
+      "allowPrivateHint": "預設關閉：LLM 模式下只翻譯公開及不公開列出的貼文，私密內容不會傳送給外部 LLM 服務。"
     }
   },
   "auth": {
@@ -3758,6 +3760,7 @@
     "llmInvalidApiKey": "API 金鑰無效",
     "llmTranslationProviderRequired": "LLM 翻譯模式需要先為「翻譯」選擇一個 LLM 服務",
     "translationInvalidLimit": "限額須為 0–1000000 的整數",
-    "llmTooManyProviders": "最多只能新增 20 個 LLM 服務"
+    "llmTooManyProviders": "最多只能新增 20 個 LLM 服務",
+    "translationVisibilityRestricted": "此伺服器只能翻譯公開及不公開列出的貼文"
   }
 }

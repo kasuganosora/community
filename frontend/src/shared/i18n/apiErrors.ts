@@ -23,6 +23,8 @@ const API_ERRORS: Record<string, string> = {
   "the translation service could not translate this post": 'translationFailed',
   "this post is already in the target language": 'translationSameLanguage',
   "this post has no text to translate": 'translationNothing',
+  "only public and unlisted posts can be translated on this server": 'translationVisibilityRestricted',
+  "translation_visibility_restricted": 'translationVisibilityRestricted',
   "llm_invalid_name": 'llmInvalidName',
   "llm_invalid_model": 'llmInvalidModel',
   "llm_invalid_type": 'llmInvalidType',

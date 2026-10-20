@@ -1713,7 +1713,9 @@
       "errors": "Erreurs",
       "inputTokens": "Jetons d’entrée",
       "outputTokens": "Jetons de sortie",
-      "cost": "Coût"
+      "cost": "Coût",
+      "allowPrivate": "Autoriser la traduction des messages réservés aux abonnés et directs",
+      "allowPrivateHint": "Désactivé par défaut : en mode LLM, seuls les messages publics et non listés sont traduits ; le contenu privé n’est jamais envoyé au service LLM externe."
     }
   },
   "auth": {
@@ -3758,6 +3760,7 @@
     "llmInvalidApiKey": "Clé API invalide",
     "llmTranslationProviderRequired": "La traduction par LLM nécessite un fournisseur LLM pour la traduction",
     "translationInvalidLimit": "Les limites doivent être des entiers de 0 à 1000000",
-    "llmTooManyProviders": "Vous pouvez ajouter au plus 20 fournisseurs LLM"
+    "llmTooManyProviders": "Vous pouvez ajouter au plus 20 fournisseurs LLM",
+    "translationVisibilityRestricted": "Seuls les messages publics et non listés peuvent être traduits sur ce serveur"
   }
 }

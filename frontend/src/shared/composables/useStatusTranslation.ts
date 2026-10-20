@@ -15,16 +15,32 @@ export interface StatusTranslation {
 }
 
 const enabled = ref(false)
+const publicOnly = ref(false)
 let pending: Promise<void> | null = null
 
 /** Whether the instance offers translation (configuration.translation.enabled), loaded once per page. */
 export function useTranslationEnabled() {
   if (!pending) {
-    pending = client.get<{ configuration?: { translation?: { enabled?: boolean } } }>('/api/v2/instance')
-      .then(({ data }) => { enabled.value = data?.configuration?.translation?.enabled === true })
+    pending = client.get<{ configuration?: { translation?: { enabled?: boolean; public_only?: boolean } } }>('/api/v2/instance')
+      .then(({ data }) => {
+        enabled.value = data?.configuration?.translation?.enabled === true
+        publicOnly.value = data?.configuration?.translation?.public_only === true
+      })
       .catch(() => { pending = null })
   }
   return enabled
+}
+
+/** Whether only public and unlisted posts may be translated (configuration.translation.public_only). */
+export function useTranslationPublicOnly() {
+  useTranslationEnabled()
+  return publicOnly
+}
+
+/** A post's visibility allows translation under the instance policy. */
+export function visibilityAllowsTranslation(visibility: string | null | undefined, restricted: boolean): boolean {
+  if (!restricted) return true
+  return visibility === 'public' || visibility === 'unlisted'
 }
 
 /** Current UI locale (zh-CN, zh-TW, ja, en, ru, fr, de). */
@@ -67,6 +83,7 @@ const ERROR_KEYS: Record<string, string> = {
   translation_same_language: 'translationSameLanguage',
   translation_nothing_to_translate: 'translationNothing',
   translation_invalid_language: 'translationFailed',
+  translation_visibility_restricted: 'translationVisibilityRestricted',
 }
 
 /** Localised message for a failed translation request. */

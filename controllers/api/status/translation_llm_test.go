@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/llmsvc"
@@ -133,4 +134,122 @@ func TestTranslate_LLMRequiresLogin(t *testing.T) {
 	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(ts.status.Id, 10)}, {Key: "lang", Value: "ja"}})
 	safeHandler(c, Translate)
 	require.Contains(t, []int{401, 422}, w.Code, w.Body.String())
+}
+
+func setupFakeLLM(t *testing.T, extra map[string]any) (*testSetup, *fakeLLM) {
+	t.Helper()
+	ts := newTestSetup(t)
+	require.NoError(t, ts.db.AutoMigrate(llmsvc.Models()...))
+	translation.ResetLimiterForTest()
+	translation.SetSyncPurgeForTest()
+	fake := &fakeLLM{}
+	llmsvc.SetTestProviderFactory(func(llmsvc.ProviderConfig) (llm.Provider, error) { return fake, nil })
+	t.Cleanup(func() { llmsvc.SetTestProviderFactory(nil) })
+	provider := llmsvc.ProviderConfig{ID: "fake3", Name: "Example LLM", Type: llmsvc.TypeOpenAI, Model: "example-model"}
+	cfg, _ := json.Marshal(llmsvc.Config{Providers: []llmsvc.ProviderConfig{provider}, Services: map[string]string{llmsvc.ServiceTranslation: "fake3"}})
+	values := map[string]any{
+		llmsvc.KeyConfig: string(cfg), systemsettings.KeyIsEnableTranslation: true, translation.KeyMode: translation.ModeLLM,
+		translation.KeyUserDailyLimit: 0, translation.KeyDailyLimit: 0, translation.KeyUserPerMinute: 0,
+	}
+	for k, v := range extra {
+		values[k] = v
+	}
+	setTranslationSettings(t, values)
+	return ts, fake
+}
+
+func translateAs(t *testing.T, ts *testSetup, s *models.Status, lang string) (int, map[string]any) {
+	t.Helper()
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(s.Id, 10)}, {Key: "lang", Value: lang}})
+	setAccount(c, ts.acct)
+	safeHandler(c, Translate)
+	var body map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	return w.Code, body
+}
+
+func TestTranslate_LLMPrivatePostsRestrictedByDefault(t *testing.T) {
+	ts, fake := setupFakeLLM(t, map[string]any{translation.KeyAllowPrivate: false})
+	require.True(t, translation.PublicOnly())
+	for _, vis := range []uint8{models.StatusVisibilityPrivate, models.StatusVisibilityDirect} {
+		s := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+			s.Language = "en"
+			s.Visibility = vis
+			s.Content = models.StatusContent{ContentFormat: "html", Content: "<p>Hello world</p>"}
+		})
+		code, body := translateAs(t, ts, s, "ja")
+		require.Equal(t, 403, code, body)
+		require.Equal(t, "translation_visibility_restricted", body["error_code"])
+	}
+	require.EqualValues(t, 0, fake.calls.Load())
+
+	// Unlisted is allowed.
+	s := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Language = "en"
+		s.Visibility = models.StatusVisibilityUnlisted
+		s.Content = models.StatusContent{ContentFormat: "html", Content: "<p>Hello world</p>"}
+	})
+	code, _ := translateAs(t, ts, s, "ja")
+	require.Equal(t, 200, code)
+}
+
+func TestTranslate_LLMPrivatePostsAllowedWhenToggled(t *testing.T) {
+	ts, _ := setupFakeLLM(t, map[string]any{translation.KeyAllowPrivate: true})
+	require.False(t, translation.PublicOnly())
+	s := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Language = "en"
+		s.Visibility = models.StatusVisibilityPrivate
+		s.Content = models.StatusContent{ContentFormat: "html", Content: "<p>Hello world</p>"}
+	})
+	code, body := translateAs(t, ts, s, "ja")
+	require.Equal(t, 200, code, body)
+}
+
+func countCache(t *testing.T, ts *testSetup) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, ts.db.Model(&llmsvc.TranslationCache{}).Count(&n).Error)
+	return n
+}
+
+func TestTranslate_CachePurgedOnDeleteAndEdit(t *testing.T) {
+	ts, fake := setupFakeLLM(t, nil)
+	mk := func(text string) *models.Status {
+		return ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+			s.Language = "en"
+			s.Content = models.StatusContent{ContentFormat: "html", Content: "<p>Hello world " + text + "</p>"}
+		})
+	}
+
+	// Delete: both target languages of the status's content are purged.
+	gone := mk("one")
+	for _, lang := range []string{"ja", "fr"} {
+		code, _ := translateAs(t, ts, gone, lang)
+		require.Equal(t, 200, code)
+	}
+	kept := mk("two")
+	code, _ := translateAs(t, ts, kept, "ja")
+	require.Equal(t, 200, code)
+	require.EqualValues(t, 3, countCache(t, ts))
+	require.NoError(t, ts.db.Delete(gone).Error)
+	require.EqualValues(t, 1, countCache(t, ts), "only the unrelated status's entry remains")
+
+	// Edit: the old content's entries are purged and the new text re-translates.
+	before := fake.calls.Load()
+	kept.Content.Content = "<p>Hello world edited</p>"
+	require.NoError(t, ts.db.Save(kept).Error)
+	require.EqualValues(t, 0, countCache(t, ts))
+	code, _ = translateAs(t, ts, kept, "ja")
+	require.Equal(t, 200, code)
+	require.Equal(t, before+1, fake.calls.Load())
+}
+
+func TestTranslate_PruneExpiredCache(t *testing.T) {
+	ts, _ := setupFakeLLM(t, nil)
+	old := llmsvc.TranslationCache{CacheKey: strings.Repeat("a", 64), ContentHash: "x", TargetLang: "ja", Result: "e30=", CreatedAt: time.Now().Add(-31 * 24 * time.Hour)}
+	fresh := llmsvc.TranslationCache{CacheKey: strings.Repeat("b", 64), ContentHash: "y", TargetLang: "ja", Result: "e30=", CreatedAt: time.Now()}
+	require.NoError(t, ts.db.Create(&old).Error)
+	require.NoError(t, ts.db.Create(&fresh).Error)
+	translation.PruneExpiredCache()
+	require.EqualValues(t, 1, countCache(t, ts))
 }

@@ -1713,7 +1713,9 @@
       "errors": "失敗",
       "inputTokens": "入力トークン",
       "outputTokens": "出力トークン",
-      "cost": "費用"
+      "cost": "費用",
+      "allowPrivate": "フォロワー限定・ダイレクトの投稿も翻訳する",
+      "allowPrivateHint": "既定ではオフ：LLM モードでは公開・未収載の投稿のみ翻訳し、非公開の内容は外部の LLM サービスに送信されません。"
     }
   },
   "auth": {
@@ -3758,6 +3760,7 @@
     "llmInvalidApiKey": "API キーが無効です",
     "llmTranslationProviderRequired": "LLM 翻訳モードでは「翻訳」に使う LLM を選択してください",
     "translationInvalidLimit": "上限は 0〜1000000 の整数にしてください",
-    "llmTooManyProviders": "LLM は最大 20 件まで追加できます"
+    "llmTooManyProviders": "LLM は最大 20 件まで追加できます",
+    "translationVisibilityRestricted": "このサーバーでは公開・未収載の投稿のみ翻訳できます"
   }
 }

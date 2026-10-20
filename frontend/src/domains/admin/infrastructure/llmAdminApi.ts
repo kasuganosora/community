@@ -26,6 +26,7 @@ export interface LlmTranslationSettings {
   user_daily_limit: number
   daily_limit: number
   user_per_minute: number
+  allow_private: boolean
   traditional_provider?: string
 }
 

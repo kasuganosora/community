@@ -20,7 +20,7 @@ func TestLLMSettingsKeyIsWriteOnlyAndEncrypted(t *testing.T) {
 		config.C.EncryptedKey = "unit-test-key-0123456789abcdef"
 		t.Cleanup(func() { config.C.EncryptedKey = "" })
 	}
-	for _, k := range []string{llmsvc.KeyConfig, translation.KeyMode, systemsettings.KeyIsEnableTranslation, translation.KeyUserDailyLimit, translation.KeyDailyLimit, translation.KeyUserPerMinute} {
+	for _, k := range []string{llmsvc.KeyConfig, translation.KeyMode, systemsettings.KeyIsEnableTranslation, translation.KeyUserDailyLimit, translation.KeyDailyLimit, translation.KeyUserPerMinute, translation.KeyAllowPrivate} {
 		old := systemsettings.Get(k, nil)
 		t.Cleanup(func() { systemsettings.Set(k, old) })
 	}
@@ -28,7 +28,7 @@ func TestLLMSettingsKeyIsWriteOnlyAndEncrypted(t *testing.T) {
 	body := map[string]any{
 		"providers":   []map[string]any{{"name": "Example", "type": "openai", "model": "example-model", "api_key": secret, "timeout_seconds": 30}},
 		"services":    map[string]string{"translation": "#0"},
-		"translation": map[string]any{"enabled": true, "mode": "llm", "user_daily_limit": 5, "daily_limit": 50, "user_per_minute": 3},
+		"translation": map[string]any{"enabled": true, "mode": "llm", "user_daily_limit": 5, "daily_limit": 50, "user_per_minute": 3, "allow_private": true},
 	}
 	c, w := newJSONContext(t, http.MethodPut, nil, body)
 	UpdateLLMSettings(c)
@@ -42,6 +42,8 @@ func TestLLMSettingsKeyIsWriteOnlyAndEncrypted(t *testing.T) {
 	id := resp.Providers[0].ID
 	require.Equal(t, id, resp.Services["translation"])
 	require.Equal(t, "llm", resp.Translation.Mode)
+	require.True(t, resp.Translation.AllowPrivate)
+	require.False(t, translation.PublicOnly())
 
 	stored, _ := json.Marshal(systemsettings.Get(llmsvc.KeyConfig, ""))
 	require.NotContains(t, string(stored), secret, "API key must be encrypted at rest")

@@ -34,7 +34,7 @@ const loaded = ref<LlmSettings>()
 const drafts = ref<Draft[]>([])
 const editing = ref<string | null>(null)
 const translationService = ref('')
-const tr = reactive<LlmTranslationSettings>({ enabled: false, mode: 'traditional', user_daily_limit: 50, daily_limit: 1000, user_per_minute: 10 })
+const tr = reactive<LlmTranslationSettings>({ enabled: false, mode: 'traditional', user_daily_limit: 50, daily_limit: 1000, user_per_minute: 10, allow_private: false })
 const usage = ref<LlmUsage>()
 const loading = ref(true), busy = ref(false), dirty = ref(false)
 const error = ref(''), notice = ref('')
@@ -213,6 +213,7 @@ onMounted(load)
         </template>
       </AdminField>
       <AdminAlert v-if="tr.mode === 'llm' && !translationService" tone="warning">{{ $t('admin.Llm.modeNeedsProvider') }}</AdminAlert>
+      <AdminCheck v-if="tr.mode === 'llm'" v-model="tr.allow_private" variant="switch" :label="$t('admin.Llm.allowPrivate')" :hint="$t('admin.Llm.allowPrivateHint')" @update:model-value="touch" />
       <div class="llm-provider__grid">
         <AdminField :label="$t('admin.Llm.userDailyLimit')" :hint="$t('admin.Llm.zeroUnlimited')"><template #default="{ id, describedBy }"><input :id="id" v-model.number="tr.user_daily_limit" type="number" min="0" max="1000000" inputmode="numeric" required :aria-describedby="describedBy" @input="touch" /></template></AdminField>
         <AdminField :label="$t('admin.Llm.dailyLimit')" :hint="$t('admin.Llm.zeroUnlimited')"><template #default="{ id, describedBy }"><input :id="id" v-model.number="tr.daily_limit" type="number" min="0" max="1000000" inputmode="numeric" required :aria-describedby="describedBy" @input="touch" /></template></AdminField>
