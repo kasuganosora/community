@@ -1,10 +1,13 @@
 package translation
 
 import (
+	"context"
+
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/reqid"
 	"io"
 	"net/http"
 	"net/url"
@@ -65,6 +68,21 @@ func (s *Service) Translate(text, sourceLang, targetLang string) (*Result, error
 	}
 
 	return s.provider.Translate(text, sourceLang, targetLang)
+}
+
+// ContextProvider is implemented by providers that can forward the request
+// context (and its request id) to the backend.
+type ContextProvider interface {
+	TranslateContext(ctx context.Context, text, sourceLang, targetLang string) (*Result, error)
+}
+
+// TranslateContext translates like Translate, forwarding ctx (and its
+// X-Request-Id) to providers that support it.
+func (s *Service) TranslateContext(ctx context.Context, text, sourceLang, targetLang string) (*Result, error) {
+	if cp, ok := s.provider.(ContextProvider); ok {
+		return cp.TranslateContext(ctx, text, sourceLang, targetLang)
+	}
+	return s.Translate(text, sourceLang, targetLang)
 }
 
 // DetectLanguage 检测语言.
@@ -132,6 +150,12 @@ func (l *LibreTranslateProvider) Name() string {
 }
 
 func (l *LibreTranslateProvider) Translate(text, sourceLang, targetLang string) (*Result, error) {
+	return l.TranslateContext(context.Background(), text, sourceLang, targetLang)
+}
+
+// TranslateContext translates and sends the context's request id (or a fresh
+// one) as X-Request-Id so backend logs correlate with ours.
+func (l *LibreTranslateProvider) TranslateContext(ctx context.Context, text, sourceLang, targetLang string) (*Result, error) {
 	if text == "" {
 		return &Result{Text: "", Provider: l.Name()}, nil
 	}
@@ -147,10 +171,12 @@ func (l *LibreTranslateProvider) Translate(text, sourceLang, targetLang string) 
 		data.Set("api_key", l.apiKey)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, l.baseURL+"/translate", bytes.NewBufferString(data.Encode())) //nolint:noctx
+	ctx, id := reqid.Ensure(ctx)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, l.baseURL+"/translate", bytes.NewBufferString(data.Encode()))
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set(reqid.Header, id)
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")

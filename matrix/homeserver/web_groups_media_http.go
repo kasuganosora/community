@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"image"
 	"io"
 	"mime"
@@ -294,7 +295,19 @@ func serveWebGroupMXC(c *gin.Context, hs *HomeServer, mxc, name string, thumbnai
 		}
 	}
 	if err != nil {
-		webGroupFailure(c, 502, "MEDIA_UNAVAILABLE", "The attachment is temporarily unavailable, please try again later")
+		_ = c.Error(fmt.Errorf("web groups media %s: %w", name, err)) // request-id correlated server log
+		switch {
+		case errors.Is(err, errMediaNotFound):
+			webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "The attachment does not exist")
+		case server == hs.Config.ServerName:
+			// Local storage/database hiccups (e.g. right after a restart) are
+			// ours, not an upstream's: tell the client when to retry.
+			c.Header("Retry-After", "5")
+			webGroupFailure(c, 503, "MEDIA_UNAVAILABLE", "The attachment is temporarily unavailable, please try again later")
+		default:
+			c.Header("Retry-After", "30")
+			webGroupFailure(c, 502, "MEDIA_UNAVAILABLE", "The attachment is temporarily unavailable, please try again later")
+		}
 		return
 	}
 	defer body.Close()

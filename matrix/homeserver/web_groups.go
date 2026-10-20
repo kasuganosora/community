@@ -165,6 +165,12 @@ func webGroupAccess(c *gin.Context, requireJoined bool) (*HomeServer, *MatrixRoo
 		return nil, nil, "", false
 	}
 	hs, user := GetHomeServer(), getUserID(c)
+	if hs == nil {
+		// Homeserver not initialised (yet): retryable, never a gateway error.
+		c.Header("Retry-After", "5")
+		webGroupFailure(c, 503, "groups_unavailable", "Groups are temporarily unavailable, please try again later")
+		return nil, nil, "", false
+	}
 	roomID, err := webGroupRoomID(c.Param("id"))
 	if err != nil {
 		webGroupFailure(c, 404, "not_found", "Group not found")

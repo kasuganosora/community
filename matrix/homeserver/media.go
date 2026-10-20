@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kasuganosora/community/defaultavatar"
+	"gorm.io/gorm"
 	imagelib "image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -236,7 +237,10 @@ func (s *MediaService) getMediaContext(ctx context.Context, serverName, mediaID 
 
 	var matrixMedia MatrixMedia
 	if err := db.GetDB().WithContext(ctx).Where("media_id = ? AND server_name = ?", mediaID, serverName).First(&matrixMedia).Error; err != nil {
-		return nil, nil, errors.New("media not found")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil, errMediaNotFound
+		}
+		return nil, nil, fmt.Errorf("media lookup: %w", err)
 	}
 
 	if matrixMedia.GCState != "" {
@@ -272,6 +276,10 @@ func openMatrixFile(ref string) (io.ReadCloser, error) {
 	return rc, err
 }
 
+// errMediaNotFound marks a local media record that does not exist (as
+// opposed to storage or database errors, which are transient).
+var errMediaNotFound = errors.New("media not found")
+
 // GetThumbnail 获取缩略图.
 func (s *MediaService) GetThumbnail(serverName, mediaID string, width, height int, method string) (*MatrixThumbnail, io.ReadCloser, error) {
 	// Thumbnail IDs are local storage identities, never remote MXC identities.
@@ -294,7 +302,10 @@ func (s *MediaService) GetThumbnail(serverName, mediaID string, width, height in
 		// No thumbnail at all - try returning the original media as thumbnail
 		media, reader, err2 := s.GetMedia(serverName, mediaID)
 		if err2 != nil {
-			return nil, nil, errors.New("thumbnail not found")
+			if errors.Is(err2, errMediaNotFound) {
+				return nil, nil, fmt.Errorf("thumbnail not found: %w", err2)
+			}
+			return nil, nil, err2
 		}
 		// Create a synthetic thumbnail from the original
 		synth := &MatrixThumbnail{

@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/reqid"
 )
 
 // RequestLogMiddleware 请求日志中间件.
@@ -21,6 +22,7 @@ func RequestLogMiddleware() gin.HandlerFunc {
 		}
 
 		c.Set("request_id", requestID)
+		c.Request = c.Request.WithContext(reqid.With(c.Request.Context(), requestID))
 		c.Header("X-Request-ID", requestID)
 
 		// 记录请求开始

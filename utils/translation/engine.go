@@ -2,6 +2,7 @@ package translation
 
 import (
 	"context"
+	"github.com/kasuganosora/community/reqid"
 	"strings"
 
 	"github.com/kasuganosora/community/htmlsafe"
@@ -53,6 +54,7 @@ type engineStep func() (out *llmsvc.TranslationOutput, provider, fallbackReason 
 // the other one. llmAllowed applies privacy policy before any content is sent
 // to an LLM, whether it is the primary engine or the fallback.
 func runEngines(ctx context.Context, account *models.Account, payload llmsvc.TranslationPayload, source, target string, llmAllowed func() *Error) (*llmsvc.TranslationOutput, string, string, *Error) {
+	ctx, rid := reqid.Ensure(ctx)
 	primary := Mode()
 	llmStep := func(asPrimary bool) (engineStep, *Error) {
 		if account == nil {
@@ -94,12 +96,13 @@ func runEngines(ctx context.Context, account *models.Account, payload llmsvc.Tra
 			if cached, name := lookupCache(key); cached != nil {
 				return cached, name, "", nil
 			}
-			out, err := translateTraditional(svc, payload, source, target)
+			out, err := translateTraditional(ctx, svc, payload, source, target)
 			if err != nil {
+				log.Warn("Traditional translation failed (%s, %s, request_id %s)", svc.GetProviderName(), err.Code, rid)
 				return nil, "", "traditional_error", err
 			}
 			if reason := traditionalUnusable(payload, out, source, target); reason != "" {
-				log.Warn("Traditional translation returned unusable output (%s, reason %s)", svc.GetProviderName(), reason)
+				log.Warn("Traditional translation returned unusable output (%s, reason %s, request_id %s)", svc.GetProviderName(), reason, rid)
 				return out, svc.GetProviderName(), reason, nil
 			}
 			storeCache(key, contentHash(payload), target, svc.GetProviderName(), out)
@@ -145,16 +148,16 @@ func runEngines(ctx context.Context, account *models.Account, payload llmsvc.Tra
 	}
 	second, serr := build(secondary, false)
 	if serr != nil {
-		log.Warn("Translation fallback %s -> %s unavailable (reason %s, %s)", primary, secondary, reason, serr.Code)
+		log.Warn("Translation fallback %s -> %s unavailable (reason %s, %s, request_id %s)", primary, secondary, reason, serr.Code, rid)
 		if ferr == nil {
 			return out, name, primary, nil
 		}
 		return nil, "", "", ferr
 	}
-	log.Warn("Translation fallback %s -> %s (reason %s)", primary, secondary, reason)
+	log.Warn("Translation fallback %s -> %s (reason %s, request_id %s)", primary, secondary, reason, rid)
 	sout, sname, sreason, sferr := second()
 	if sferr != nil || sreason != "" {
-		log.Warn("Translation fallback %s -> %s failed (reason %s)", primary, secondary, reason)
+		log.Warn("Translation fallback %s -> %s failed (reason %s, request_id %s)", primary, secondary, reason, rid)
 		if ferr == nil {
 			return out, name, primary, nil
 		}

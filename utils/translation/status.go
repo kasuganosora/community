@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/kasuganosora/community/reqid"
 	"math/rand/v2"
 	"strconv"
 	"strings"
@@ -300,11 +301,11 @@ func translateLLM(ctx context.Context, p llmsvc.ProviderConfig, account *models.
 	out, err := llmsvc.TranslateWithLLM(ctx, p, payload, source, target)
 	if err != nil {
 		if reason := llmsvc.OutputReason(err); reason != "" {
-			log.Warn("LLM translation returned unusable output (provider %s, reason %s)", p.ID, reason)
+			log.Warn("LLM translation returned unusable output (provider %s, reason %s, request_id %s)", p.ID, reason, reqid.From(ctx))
 			return nil, reason, ErrLLMFailed
 		}
 		reason := llmsvc.ErrorCode(err)
-		log.Warn("LLM translation failed (provider %s, reason %s)", p.ID, reason)
+		log.Warn("LLM translation failed (provider %s, reason %s, request_id %s)", p.ID, reason, reqid.From(ctx))
 		return nil, reason, ErrLLMUnavailable
 	}
 	out.Content = htmlsafe.Sanitize(out.Content)
@@ -318,7 +319,7 @@ func translateLLM(ctx context.Context, p llmsvc.ProviderConfig, account *models.
 	return out, "", nil
 }
 
-func translateTraditional(service *Service, p llmsvc.TranslationPayload, source, target string) (*llmsvc.TranslationOutput, *Error) {
+func translateTraditional(ctx context.Context, service *Service, p llmsvc.TranslationPayload, source, target string) (*llmsvc.TranslationOutput, *Error) {
 	if source == "" {
 		source = "auto"
 	}
@@ -326,7 +327,7 @@ func translateTraditional(service *Service, p llmsvc.TranslationPayload, source,
 		if strings.TrimSpace(text) == "" {
 			return text, "", nil
 		}
-		r, err := service.Translate(text, source, target)
+		r, err := service.TranslateContext(ctx, text, source, target)
 		if err != nil {
 			return "", "", err
 		}
