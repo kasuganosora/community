@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"testing"
 
 	"github.com/kasuganosora/community/avatarcache"
@@ -68,4 +69,27 @@ func TestStaticAvatarIsFirstFrameStill(t *testing.T) {
 	w = do(r, "GET", p+"?size=48", nil)
 	require.Equal(t, "image/webp", w.Header().Get("Content-Type"))
 	require.True(t, bytes.Equal(src, w.Body.Bytes()))
+}
+
+func TestEmojiAreCachedOnDiskByteForByte(t *testing.T) {
+	wide := pngBytes()
+	var hits atomic.Int32
+	srv, r := setup(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(wide)
+	}))
+	cache, err := avatarcache.New(t.TempDir(), 0)
+	require.NoError(t, err)
+	old := avatarCache
+	avatarCache = func() *avatarcache.Cache { return cache }
+	t.Cleanup(func() { avatarCache = old })
+	p := proxyPath("emoji", srv.URL+"/emoji/fictional_wide.png")
+	for range 3 {
+		w := do(r, "GET", p, nil)
+		require.Equal(t, http.StatusOK, w.Code)
+		require.Equal(t, "image/png", w.Header().Get("Content-Type"))
+		require.True(t, bytes.Equal(wide, w.Body.Bytes()))
+	}
+	require.EqualValues(t, 1, hits.Load())
 }

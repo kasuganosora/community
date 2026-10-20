@@ -1,14 +1,15 @@
-// Custom emoji that fail to load are retried once (the media proxy answers
+// Custom emoji that fail to load are retried a few times (the media proxy answers
 // 503 + Retry-After while a remote server rate-limits us), then replaced by
 // their ':shortcode:' text so no broken-image icon or empty box remains.
 
-const RETRY_MS = 4000
-const MAX_RETRY_MS = 15000
+// Delays of the retries; the proxy's Retry-After is at most a few seconds
+// while a remote server throttles us, and its disk cache then serves them.
+const RETRY_DELAYS_MS = [3000, 8000, 15000]
 
 function retryUrl(src: string): string {
   try {
     const u = new URL(src, window.location.href)
-    u.searchParams.set('retry', '1')
+    u.searchParams.set('retry', String(Number(u.searchParams.get('retry') || 0) + 1))
     return u.toString()
   } catch {
     return ''
@@ -24,9 +25,10 @@ export function replaceWithShortcode(img: HTMLImageElement): void {
   img.replaceWith(span)
 }
 
-export function handleEmojiError(img: HTMLImageElement, delay = RETRY_MS): void {
-  if (img.dataset.emojiRetried) { replaceWithShortcode(img); return }
-  img.dataset.emojiRetried = '1'
+export function handleEmojiError(img: HTMLImageElement, delays: number[] = RETRY_DELAYS_MS): void {
+  const tries = Number(img.dataset.emojiRetried || 0)
+  if (tries >= delays.length) { replaceWithShortcode(img); return }
+  img.dataset.emojiRetried = String(tries + 1)
   const next = retryUrl(img.currentSrc || img.src)
   if (!next) { replaceWithShortcode(img); return }
   // Hide while waiting so the line does not show a broken icon.
@@ -35,7 +37,7 @@ export function handleEmojiError(img: HTMLImageElement, delay = RETRY_MS): void 
     if (!img.isConnected) return
     img.addEventListener('load', () => { img.style.visibility = '' }, { once: true })
     img.src = next
-  }, Math.min(delay, MAX_RETRY_MS))
+  }, delays[tries])
 }
 
 let installed = false

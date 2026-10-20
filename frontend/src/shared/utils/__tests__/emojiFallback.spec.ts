@@ -9,14 +9,17 @@ function emoji() {
 }
 
 describe('custom emoji fallback', () => {
-  it('retries once with a fresh URL, then shows the shortcode text', () => {
+  it('retries with fresh URLs, then shows the shortcode text', () => {
     vi.useFakeTimers()
     const { p, img } = emoji()
-    handleEmojiError(img, 10)
+    handleEmojiError(img, [10, 10])
     expect(img.style.visibility).toBe('hidden')
     vi.advanceTimersByTime(20)
     expect(img.src).toContain('retry=1')
-    handleEmojiError(img)
+    handleEmojiError(img, [10, 10])
+    vi.advanceTimersByTime(20)
+    expect(img.src).toContain('retry=2')
+    handleEmojiError(img, [10, 10])
     expect(p.querySelector('img')).toBeNull()
     expect(p.textContent).toBe('hi :fictional_blob:!')
     expect(p.querySelector('.custom-emoji-fallback')).not.toBeNull()

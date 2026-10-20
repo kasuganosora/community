@@ -8,6 +8,24 @@ import (
 	"image/gif"
 )
 
+// Passthrough keeps a raster image byte for byte (custom emoji), refusing
+// anything that is not one.
+func Passthrough(src []byte, _ int) ([]byte, string, error) {
+	switch sniff(src) {
+	case "image/png":
+		return src, ".png", nil
+	case "image/jpeg":
+		return src, ".jpg", nil
+	case "image/gif":
+		return src, ".gif", nil
+	case "image/webp":
+		return src, ".webp", nil
+	case "image/avif":
+		return src, ".avif", nil
+	}
+	return nil, "", ErrInvalidType
+}
+
 // RenderStatic is Render for a still rendition: the first frame of an
 // animated GIF or WebP, scaled like any other avatar. When no frame can be
 // decoded it falls back to Render (the original is served).

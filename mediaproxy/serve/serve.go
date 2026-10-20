@@ -278,6 +278,9 @@ func Serve(c *gin.Context) {
 	if kind == mediaproxy.KindAvatar && serveCachedAvatar(c, key, rawURL, host, claims, started) {
 		return
 	}
+	if kind == mediaproxy.KindEmoji && c.Request.Method == http.MethodGet && serveCachedEmoji(c, key, rawURL, host, claims, started) {
+		return
+	}
 	if wait, cooling := hostCooling(host); cooling {
 		c.Header("Retry-After", wait)
 		answerFailure(c, host, kind, started, failure{status: http.StatusServiceUnavailable, class: classRateLimited}, nil)
@@ -599,15 +602,27 @@ var avatarCache = avatarcache.Default
 // it on a miss). It returns false when the cache is unavailable so the
 // caller relays the original instead.
 func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediaproxy.Claims, started time.Time) bool {
-	cache := avatarCache()
-	if cache == nil {
-		return false
-	}
 	size := avatarcache.NormalizeSize(c.Query("size"))
 	cacheKey, render := "remote|"+rawURL, avatarcache.Render
 	if c.Query("static") == "1" {
 		// avatar_static: the first frame of an animated avatar.
 		cacheKey, render = "remote-static|"+rawURL, avatarcache.RenderStatic
+	}
+	return serveCached(c, key, rawURL, host, mediaproxy.KindAvatar, claims, started, cacheKey, size, render)
+}
+
+// serveCachedEmoji answers custom emoji from the same disk cache, byte for
+// byte (no resizing: emoji may be wide). Profiles show dozens of them, and
+// origins such as misskey.io rate-limit repeated fetches, so every emoji is
+// fetched from the origin once per RemoteTTL instead of per page view.
+func serveCachedEmoji(c *gin.Context, key, rawURL, host string, claims mediaproxy.Claims, started time.Time) bool {
+	return serveCached(c, key, rawURL, host, mediaproxy.KindEmoji, claims, started, "emoji|"+rawURL, 0, avatarcache.Passthrough)
+}
+
+func serveCached(c *gin.Context, key, rawURL, host, kind string, claims mediaproxy.Claims, started time.Time, cacheKey string, size int, render func([]byte, int) ([]byte, string, error)) bool {
+	cache := avatarCache()
+	if cache == nil {
+		return false
 	}
 	entry, err := cache.GetRendered(c.Request.Context(), cacheKey, size, avatarcache.RemoteTTL(), func(ctx context.Context) ([]byte, error) {
 		if _, cooling := hostCooling(host); cooling || !hostAllowed(host) {
@@ -639,7 +654,7 @@ func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediapro
 				wait = w
 			}
 			c.Header("Retry-After", wait)
-			answerFailure(c, host, mediaproxy.KindAvatar, started, failure{status: http.StatusServiceUnavailable, class: classBusy}, nil)
+			answerFailure(c, host, kind, started, failure{status: http.StatusServiceUnavailable, class: classBusy}, nil)
 			return true
 		case errors.Is(err, avatarcache.ErrTooLarge):
 			f = failure{status: http.StatusRequestEntityTooLarge, class: classSizeLimit, ttl: permanentFailureTTL}
@@ -653,7 +668,7 @@ func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediapro
 			f = classifyFetchError(err, errors.Is(err, context.Canceled))
 		}
 		markFailed(key, f)
-		answerFailure(c, host, mediaproxy.KindAvatar, started, f, nil)
+		answerFailure(c, host, kind, started, f, nil)
 		return true
 	}
 	f, err := os.Open(entry.Path)
