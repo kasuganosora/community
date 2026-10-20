@@ -9,6 +9,7 @@ require (
 	github.com/bbrks/go-blurhash v1.2.0
 	github.com/gin-contrib/cors v1.7.9
 	github.com/gin-gonic/gin v1.12.0
+	github.com/glebarez/go-sqlite v1.23.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-redis/redismock/v9 v9.2.0
 	github.com/go-sql-driver/mysql v1.10.1
@@ -17,7 +18,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/h2non/filetype v1.1.3
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/jhillyerd/enmime v1.3.0
 	github.com/joho/godotenv v1.5.1
 	github.com/kasuganosora/sqlexec v0.7.1
@@ -67,7 +68,6 @@ require (
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.15 // indirect
 	github.com/gin-contrib/sse v1.1.2 // indirect
-	github.com/glebarez/go-sqlite v1.23.0 // indirect
 	github.com/go-playground/locales v0.14.2 // indirect
 	github.com/go-playground/universal-translator v0.18.2 // indirect
 	github.com/go-playground/validator/v10 v10.30.5 // indirect
