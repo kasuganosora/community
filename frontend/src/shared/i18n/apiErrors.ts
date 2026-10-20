@@ -20,6 +20,7 @@ const API_ERRORS: Record<string, string> = {
   "you have reached your daily translation limit": 'translationUserQuota',
   "this server has reached its daily translation limit": 'translationDailyQuota',
   "the translation service is unavailable": 'translationUnavailable',
+  "translation from this language is not supported yet": 'translationLanguageUnsupported',
   "the translation service could not translate this post": 'translationFailed',
   "this post is already in the target language": 'translationSameLanguage',
   "this post has no text to translate": 'translationNothing',

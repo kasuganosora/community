@@ -37,7 +37,7 @@ type fakeTraditional struct{ calls atomic.Int32 }
 
 func (f *fakeTraditional) Translate(text, _, target string) (*translation.Result, error) {
 	f.calls.Add(1)
-	return &translation.Result{Text: "[" + target + "] " + text, DetectedSource: "en", Provider: "selfhosted"}, nil
+	return &translation.Result{Text: "[" + target + "] " + text + strings.Repeat("訳", 24), DetectedSource: "en", Provider: "selfhosted"}, nil
 }
 func (f *fakeTraditional) DetectLanguage(string) (string, error) { return "en", nil }
 func (f *fakeTraditional) Name() string                          { return "selfhosted" }

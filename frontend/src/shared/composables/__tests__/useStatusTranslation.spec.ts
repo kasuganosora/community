@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { needsTranslation, visibilityAllowsTranslation } from '../useStatusTranslation'
+import { needsTranslation, translationEngineName, visibilityAllowsTranslation } from '../useStatusTranslation'
 
 describe('needsTranslation', () => {
   it('offers translation only when the primary language differs', () => {
@@ -19,5 +19,15 @@ describe('visibilityAllowsTranslation', () => {
     expect(visibilityAllowsTranslation('private', true)).toBe(false)
     expect(visibilityAllowsTranslation('direct', true)).toBe(false)
     expect(visibilityAllowsTranslation('direct', false)).toBe(true)
+  })
+})
+
+describe('translationEngineName', () => {
+  it('maps gateway engines to friendly names and keeps unknown providers', () => {
+    expect(translationEngineName('hy-mt')).toBe('混元 MT（本地）')
+    expect(translationEngineName('libretranslate')).toBe('LibreTranslate')
+    expect(translationEngineName('mixed')).toBe('混元 MT + LibreTranslate')
+    expect(translationEngineName('My LLM')).toBe('My LLM')
+    expect(translationEngineName('')).toBe('')
   })
 })

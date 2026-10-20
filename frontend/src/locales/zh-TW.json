@@ -442,7 +442,12 @@
       "showOriginal": "顯示原文",
       "translating": "正在翻譯…",
       "from": "譯自{0}，由 {1} 提供",
-      "unknownLanguage": "未知語言"
+      "unknownLanguage": "未知語言",
+      "engines": {
+        "hyMt": "混元 MT（本機）",
+        "libretranslate": "LibreTranslate",
+        "mixed": "混元 MT + LibreTranslate"
+      }
     }
   },
   "admin": {
@@ -3756,6 +3761,7 @@
     "translationUserQuota": "你今天的翻譯次數已用完",
     "translationDailyQuota": "本站今天的翻譯額度已用完",
     "translationUnavailable": "翻譯服務暫時無法使用",
+    "translationLanguageUnsupported": "尚不支援翻譯此語言",
     "translationFailed": "無法翻譯這則貼文",
     "translationSameLanguage": "這則貼文已是目標語言",
     "translationNothing": "這則貼文沒有可翻譯的文字",

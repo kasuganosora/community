@@ -9,6 +9,7 @@ import (
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/utils/translation"
 	"github.com/urfave/cli/v2"
 	"gorm.io/gorm"
 )
@@ -21,6 +22,7 @@ func CacheCommand() *cli.Command {
 		Subcommands: []*cli.Command{
 			CacheClearCommand(),
 			CacheRecountCommand(),
+			CachePurgeTranslationsCommand(),
 		},
 	}
 }
@@ -367,4 +369,34 @@ func recountStatusStats(statusID uint64) error {
 
 		return nil
 	})
+}
+
+// CachePurgeTranslationsCommand implements tootctl cache purge-translations:
+// remove cached translations that are not translations (the source echoed
+// back, or output not in the target language's script).
+func CachePurgeTranslationsCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "purge-translations",
+		Usage: "Remove cached translations that only echo the original text",
+		Description: `Scans the translation cache and removes entries whose output equals the
+source text (ignoring whitespace, punctuation width, mentions, URLs, hashtags
+and emoji) or is not written in the target language's script. Affected posts
+are translated again on the next request.`,
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "dry-run", Usage: "only list the entries that would be removed"},
+		},
+		Action: func(c *cli.Context) error {
+			dry := c.Bool("dry-run")
+			scanned, found, err := translation.FindUnusableCache(!dry)
+			for _, e := range found {
+				fmt.Printf("cache entry %d: target %s, provider %s, status %d, reason %s\n", e.ID, e.Target, e.Provider, e.StatusID, e.Reason)
+			}
+			verb := "Removed"
+			if dry {
+				verb = "Would remove"
+			}
+			fmt.Printf("Scanned %d cached translations. %s %d unusable entries.\n", scanned, verb, len(found))
+			return err
+		},
+	}
 }

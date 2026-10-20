@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/kasuganosora/community/reqid"
 	"math/rand/v2"
 	"strconv"
@@ -95,6 +96,12 @@ var (
 	ErrUnavailable          = newErr(503, "translation_unavailable", "The translation service is unavailable")
 	ErrVisibilityRestricted = newErr(403, "translation_visibility_restricted", "Only public and unlisted posts can be translated on this server")
 	ErrFailed               = newErr(502, "translation_failed", "The translation service could not translate this post")
+	// ErrUnusable: the traditional backend answered, but with text that is
+	// not a translation (echoed input, wrong script).
+	ErrUnusable = newErr(422, "translation_failed", "The translation service could not translate this post")
+	// ErrLanguageUnsupported: the backend has no model for this language
+	// pair (not an outage).
+	ErrLanguageUnsupported = newErr(422, "translation_language_unsupported", "Translation from this language is not supported yet")
 
 	// LLM mode without an explicit traditional fallback: the same stable
 	// codes, but never a 5xx (the server itself is healthy).
@@ -255,7 +262,14 @@ func TranslateStatus(ctx context.Context, s *models.Status, account *models.Acco
 		}
 		return nil
 	}
-	out, providerName, engine, terr := runEngines(ctx, account, payload, s.Language, target, llmAllowed)
+	// A remote server's language tag is untrusted (a client default often
+	// mislabels posts): let the backend detect the source and pass the tag
+	// only as a hint for when detection fails.
+	source, hint := s.Language, ""
+	if !s.IsLocal() {
+		source, hint = "auto", s.Language
+	}
+	out, providerName, engine, terr := runEngines(ctx, account, payload, source, hint, target, llmAllowed)
 	if terr != nil {
 		return nil, terr
 	}
@@ -268,7 +282,10 @@ func TranslateStatus(ctx context.Context, s *models.Status, account *models.Acco
 		DetectedSourceLanguage: out.DetectedSourceLanguage, MediaAttachments: []MediaTranslation{},
 	}
 	if res.DetectedSourceLanguage == "" {
-		res.DetectedSourceLanguage = s.Language
+		res.DetectedSourceLanguage = source
+	}
+	if res.DetectedSourceLanguage == "auto" {
+		res.DetectedSourceLanguage = "und" // remote tag unconfirmed; do not label with it
 	}
 	if poll != nil && len(out.PollOptions) == len(payload.PollOptions) {
 		res.Poll = &PollTranslation{ID: strconv.FormatUint(poll.Id, 10)}
@@ -319,10 +336,15 @@ func translateLLM(ctx context.Context, p llmsvc.ProviderConfig, account *models.
 	return out, "", nil
 }
 
-func translateTraditional(ctx context.Context, service *Service, p llmsvc.TranslationPayload, source, target string) (*llmsvc.TranslationOutput, *Error) {
+// translateTraditional returns the output and the name of the engine that
+// produced it: the backend's own report (mt-gateway: "hy-mt",
+// "libretranslate"; "mixed" when fields differ) or the provider name.
+func translateTraditional(ctx context.Context, service *Service, p llmsvc.TranslationPayload, source, sourceHint, target string) (*llmsvc.TranslationOutput, string, *Error) {
 	if source == "" {
 		source = "auto"
 	}
+	ctx = WithSourceHint(ctx, sourceHint)
+	engine := ""
 	one := func(text string) (string, string, error) {
 		if strings.TrimSpace(text) == "" {
 			return text, "", nil
@@ -331,36 +353,65 @@ func translateTraditional(ctx context.Context, service *Service, p llmsvc.Transl
 		if err != nil {
 			return "", "", err
 		}
+		switch {
+		case r.Engine == "":
+		case engine == "":
+			engine = r.Engine
+		case engine != r.Engine:
+			engine = "mixed"
+		}
 		return r.Text, r.DetectedSource, nil
 	}
 	out := &llmsvc.TranslationOutput{}
 	var err error
 	if out.Content, out.DetectedSourceLanguage, err = one(p.Content); err != nil {
 		log.Warn("Translation failed (%s)", service.GetProviderName())
-		return nil, ErrUnavailable
+		return nil, "", backendErr(err)
 	}
 	out.Content = htmlsafe.Sanitize(out.Content)
-	if out.SpoilerText, _, err = one(p.SpoilerText); err != nil {
-		return nil, ErrUnavailable
+	var spoilerLang string
+	if out.SpoilerText, spoilerLang, err = one(p.SpoilerText); err != nil {
+		return nil, "", backendErr(err)
+	}
+	if out.DetectedSourceLanguage == "" || out.DetectedSourceLanguage == "auto" {
+		out.DetectedSourceLanguage = spoilerLang
 	}
 	for _, o := range p.PollOptions {
 		t, _, err := one(o)
 		if err != nil {
-			return nil, ErrUnavailable
+			return nil, "", backendErr(err)
 		}
 		out.PollOptions = append(out.PollOptions, htmlsafe.StripTags(t))
 	}
 	for _, d := range p.MediaDescriptions {
 		t, _, err := one(d)
 		if err != nil {
-			return nil, ErrUnavailable
+			return nil, "", backendErr(err)
 		}
 		out.MediaDescriptions = append(out.MediaDescriptions, htmlsafe.StripTags(t))
 	}
 	if out.DetectedSourceLanguage == "auto" {
 		out.DetectedSourceLanguage = ""
 	}
-	return out, nil
+	if engine == "" {
+		engine = service.GetProviderName()
+	}
+	return out, engine, nil
+}
+
+// backendErr maps a backend failure: an unsupported language pair or an
+// echo the backend refused to return are 422s; anything else is an outage.
+func backendErr(err error) *Error {
+	var be *BackendError
+	if errors.As(err, &be) {
+		switch be.Code {
+		case backendCodeLanguageUnsupported:
+			return ErrLanguageUnsupported
+		case backendCodeUnchanged:
+			return ErrUnusable
+		}
+	}
+	return ErrUnavailable
 }
 
 type cachedResult struct {
@@ -422,7 +473,9 @@ func LanguagePairs() map[string][]string {
 	if !Enabled() {
 		return out
 	}
-	sources := []string{"en", "zh", "ja", "ko", "ru", "fr", "de", "es", "pt", "it"}
+	// Sources are advisory for Mastodon clients: the backend detects the
+	// language itself, so list widely used ones beyond the target set.
+	sources := []string{"en", "zh", "ja", "ko", "ru", "fr", "de", "es", "pt", "it", "no", "nb", "nn", "nl", "sv", "da", "fi", "pl", "cs", "uk", "tr", "id", "vi", "ar"}
 	for _, src := range sources {
 		targets := make([]string, 0, len(SupportedLanguages))
 		for _, t := range SupportedLanguages {

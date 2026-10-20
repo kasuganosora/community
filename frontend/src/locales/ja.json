@@ -442,7 +442,12 @@
       "showOriginal": "原文を表示",
       "translating": "翻訳中…",
       "from": "{0}から翻訳（{1}）",
-      "unknownLanguage": "不明な言語"
+      "unknownLanguage": "不明な言語",
+      "engines": {
+        "hyMt": "Hunyuan MT（ローカル）",
+        "libretranslate": "LibreTranslate",
+        "mixed": "Hunyuan MT + LibreTranslate"
+      }
     }
   },
   "admin": {
@@ -3756,6 +3761,7 @@
     "translationUserQuota": "本日の翻訳回数の上限に達しました",
     "translationDailyQuota": "このサーバーの本日の翻訳上限に達しました",
     "translationUnavailable": "翻訳サービスは現在利用できません",
+    "translationLanguageUnsupported": "この言語の翻訳にはまだ対応していません",
     "translationFailed": "この投稿を翻訳できませんでした",
     "translationSameLanguage": "この投稿はすでに翻訳先の言語です",
     "translationNothing": "この投稿には翻訳できるテキストがありません",

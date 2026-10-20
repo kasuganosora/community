@@ -2,6 +2,7 @@ package status
 
 import (
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -26,7 +27,7 @@ func (f *scriptedTraditional) Translate(text, _, target string) (*translation.Re
 	if out == "=" {
 		out = text
 	} else if out == "" {
-		out = "[" + target + "] " + text
+		out = "[" + target + "] " + text + strings.Repeat("訳", 24)
 	}
 	return &translation.Result{Text: out, DetectedSource: "en", Provider: "mt-gateway"}, nil
 }

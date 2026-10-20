@@ -7,7 +7,7 @@ import { groupApi } from '../../infrastructure/groupApi'
 import GroupAvatar from './GroupAvatar.vue'
 import GroupAttachment from './GroupAttachment.vue'
 import GroupSticker from './GroupSticker.vue'
-import { languageName, needsTranslation, translationErrorMessage, uiLocale, useTranslationEnabled } from '@/shared/composables/useStatusTranslation'
+import { languageName, needsTranslation, translationEngineName, translationErrorMessage, uiLocale, useTranslationEnabled } from '@/shared/composables/useStatusTranslation'
 import { isAxiosError } from 'axios'
 import { t } from '@/shared/i18n'
 import type { GroupMessageTranslation } from '../../domain/group'
@@ -108,7 +108,7 @@ const createdAt = computed(() => {
         <template v-else-if="message.kind === 'sticker'"><GroupSticker v-for="attachment in message.attachments" :key="`${message.id}:${attachment.id}:${attachment.url}:${mediaMode}`" :attachment="attachment" :alt="stickerAlt" :hidden="mediaHidden" /></template>
         <div v-else-if="html" class="group-message__body" dir="auto" v-html="html" />
         <p v-else-if="message.body" class="group-message__body" dir="auto">{{ message.body }}</p>
-        <p v-if="translated" class="group-message__translate-meta">{{ $t('shared.Translation.from', [languageName(translated.detected_source_language || message.language), translated.provider]) }}</p>
+        <p v-if="translated" class="group-message__translate-meta">{{ $t('shared.Translation.from', [languageName(translated.detected_source_language || message.language), translationEngineName(translated.provider)]) }}</p>
         <p v-if="translationError" class="group-message__translate-error" role="alert">{{ translationError }}</p>
         <GroupAttachment v-for="attachment in (message.kind === 'sticker' ? [] : message.attachments)" :key="`${message.id}:${attachment.id}:${attachment.url}:${mediaMode}`" :attachment="attachment" :hidden="mediaHidden" :sensitive="sensitiveMedia" />
         <div class="group-message__reactions"><button v-for="reaction in message.reactions" :key="reaction.key" type="button" :aria-pressed="reaction.own" :disabled="!canSend || busy" :aria-label="$t('group.GroupMessageView.s9', [reaction.label || reaction.key, reaction.count, reaction.own ? $t('group.GroupMessageView.s8') : ''])" @click="$emit('reaction', reaction.key, reaction.own)"><img v-if="reaction.url && mediaURLs[reaction.url]" :src="mediaURLs[reaction.url!]" :alt="reaction.shortcode" referrerpolicy="no-referrer" /><template v-else>{{ reaction.label || reaction.shortcode || reaction.key }}</template> <span>{{ reaction.count }}</span></button></div>

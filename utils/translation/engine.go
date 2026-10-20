@@ -53,7 +53,7 @@ type engineStep func() (out *llmsvc.TranslationOutput, provider, fallbackReason 
 // runEngines translates payload with the primary engine and, when enabled,
 // the other one. llmAllowed applies privacy policy before any content is sent
 // to an LLM, whether it is the primary engine or the fallback.
-func runEngines(ctx context.Context, account *models.Account, payload llmsvc.TranslationPayload, source, target string, llmAllowed func() *Error) (*llmsvc.TranslationOutput, string, string, *Error) {
+func runEngines(ctx context.Context, account *models.Account, payload llmsvc.TranslationPayload, source, hint, target string, llmAllowed func() *Error) (*llmsvc.TranslationOutput, string, string, *Error) {
 	ctx, rid := reqid.Ensure(ctx)
 	primary := Mode()
 	llmStep := func(asPrimary bool) (engineStep, *Error) {
@@ -74,7 +74,11 @@ func runEngines(ctx context.Context, account *models.Account, payload llmsvc.Tra
 			if cached, name := lookupCache(key); cached != nil {
 				return cached, name, "", nil
 			}
-			out, reason, err := translateLLM(ctx, provider, account, payload, source, target)
+			llmSource := source
+			if llmSource == "auto" {
+				llmSource = "" // the model detects the language itself
+			}
+			out, reason, err := translateLLM(ctx, provider, account, payload, llmSource, target)
 			if err != nil {
 				return nil, "", reason, err
 			}
@@ -96,17 +100,24 @@ func runEngines(ctx context.Context, account *models.Account, payload llmsvc.Tra
 			if cached, name := lookupCache(key); cached != nil {
 				return cached, name, "", nil
 			}
-			out, err := translateTraditional(ctx, svc, payload, source, target)
+			out, name, err := translateTraditional(ctx, svc, payload, source, hint, target)
 			if err != nil {
 				log.Warn("Traditional translation failed (%s, %s, request_id %s)", svc.GetProviderName(), err.Code, rid)
-				return nil, "", "traditional_error", err
+				reason := "traditional_error"
+				switch err {
+				case ErrLanguageUnsupported:
+					reason = "language_unsupported"
+				case ErrUnusable:
+					reason = "unchanged_output"
+				}
+				return nil, "", reason, err
 			}
 			if reason := traditionalUnusable(payload, out, source, target); reason != "" {
 				log.Warn("Traditional translation returned unusable output (%s, reason %s, request_id %s)", svc.GetProviderName(), reason, rid)
-				return out, svc.GetProviderName(), reason, nil
+				return nil, "", reason, ErrUnusable
 			}
-			storeCache(key, contentHash(payload), target, svc.GetProviderName(), out)
-			return out, svc.GetProviderName(), "", nil
+			storeCache(key, contentHash(payload), target, name, out)
+			return out, name, "", nil
 		}, nil
 	}
 	build := func(engine string, asPrimary bool) (engineStep, *Error) {
@@ -141,26 +152,17 @@ func runEngines(ctx context.Context, account *models.Account, payload llmsvc.Tra
 	}
 	// Primary failed (or produced unusable output) with a fallback-eligible reason.
 	if !FallbackEnabled() {
-		if ferr == nil {
-			return out, name, primary, nil // unusable traditional output, nothing better available
-		}
 		return nil, "", "", ferr
 	}
 	second, serr := build(secondary, false)
 	if serr != nil {
 		log.Warn("Translation fallback %s -> %s unavailable (reason %s, %s, request_id %s)", primary, secondary, reason, serr.Code, rid)
-		if ferr == nil {
-			return out, name, primary, nil
-		}
 		return nil, "", "", ferr
 	}
 	log.Warn("Translation fallback %s -> %s (reason %s, request_id %s)", primary, secondary, reason, rid)
 	sout, sname, sreason, sferr := second()
 	if sferr != nil || sreason != "" {
 		log.Warn("Translation fallback %s -> %s failed (reason %s, request_id %s)", primary, secondary, reason, rid)
-		if ferr == nil {
-			return out, name, primary, nil
-		}
 		if sferr != nil && sreason == "" && primary == ModeTraditional {
 			return nil, "", "", sferr // e.g. LLM quota exceeded
 		}
@@ -169,20 +171,18 @@ func runEngines(ctx context.Context, account *models.Account, payload llmsvc.Tra
 	return sout, sname, secondary, nil
 }
 
-// traditionalUnusable flags empty output for non-empty input, or output
-// identical to the input when the languages are known to differ.
+// traditionalUnusable flags output that is not a translation: empty for
+// non-empty input, the input echoed back (ignoring whitespace, punctuation
+// width, mentions, URLs, hashtags and emoji), or text not in the target's
+// script. Such output is never shown or cached.
 func traditionalUnusable(p llmsvc.TranslationPayload, out *llmsvc.TranslationOutput, source, target string) string {
-	in := strings.TrimSpace(htmlsafe.StripTags(p.Content))
-	got := strings.TrimSpace(htmlsafe.StripTags(out.Content))
-	if in != "" && got == "" {
-		return "empty_output"
-	}
 	src := source
 	if src == "" || src == "auto" {
 		src = out.DetectedSourceLanguage
 	}
-	if in != "" && got == in && src != "" && primary(src) != primary(target) && len([]rune(in)) > 3 {
-		return "unchanged_output"
+	in, got := htmlsafe.StripTags(p.Content), htmlsafe.StripTags(out.Content)
+	if strings.TrimSpace(in) == "" {
+		in, got = p.SpoilerText, out.SpoilerText
 	}
-	return ""
+	return unusableText(in, got, src, target)
 }

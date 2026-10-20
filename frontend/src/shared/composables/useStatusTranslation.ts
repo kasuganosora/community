@@ -64,7 +64,7 @@ export function needsTranslation(language: string | null | undefined, target = u
 
 /** Localised name of a language code in the UI language. */
 export function languageName(code: string | null | undefined): string {
-  if (!code) return t('shared.Translation.unknownLanguage')
+  if (!code || code === 'und' || code === 'auto') return t('shared.Translation.unknownLanguage')
   try {
     const names = new Intl.DisplayNames([uiLocale()], { type: 'language' })
     return names.of(code) || code
@@ -81,6 +81,7 @@ const ERROR_KEYS: Record<string, string> = {
   translation_daily_quota_exceeded: 'translationDailyQuota',
   translation_unavailable: 'translationUnavailable',
   translation_failed: 'translationFailed',
+  translation_language_unsupported: 'translationLanguageUnsupported',
   translation_same_language: 'translationSameLanguage',
   translation_nothing_to_translate: 'translationNothing',
   translation_invalid_language: 'translationFailed',
@@ -100,4 +101,17 @@ export function translationErrorMessage(cause: unknown): string {
 export async function translateStatus(id: string, lang = uiLocale()): Promise<StatusTranslation> {
   const { data } = await client.post<StatusTranslation>(`/api/v1/statuses/${encodeURIComponent(id)}/translate`, { lang }, { timeout: 90000 })
   return data
+}
+
+const engineKeys: Record<string, string> = {
+  'hy-mt': 'hyMt',
+  libretranslate: 'libretranslate',
+  mixed: 'mixed',
+}
+
+/** Friendly, localised name of the engine that produced a translation (falls back to the raw provider name). */
+export function translationEngineName(provider: string | null | undefined): string {
+  const p = (provider || '').trim()
+  const key = engineKeys[p.toLowerCase()]
+  return key ? t(`shared.Translation.engines.${key}`) : p
 }

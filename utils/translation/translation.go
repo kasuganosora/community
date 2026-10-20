@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/kasuganosora/community/log"
@@ -29,6 +30,26 @@ type Result struct {
 	Text           string
 	DetectedSource string
 	Provider       string
+	// Engine is the backend's report of what translated the text
+	// (mt-gateway: "hy-mt", "libretranslate"); empty when not reported.
+	Engine string
+}
+
+type sourceHintKey struct{}
+
+// WithSourceHint attaches a language hint (e.g. a remote post's untrusted
+// language tag) sent alongside source=auto, for backends that use it only
+// when their own detection fails. Plain LibreTranslate ignores it.
+func WithSourceHint(ctx context.Context, hint string) context.Context {
+	if hint == "" || hint == "auto" {
+		return ctx
+	}
+	return context.WithValue(ctx, sourceHintKey{}, hint)
+}
+
+func sourceHint(ctx context.Context) string {
+	h, _ := ctx.Value(sourceHintKey{}).(string)
+	return h
 }
 
 // Service 翻译服务.
@@ -166,6 +187,9 @@ func (l *LibreTranslateProvider) TranslateContext(ctx context.Context, text, sou
 	data.Set("source", sourceLang)
 	data.Set("target", targetLang)
 	data.Set("format", "html")
+	if h := sourceHint(ctx); h != "" && sourceLang == "auto" {
+		data.Set("source_hint", h)
+	}
 
 	if l.apiKey != "" {
 		data.Set("api_key", l.apiKey)
@@ -189,23 +213,34 @@ func (l *LibreTranslateProvider) TranslateContext(ctx context.Context, text, sou
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 
-		return nil, fmt.Errorf("translation API error: %d - %s", resp.StatusCode, string(body))
+		return nil, backendError(resp.StatusCode, body)
 	}
 
 	var result struct {
-		TranslatedText string `json:"translatedText"`
+		TranslatedText   string `json:"translatedText"`
+		DetectedLanguage *struct {
+			Language   string  `json:"language"`
+			Confidence float64 `json:"confidence"`
+		} `json:"detectedLanguage"`
+		Engine string `json:"engine"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 
+	detected := sourceLang
+	if result.DetectedLanguage != nil && result.DetectedLanguage.Language != "" {
+		detected = result.DetectedLanguage.Language
+	}
+
 	return &Result{
 		Text:           result.TranslatedText,
-		DetectedSource: sourceLang,
+		DetectedSource: detected,
 		Provider:       l.Name(),
+		Engine:         result.Engine,
 	}, nil
 }
 
@@ -360,4 +395,44 @@ func Translate(text, sourceLang, targetLang string) (*Result, error) {
 // DetectLanguage 使用全局服务检测语言.
 func DetectLanguage(text string) (string, error) {
 	return globalService.DetectLanguage(text)
+}
+
+// SourceHintForTest exposes the hint attached by WithSourceHint.
+func SourceHintForTest(ctx context.Context) string { return sourceHint(ctx) }
+
+// BackendError is a non-200 answer from a LibreTranslate-compatible backend.
+// Code is mt-gateway's stable "code" field when present.
+type BackendError struct {
+	Status int
+	Code   string
+	Body   string // truncated response body, for logs
+}
+
+func (e *BackendError) Error() string {
+	return fmt.Sprintf("translation API error: %d - %s", e.Status, e.Body)
+}
+
+// Backend codes community acts on.
+const (
+	backendCodeLanguageUnsupported = "translation_language_unsupported"
+	backendCodeUnchanged           = "translation_unchanged"
+)
+
+func backendError(status int, body []byte) *BackendError {
+	var b struct {
+		Code  string `json:"code"`
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(body, &b)
+	text := string(body)
+	if len(text) > 512 {
+		text = text[:512]
+	}
+	e := &BackendError{Status: status, Code: b.Code, Body: text}
+	// Plain LibreTranslate answers 400 "<lang> is not supported" for pairs
+	// it has no model for.
+	if e.Code == "" && status == http.StatusBadRequest && strings.Contains(strings.ToLower(b.Error), "not supported") {
+		e.Code = backendCodeLanguageUnsupported
+	}
+	return e
 }

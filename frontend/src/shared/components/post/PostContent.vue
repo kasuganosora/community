@@ -22,7 +22,7 @@ import { markBidiNumbers } from '@/shared/utils/bidi'
 import { t } from '@/shared/i18n'
 import { speaksAsCat } from '@/shared/utils/nyaize'
 import { useNyaizeDisplay } from '@/shared/composables/useNyaizeDisplay'
-import { languageName, needsTranslation, translateStatus, translationErrorMessage, useTranslationEnabled, useTranslationPublicOnly, visibilityAllowsTranslation, type StatusTranslation } from '@/shared/composables/useStatusTranslation'
+import { languageName, needsTranslation, translateStatus, translationEngineName, translationErrorMessage, useTranslationEnabled, useTranslationPublicOnly, visibilityAllowsTranslation, type StatusTranslation } from '@/shared/composables/useStatusTranslation'
 const props = defineProps<{
   status: MastodonStatus
   textClass?: string
@@ -162,7 +162,7 @@ onMounted(measure)
       </button>
     </div>
     <div v-if="canTranslate && !bodyVisible" class="post-content__translate">
-      <p v-if="translated" class="post-content__translate-meta">{{ $t('shared.Translation.from', [languageName(translated.detected_source_language || status.language), translated.provider]) }}</p>
+      <p v-if="translated" class="post-content__translate-meta">{{ $t('shared.Translation.from', [languageName(translated.detected_source_language || status.language), translationEngineName(translated.provider)]) }}</p>
       <button type="button" class="post-content__translate-toggle" :disabled="translating" :aria-busy="translating || undefined" @click.stop="toggleTranslation">
         <span v-if="translating" class="post-content__spinner" aria-hidden="true" />
         {{ translating ? $t('shared.Translation.translating') : translated ? $t('shared.Translation.showOriginal') : $t('shared.Translation.translate') }}
@@ -177,7 +177,7 @@ onMounted(measure)
         {{ expanded ? $t('shared.PostContent.s1') : $t('shared.PostContent.s3') }}
       </button>
       <div v-if="canTranslate && bodyVisible" class="post-content__translate">
-        <p v-if="translated" class="post-content__translate-meta">{{ $t('shared.Translation.from', [languageName(translated.detected_source_language || status.language), translated.provider]) }}</p>
+        <p v-if="translated" class="post-content__translate-meta">{{ $t('shared.Translation.from', [languageName(translated.detected_source_language || status.language), translationEngineName(translated.provider)]) }}</p>
         <button type="button" class="post-content__translate-toggle" :disabled="translating" :aria-busy="translating || undefined" @click.stop="toggleTranslation">
           <span v-if="translating" class="post-content__spinner" aria-hidden="true" />
           {{ translating ? $t('shared.Translation.translating') : translated ? $t('shared.Translation.showOriginal') : $t('shared.Translation.translate') }}

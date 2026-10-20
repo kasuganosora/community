@@ -2,6 +2,7 @@ package homeserver
 
 import (
 	"encoding/json"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ type groupFakeTrad struct{ calls atomic.Int32 }
 
 func (f *groupFakeTrad) Translate(text, _, target string) (*translation.Result, error) {
 	f.calls.Add(1)
-	return &translation.Result{Text: "[" + target + "] " + text, DetectedSource: "en", Provider: "mt-gateway"}, nil
+	return &translation.Result{Text: "[" + target + "] " + text + strings.Repeat("訳", 24), DetectedSource: "en", Provider: "mt-gateway"}, nil
 }
 func (f *groupFakeTrad) DetectLanguage(string) (string, error) { return "en", nil }
 func (f *groupFakeTrad) Name() string                          { return "mt-gateway" }

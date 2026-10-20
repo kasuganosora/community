@@ -102,7 +102,7 @@ func TranslateGroupMessage(ctx context.Context, account *models.Account, eventID
 		}
 		return nil
 	}
-	out, provider, engine, err := runEngines(ctx, account, payload, source, target, llmAllowed)
+	out, provider, engine, err := runEngines(ctx, account, payload, source, "", target, llmAllowed)
 	if err != nil {
 		if err == ErrVisibilityRestricted {
 			err = ErrGroupVisibilityRestricted

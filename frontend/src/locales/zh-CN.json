@@ -442,7 +442,12 @@
       "showOriginal": "显示原文",
       "translating": "正在翻译…",
       "from": "译自{0}，由 {1} 提供",
-      "unknownLanguage": "未知语言"
+      "unknownLanguage": "未知语言",
+      "engines": {
+        "hyMt": "混元 MT（本地）",
+        "libretranslate": "LibreTranslate",
+        "mixed": "混元 MT + LibreTranslate"
+      }
     }
   },
   "admin": {
@@ -3756,6 +3761,7 @@
     "translationUserQuota": "你今天的翻译次数已用完",
     "translationDailyQuota": "本站今天的翻译额度已用完",
     "translationUnavailable": "翻译服务暂时不可用",
+    "translationLanguageUnsupported": "暂不支持翻译该语言",
     "translationFailed": "无法翻译这条帖子",
     "translationSameLanguage": "这条帖子已经是目标语言",
     "translationNothing": "这条帖子没有可翻译的文字",

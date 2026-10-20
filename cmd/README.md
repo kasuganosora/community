@@ -143,6 +143,7 @@ flag.Parse()
 | 子命令 | 说明 | 常用 Flag |
 |--------|------|-----------|
 | `cache clear` | 清空 Redis 缓存（feed、timeline、status、account 等） | — |
+| `cache purge-translations` | 删除只是原样回显原文（或不是目标语言文字）的翻译缓存条目，下次请求重新翻译 | `--dry-run` |
 | `cache recount TYPE` | 重新统计硬缓存计数器（`accounts` / `statuses`） | `--concurrency`, `--verbose` |
 
 #### passkeys
