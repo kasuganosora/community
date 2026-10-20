@@ -2,6 +2,7 @@ package community
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/matrix/homeserver"
@@ -38,7 +39,7 @@ func communityChatIdentity(c *gin.Context) {
 
 func communityChatScope(c *gin.Context) {
 	scope := middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses}
-	readPost := c.Request.Method == http.MethodPost && (c.Request.URL.Path == "/api/v1/chat/group-sync" || c.Request.URL.Path == "/api/v1/chat/groups/resolve")
+	readPost := c.Request.Method == http.MethodPost && (c.Request.URL.Path == "/api/v1/chat/group-sync" || c.Request.URL.Path == "/api/v1/chat/groups/resolve" || strings.HasSuffix(c.Request.URL.Path, "/translate"))
 	if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead && !readPost {
 		scope = middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses}
 	}

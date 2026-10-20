@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/utils/translation"
 	"net/url"
 	"strconv"
 	"strings"
@@ -270,7 +271,7 @@ func webGroupLevels(room *MatrixRoom, state map[EventType]MatrixRoomState) *Powe
 	return pl
 }
 func webGroupCapabilities(hs *HomeServer, room *MatrixRoom, member MembershipState, state map[EventType]MatrixRoomState, user string) gin.H {
-	caps := gin.H{"send_message": false, "invite": false, "kick": false, "ban": false, "redact": false, "set_name": false, "set_topic": false, "set_avatar": false, "manage_permissions": false, "manage_address": false}
+	caps := gin.H{"translate": false, "send_message": false, "invite": false, "kick": false, "ban": false, "redact": false, "set_name": false, "set_topic": false, "set_avatar": false, "manage_permissions": false, "manage_address": false}
 	if _, _, partial := parsePartialStateMarker(room.CurrentStateID); partial {
 		return caps
 	}
@@ -283,6 +284,7 @@ func webGroupCapabilities(hs *HomeServer, room *MatrixRoom, member MembershipSta
 	if webGroupPlaintextState(room, state) != nil {
 		return caps
 	}
+	caps["translate"] = translation.GroupTranslatable(webGroupPublicState(state))
 	pl := webGroupLevels(room, state)
 	level := hs.Room.getUserPowerLevel(pl, user)
 	threshold := func(kind string, isState bool) int64 {

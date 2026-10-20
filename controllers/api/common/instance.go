@@ -60,6 +60,8 @@ type InstanceResponse struct {
 			Enabled bool `json:"enabled"`
 			// PublicOnly: only public/unlisted posts can be translated.
 			PublicOnly bool `json:"public_only"`
+			// GroupMessages: group chat messages can be translated.
+			GroupMessages bool `json:"group_messages"`
 		} `json:"translation"`
 		TimelinesAccess map[string]map[string]string `json:"timelines_access"`
 	} `json:"configuration"`
@@ -350,6 +352,7 @@ func GetInstanceDetail(c *gin.Context) {
 	resp.Configuration.TimelinesAccess = timelinesAccess()
 	resp.Configuration.Translation.Enabled = translation.Enabled()
 	resp.Configuration.Translation.PublicOnly = translation.PublicOnly()
+	resp.Configuration.Translation.GroupMessages = translation.GroupMessagesEnabled()
 	resp.Registrations.Enabled = systemsettings.GetBool(systemsettings.KeyIsEnableRegistration, false)
 	resp.Registrations.ApprovalRequired = systemsettings.GetBool(systemsettings.KeyRegistrationApprovalRequired, false)
 	resp.Registrations.InviteRequired = systemsettings.GetBool(systemsettings.KeyRegistrationInviteRequired, false)

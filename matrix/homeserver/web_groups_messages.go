@@ -59,6 +59,7 @@ type webGroupMessage struct {
 	Reactions        []webGroupReaction   `json:"reactions"`
 	TransactionID    string               `json:"transaction_id,omitempty"`
 	CustomEmojis     []webGroupEmoji      `json:"custom_emojis,omitempty"`
+	Language         string               `json:"language,omitempty"`
 }
 type webGroupSendRequest struct {
 	TransactionID string   `json:"transaction_id"`
@@ -84,6 +85,7 @@ func registerWebGroupMessageRoutes(r *gin.RouterGroup) {
 	r.POST("/groups/:id/messages/:messageID/replace", handleWebGroupReplace)
 	r.POST("/groups/:id/messages/:messageID/reactions", handleWebGroupReaction)
 	r.DELETE("/groups/:id/messages/:messageID/reactions", handleWebGroupUnreact)
+	r.POST("/groups/:id/messages/:messageID/translate", handleWebGroupTranslate)
 	r.GET("/group-sync", handleWebGroupSync)
 	r.POST("/group-sync", handleWebGroupSync)
 }
@@ -789,7 +791,9 @@ func webGroupMessagesDTO(hs *HomeServer, conn *gorm.DB, roomID, user string, eve
 			content, _ = edit.Content["m.new_content"].(map[string]any)
 			msg.Edited = true
 		}
-		if event.EventType == EventTypeRoomMessage {
+		if webGroupIsSticker(event.EventType, content) {
+			msg.Kind = "sticker"
+		} else if event.EventType == EventTypeRoomMessage {
 			switch webGroupString(content, "msgtype") {
 			case "m.text", "m.emote":
 				msg.Kind = "text"
@@ -856,6 +860,7 @@ func webGroupMessagesDTO(hs *HomeServer, conn *gorm.DB, roomID, user string, eve
 			}
 			sort.Slice(msg.Reactions, func(i, j int) bool { return msg.Reactions[i].Key < msg.Reactions[j].Key })
 		}
+		msg.Language = webGroupMessageLanguage(&msg)
 		out = append(out, msg)
 	}
 	return out, nil

@@ -164,7 +164,7 @@ func handleWebGroupMedia(c *gin.Context) {
 		}
 	}
 	event.Content = content
-	if !webGroupEventReferencesMXC(room.RoomID, event, mxc) || (event.EventType != EventTypeRoomMessage && event.EventType != EventTypeRoomAvatar && !isReaction) {
+	if !webGroupEventReferencesMXC(room.RoomID, event, mxc) || (event.EventType != EventTypeRoomMessage && event.EventType != EventTypeRoomAvatar && event.EventType != "m.sticker" && !isReaction) {
 		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "The attachment does not exist or you may not access it")
 		return
 	}

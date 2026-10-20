@@ -1694,7 +1694,7 @@
       "translation": "Übersetzungseinstellungen",
       "translationEnabled": "Beitragsübersetzung aktivieren",
       "translationEnabledHint": "Zeigt bei Beiträgen in einer anderen Sprache als der Oberfläche eine Übersetzen-Schaltfläche",
-      "mode": "Übersetzungs-Backend",
+      "mode": "Primäre Übersetzungs-Engine",
       "modeTraditional": "Klassischer Übersetzungsdienst",
       "modeLlm": "LLM",
       "modeTraditionalHint": "Aktuelles Backend: {0} (über Umgebungsvariablen der Bereitstellung konfiguriert)",
@@ -1719,7 +1719,12 @@
       "outputTokens": "Ausgabe-Token",
       "cost": "Kosten",
       "allowPrivate": "Übersetzung von Beiträgen nur für Follower und Direktnachrichten erlauben",
-      "allowPrivateHint": "Standardmäßig aus: Im LLM-Modus werden nur öffentliche und nicht gelistete Beiträge übersetzt, private Inhalte werden nie an den externen LLM-Dienst gesendet."
+      "allowPrivateHint": "Standardmäßig aus: Im LLM-Modus werden nur öffentliche und nicht gelistete Beiträge übersetzt, private Inhalte werden nie an den externen LLM-Dienst gesendet.",
+      "fallbackEnabled": "Die andere Engine als Fallback verwenden",
+      "fallbackHintLlm": "Wenn das LLM fehlschlägt, eine Zeitüberschreitung hat oder unbrauchbare Ausgabe liefert, mit dem selbst gehosteten klassischen Dienst erneut versuchen (nur eine explizit konfigurierte LibreTranslate-kompatible URL).",
+      "fallbackHintTraditional": "Wenn der klassische Dienst fehlschlägt, eine Zeitüberschreitung hat oder leeren/unveränderten Text liefert, mit dem LLM erneut versuchen. Die Datenschutzgrenzen für das LLM gelten weiterhin.",
+      "groupMessages": "Übersetzen von Gruppenchat-Nachrichten erlauben",
+      "groupMessagesHint": "Gruppennachrichten sind keine öffentlichen Beiträge. Standard: an, wenn die primäre Engine ein selbst gehosteter klassischer Dienst ist, sonst aus. Nachrichten nicht öffentlicher Gruppen werden nur an das LLM gesendet, wenn private Inhalte erlaubt sind."
     }
   },
   "auth": {
@@ -2203,7 +2208,9 @@
       "s10": "Reaktion hinzufügen",
       "s11": "Antworten",
       "s12": "Bearbeiten",
-      "s13": "Löschen"
+      "s13": "Löschen",
+      "translateRestricted": "Nachrichten dieser Gruppe können auf diesem Server nicht übersetzt werden",
+      "sticker": "Sticker"
     },
     "useGroupJoin": {
       "s1": "Gruppe wird beigetreten…",

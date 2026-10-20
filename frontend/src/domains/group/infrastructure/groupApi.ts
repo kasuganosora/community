@@ -1,5 +1,5 @@
 import client from '@/shared/api/client'
-import type { Group, GroupPage, GroupSearchPage, GroupMember, GroupInvitee, GroupMessagePage, GroupSend, GroupSendResult, GroupJoinResult, GroupSync, GroupUpload } from '../domain/group'
+import type { GroupMessageTranslation, Group, GroupPage, GroupSearchPage, GroupMember, GroupInvitee, GroupMessagePage, GroupSend, GroupSendResult, GroupJoinResult, GroupSync, GroupUpload } from '../domain/group'
 import { t } from '@/shared/i18n'
 const base = '/api/v1/chat/groups'
 const path = (id: string) => `${base}/${encodeURIComponent(id)}`
@@ -30,6 +30,7 @@ export const groupApi = {
     if (own) await client.delete(url, { params: { key } })
     else await client.post(url, { key, transaction_id: crypto.randomUUID() })
   },
+  async translate(id: string, eventId: string, lang: string): Promise<GroupMessageTranslation> { return (await client.post(`${path(id)}/messages/${encodeURIComponent(eventId)}/translate`, { lang }, { timeout: 90000 })).data },
   async read(id: string, event_id: string): Promise<void> { await client.post(`${path(id)}/read`, { event_id }) },
   async typing(id: string, typing: boolean): Promise<void> { await client.post(`${path(id)}/typing`, { typing }) },
   async upload(id: string, file: File, signal: AbortSignal, onProgress: (percent: number) => void): Promise<GroupUpload> {

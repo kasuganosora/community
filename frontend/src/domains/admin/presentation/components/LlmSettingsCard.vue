@@ -220,7 +220,9 @@ onMounted(load)
         </template>
       </AdminField>
       <AdminAlert v-if="tr.mode === 'llm' && !translationService" tone="warning">{{ $t('admin.Llm.modeNeedsProvider') }}</AdminAlert>
-      <AdminCheck v-if="tr.mode === 'llm'" v-model="tr.allow_private" variant="switch" :label="$t('admin.Llm.allowPrivate')" :hint="$t('admin.Llm.allowPrivateHint')" @update:model-value="touch" />
+      <AdminCheck v-model="tr.fallback_enabled" variant="switch" :label="$t('admin.Llm.fallbackEnabled')" :hint="tr.mode === 'llm' ? $t('admin.Llm.fallbackHintLlm') : $t('admin.Llm.fallbackHintTraditional')" @update:model-value="touch" />
+      <AdminCheck v-model="tr.group_messages" variant="switch" :label="$t('admin.Llm.groupMessages')" :hint="$t('admin.Llm.groupMessagesHint')" @update:model-value="touch" />
+      <AdminCheck v-if="tr.mode === 'llm' || tr.fallback_enabled" v-model="tr.allow_private" variant="switch" :label="$t('admin.Llm.allowPrivate')" :hint="$t('admin.Llm.allowPrivateHint')" @update:model-value="touch" />
       <div class="llm-provider__grid">
         <AdminField :label="$t('admin.Llm.userDailyLimit')" :hint="$t('admin.Llm.zeroUnlimited')"><template #default="{ id, describedBy }"><input :id="id" v-model.number="tr.user_daily_limit" type="number" min="0" max="1000000" inputmode="numeric" required :aria-describedby="describedBy" @input="touch" /></template></AdminField>
         <AdminField :label="$t('admin.Llm.dailyLimit')" :hint="$t('admin.Llm.zeroUnlimited')"><template #default="{ id, describedBy }"><input :id="id" v-model.number="tr.daily_limit" type="number" min="0" max="1000000" inputmode="numeric" required :aria-describedby="describedBy" @input="touch" /></template></AdminField>

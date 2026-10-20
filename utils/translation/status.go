@@ -248,74 +248,15 @@ func TranslateStatus(ctx context.Context, s *models.Status, account *models.Acco
 		return nil, ErrSameLanguage
 	}
 
-	var (
-		backend  string
-		provider llmsvc.ProviderConfig
-	)
-	mode := Mode()
-	if mode == ModeLLM {
-		if account == nil {
-			return nil, ErrLoginRequired
+	llmAllowed := func() *Error {
+		if !systemsettings.GetBool(KeyAllowPrivate, false) && !visibilityAllowed(s) {
+			return ErrVisibilityRestricted
 		}
-		if PublicOnly() && !visibilityAllowed(s) {
-			return nil, ErrVisibilityRestricted
-		}
-		provider, ok = llmsvc.ServiceProvider(llmsvc.ServiceTranslation)
-		if !ok {
-			return nil, ErrDisabled
-		}
-		backend = "llm:" + provider.ID + ":" + provider.Type + ":" + provider.Model
-	} else {
-		backend = "traditional:" + GetService().GetProviderName()
+		return nil
 	}
-	key := cacheKey(backend, target, payload)
-
-	var out *llmsvc.TranslationOutput
-	providerName, engine := "", EngineTraditional
-	if mode == ModeLLM {
-		engine = EngineLLM
-	}
-	if cached, name := lookupCache(key); cached != nil {
-		out, providerName = cached, name
-	} else if mode == ModeLLM {
-		var reason string
-		var err *Error
-		out, reason, err = translateLLM(ctx, provider, account, payload, s.Language, target)
-		providerName = provider.Name
-		if err != nil {
-			if reason == "" {
-				return nil, err
-			}
-			fb, ok := FallbackService()
-			if !ok {
-				log.Warn("LLM translation fallback unavailable (provider %s, reason %s): no explicit traditional backend", provider.ID, reason)
-				return nil, err
-			}
-			log.Warn("LLM translation fallback to traditional (provider %s, reason %s)", provider.ID, reason)
-			fbKey := cacheKey("traditional:"+fb.GetProviderName(), target, payload)
-			if cached, name := lookupCache(fbKey); cached != nil {
-				out, providerName = cached, name
-			} else {
-				fout, ferr := translateTraditional(fb, payload, s.Language, target)
-				if ferr != nil {
-					log.Warn("LLM translation fallback failed (provider %s, reason %s, traditional %s)", provider.ID, reason, fb.GetProviderName())
-					return nil, err
-				}
-				out, providerName = fout, fb.GetProviderName()
-				storeCache(fbKey, contentHash(payload), target, providerName, out)
-			}
-			engine = EngineTraditional
-		} else {
-			storeCache(key, contentHash(payload), target, providerName, out)
-		}
-	} else {
-		var err *Error
-		out, err = translateTraditional(GetService(), payload, s.Language, target)
-		providerName = GetService().GetProviderName()
-		if err != nil {
-			return nil, err
-		}
-		storeCache(key, contentHash(payload), target, providerName, out)
+	out, providerName, engine, terr := runEngines(ctx, account, payload, s.Language, target, llmAllowed)
+	if terr != nil {
+		return nil, terr
 	}
 	if s.Id != 0 {
 		rememberStatusHash(s.Id, contentHash(payload))

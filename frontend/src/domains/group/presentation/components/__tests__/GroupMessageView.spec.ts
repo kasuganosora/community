@@ -6,7 +6,7 @@ import { groupApi } from '../../../infrastructure/groupApi'
 import type { GroupMessage } from '../../../domain/group'
 import { useMediaMode } from '@/shared/composables/useMediaMode'
 vi.mock('../../../infrastructure/groupApi', () => ({ groupApi: { media: vi.fn() } }))
-vi.mock('@/shared/api/client', () => ({ default: { patch: vi.fn().mockResolvedValue({ data: {} }) } }))
+vi.mock('@/shared/api/client', () => ({ default: { patch: vi.fn().mockResolvedValue({ data: {} }), get: vi.fn().mockResolvedValue({ data: {} }) } }))
 const emojiURL = '/api/v1/chat/groups/g/messages/m/media/emoji'
 const message: GroupMessage = { id: 'm', sender: { id: 'u', display_name: 'User' }, body: 'hello :wave:', kind: 'text', created_at: 1, own: false, redacted: false, edited: false, reactions: [] }
 const setup = (overrides: Partial<GroupMessage> = {}) => mount(GroupMessageView, { props: { message: { ...message, ...overrides }, canSend: true, canRedact: false }, global: { stubs: { GroupAvatar: true } } })

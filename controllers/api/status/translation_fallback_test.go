@@ -119,3 +119,8 @@ func TestTranslate_LLMSuccessReportsEngine(t *testing.T) {
 	require.Equal(t, "llm", body["engine"])
 	require.Equal(t, "Example LLM", body["provider"])
 }
+
+func setupScriptedProvider(t *testing.T, f *scriptedLLM) {
+	t.Helper()
+	llmsvc.SetTestProviderFactory(func(llmsvc.ProviderConfig) (llm.Provider, error) { return f, nil })
+}

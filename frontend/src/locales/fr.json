@@ -1694,7 +1694,7 @@
       "translation": "Réglages de traduction",
       "translationEnabled": "Activer la traduction des messages",
       "translationEnabledHint": "Affiche un bouton Traduire sur les messages dans une autre langue que l’interface",
-      "mode": "Moteur de traduction",
+      "mode": "Moteur de traduction principal",
       "modeTraditional": "Service de traduction classique",
       "modeLlm": "LLM",
       "modeTraditionalHint": "Moteur actuel : {0} (configuré par les variables d’environnement du déploiement)",
@@ -1719,7 +1719,12 @@
       "outputTokens": "Jetons de sortie",
       "cost": "Coût",
       "allowPrivate": "Autoriser la traduction des messages réservés aux abonnés et directs",
-      "allowPrivateHint": "Désactivé par défaut : en mode LLM, seuls les messages publics et non listés sont traduits ; le contenu privé n’est jamais envoyé au service LLM externe."
+      "allowPrivateHint": "Désactivé par défaut : en mode LLM, seuls les messages publics et non listés sont traduits ; le contenu privé n’est jamais envoyé au service LLM externe.",
+      "fallbackEnabled": "Utiliser l’autre moteur en secours",
+      "fallbackHintLlm": "Si le LLM échoue, expire ou renvoie un résultat inutilisable, réessayer avec le service de traduction classique auto-hébergé (uniquement une URL compatible LibreTranslate configurée explicitement).",
+      "fallbackHintTraditional": "Si le service classique échoue, expire ou renvoie un texte vide/inchangé, réessayer avec le LLM. Les limites de confidentialité du LLM s’appliquent toujours.",
+      "groupMessages": "Autoriser la traduction des messages de groupe",
+      "groupMessagesHint": "Les messages de groupe ne sont pas des publications publiques. Par défaut : activé si le moteur principal est un service classique auto-hébergé, désactivé sinon. Les messages des groupes non publics ne sont envoyés au LLM que si le contenu privé est autorisé."
     }
   },
   "auth": {
@@ -2203,7 +2208,9 @@
       "s10": "Ajouter une réaction",
       "s11": "Répondre",
       "s12": "Modifier",
-      "s13": "Supprimer"
+      "s13": "Supprimer",
+      "translateRestricted": "Les messages de ce groupe ne peuvent pas être traduits sur ce serveur",
+      "sticker": "Autocollant"
     },
     "useGroupJoin": {
       "s1": "Adhésion au groupe…",

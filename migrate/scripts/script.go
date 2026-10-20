@@ -74,6 +74,7 @@ var ScripsType = []MigrationScript{
 	PersonalTokenScopeBitsScript{},
 	LLMTranslationScript{},
 	TranslationCacheRefsScript{},
+	GroupTranslationRefsScript{},
 }
 
 type MigrationScript interface {

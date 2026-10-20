@@ -1694,7 +1694,7 @@
       "translation": "Translation settings",
       "translationEnabled": "Enable post translation",
       "translationEnabledHint": "Shows a Translate button on posts whose language differs from the interface language",
-      "mode": "Translation backend",
+      "mode": "Primary translation engine",
       "modeTraditional": "Traditional translation service",
       "modeLlm": "LLM",
       "modeTraditionalHint": "Current backend: {0} (configured by deployment environment variables)",
@@ -1719,7 +1719,12 @@
       "outputTokens": "Output tokens",
       "cost": "Cost",
       "allowPrivate": "Allow translating followers-only and direct posts",
-      "allowPrivateHint": "Off by default: in LLM mode only public and unlisted posts are translated, so private content is never sent to the external LLM service."
+      "allowPrivateHint": "Off by default: in LLM mode only public and unlisted posts are translated, so private content is never sent to the external LLM service.",
+      "fallbackEnabled": "Use the other engine as fallback",
+      "fallbackHintLlm": "When the LLM fails, times out or returns unusable output, retry with the self-hosted traditional service (only an explicitly configured LibreTranslate-compatible URL is used).",
+      "fallbackHintTraditional": "When the traditional service fails, times out or returns empty/unchanged text, retry with the LLM. Privacy limits for the LLM still apply.",
+      "groupMessages": "Allow translating group chat messages",
+      "groupMessagesHint": "Group messages are not public posts. Default: on when the primary engine is a self-hosted traditional service, off otherwise. Messages of non-public groups are only sent to the LLM when private content is allowed."
     }
   },
   "auth": {
@@ -2203,7 +2208,9 @@
       "s10": "Add reaction",
       "s11": "Reply",
       "s12": "Edit",
-      "s13": "Delete"
+      "s13": "Delete",
+      "translateRestricted": "Messages of this group cannot be translated on this server",
+      "sticker": "Sticker"
     },
     "useGroupJoin": {
       "s1": "Joining group…",

@@ -18,7 +18,7 @@ import (
 // TableName method is added without being listed here.
 var appModels = []any{
 	&models.ProfileFieldVerification{},
-	&llmsvc.UsageDaily{}, &llmsvc.UserUsageDaily{}, &llmsvc.TranslationCache{}, &llmsvc.TranslationCacheRef{},
+	&llmsvc.UsageDaily{}, &llmsvc.UserUsageDaily{}, &llmsvc.TranslationCache{}, &llmsvc.TranslationCacheRef{}, &llmsvc.GroupTranslationCacheRef{},
 	&models.AccountDeletion{}, &models.PersonalAccessToken{}, &models.UserWebhook{}, &models.UserWebhookDelivery{}, &models.ListHashtag{},
 	&migrate.Migration{},
 	&activitypub.Delivery{},

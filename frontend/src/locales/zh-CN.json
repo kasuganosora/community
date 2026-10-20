@@ -1694,7 +1694,7 @@
       "translation": "翻译设置",
       "translationEnabled": "启用帖子翻译",
       "translationEnabledHint": "开启后，语言与界面语言不同的帖子会显示“翻译”按钮",
-      "mode": "翻译方式",
+      "mode": "主翻译引擎",
       "modeTraditional": "传统翻译服务",
       "modeLlm": "LLM",
       "modeTraditionalHint": "当前后端：{0}（由部署环境变量配置）",
@@ -1719,7 +1719,12 @@
       "outputTokens": "输出 Token",
       "cost": "费用",
       "allowPrivate": "允许翻译仅关注者和私信帖子",
-      "allowPrivateHint": "默认关闭：LLM 模式下只翻译公开和不公开列出的帖子，私密内容不会发送给外部 LLM 服务。"
+      "allowPrivateHint": "默认关闭：LLM 模式下只翻译公开和不公开列出的帖子，私密内容不会发送给外部 LLM 服务。",
+      "fallbackEnabled": "启用另一引擎作为回退",
+      "fallbackHintLlm": "LLM 失败、超时或输出不可用时，改用自托管的传统翻译服务（仅限显式配置的 LibreTranslate 兼容地址）。",
+      "fallbackHintTraditional": "传统翻译服务失败、超时或返回空/未改变的文本时，改用 LLM。LLM 的隐私限制仍然适用。",
+      "groupMessages": "允许翻译群组消息",
+      "groupMessagesHint": "群组消息不是公开帖子。默认：主引擎为自托管传统服务时开启，否则关闭。非公开群组的消息仅在允许私密内容时才会发送给 LLM。"
     }
   },
   "auth": {
@@ -2203,7 +2208,9 @@
       "s10": "添加表情回应",
       "s11": "回复",
       "s12": "编辑",
-      "s13": "删除"
+      "s13": "删除",
+      "translateRestricted": "本站不允许翻译此群组的消息",
+      "sticker": "贴纸"
     },
     "useGroupJoin": {
       "s1": "正在加入群组…",

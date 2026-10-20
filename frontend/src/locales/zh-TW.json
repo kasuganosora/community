@@ -1694,7 +1694,7 @@
       "translation": "翻譯設定",
       "translationEnabled": "啟用貼文翻譯",
       "translationEnabledHint": "開啟後，語言與介面語言不同的貼文會顯示「翻譯」按鈕",
-      "mode": "翻譯方式",
+      "mode": "主要翻譯引擎",
       "modeTraditional": "傳統翻譯服務",
       "modeLlm": "LLM",
       "modeTraditionalHint": "目前後端：{0}（由部署環境變數設定）",
@@ -1719,7 +1719,12 @@
       "outputTokens": "輸出 Token",
       "cost": "費用",
       "allowPrivate": "允許翻譯僅追蹤者及私訊貼文",
-      "allowPrivateHint": "預設關閉：LLM 模式下只翻譯公開及不公開列出的貼文，私密內容不會傳送給外部 LLM 服務。"
+      "allowPrivateHint": "預設關閉：LLM 模式下只翻譯公開及不公開列出的貼文，私密內容不會傳送給外部 LLM 服務。",
+      "fallbackEnabled": "啟用另一引擎作為備援",
+      "fallbackHintLlm": "LLM 失敗、逾時或輸出不可用時，改用自架的傳統翻譯服務（僅限明確設定的 LibreTranslate 相容網址）。",
+      "fallbackHintTraditional": "傳統翻譯服務失敗、逾時或傳回空白／未改變的文字時，改用 LLM。LLM 的隱私限制仍然適用。",
+      "groupMessages": "允許翻譯群組訊息",
+      "groupMessagesHint": "群組訊息不是公開貼文。預設：主引擎為自架傳統服務時開啟，否則關閉。非公開群組的訊息僅在允許私密內容時才會傳送給 LLM。"
     }
   },
   "auth": {
@@ -2203,7 +2208,9 @@
       "s10": "新增表情回應",
       "s11": "回覆",
       "s12": "編輯",
-      "s13": "刪除"
+      "s13": "刪除",
+      "translateRestricted": "本站不允許翻譯此群組的訊息",
+      "sticker": "貼圖"
     },
     "useGroupJoin": {
       "s1": "正在加入群組…",

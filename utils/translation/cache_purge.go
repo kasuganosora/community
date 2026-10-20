@@ -71,6 +71,7 @@ func PruneExpiredCache() {
 		log.Warn("translation cache: expiry cleanup failed")
 	}
 	conn.Where("created_at < ?", cutoff).Delete(&llmsvc.TranslationCacheRef{})
+	conn.Where("created_at < ?", cutoff).Delete(&llmsvc.GroupTranslationCacheRef{})
 }
 
 // StartCacheJanitor prunes expired translation cache rows every hour.

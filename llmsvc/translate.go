@@ -251,3 +251,14 @@ func normalizeLang(s string) string {
 func primaryLang(code string) string {
 	return strings.ToLower(strings.SplitN(strings.ReplaceAll(strings.TrimSpace(code), "_", "-"), "-", 2)[0])
 }
+
+// GroupTranslationCacheRef links a group chat (Matrix) event to the content
+// hash it was translated with, so edits and redactions purge cached entries.
+type GroupTranslationCacheRef struct {
+	ID          uint64    `gorm:"primaryKey;autoIncrement"`
+	EventID     string    `gorm:"size:255;not null;uniqueIndex:idx_group_translation_refs_event_hash,priority:1"`
+	ContentHash string    `gorm:"size:64;not null;uniqueIndex:idx_group_translation_refs_event_hash,priority:2;index:idx_group_translation_refs_hash"`
+	CreatedAt   time.Time `gorm:"index"`
+}
+
+func (GroupTranslationCacheRef) TableName() string { return "translation_cache_group_refs" }

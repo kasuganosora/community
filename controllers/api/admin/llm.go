@@ -21,6 +21,13 @@ type llmTranslationSettings struct {
 	UserPerMinute       int    `json:"user_per_minute"`
 	AllowPrivate        bool   `json:"allow_private"`
 	TraditionalProvider string `json:"traditional_provider,omitempty"`
+	// FallbackEnabled lets the other engine (not Mode, the primary) serve
+	// failures. GroupMessages allows translating group chat messages.
+	FallbackEnabled *bool `json:"fallback_enabled,omitempty"`
+	GroupMessages   *bool `json:"group_messages,omitempty"`
+	// Read-only hints for the admin UI.
+	GroupMessagesDefault bool `json:"group_messages_default"`
+	TraditionalExplicit  bool `json:"traditional_explicit"`
 }
 
 type llmSettingsResponse struct {
@@ -46,6 +53,10 @@ func llmSettingsPayload() llmSettingsResponse {
 		AllowPrivate:        systemsettings.GetBool(translation.KeyAllowPrivate, false),
 		TraditionalProvider: translation.GetService().GetProviderName(),
 	}
+	fallback, group := translation.FallbackEnabled(), translation.GroupMessagesSetting()
+	out.Translation.FallbackEnabled, out.Translation.GroupMessages = &fallback, &group
+	out.Translation.GroupMessagesDefault = translation.GroupMessagesDefault()
+	_, out.Translation.TraditionalExplicit = translation.FallbackService()
 	return out
 }
 
@@ -161,6 +172,12 @@ func UpdateLLMSettings(c *gin.Context) {
 			translation.KeyDailyLimit:             tr.DailyLimit,
 			translation.KeyUserPerMinute:          tr.UserPerMinute,
 			translation.KeyAllowPrivate:           tr.AllowPrivate,
+		}
+		if tr.FallbackEnabled != nil {
+			extra[translation.KeyFallback] = *tr.FallbackEnabled
+		}
+		if tr.GroupMessages != nil {
+			extra[translation.KeyGroupMessages] = *tr.GroupMessages
 		}
 		for k, v := range extra {
 			changedKeys[k] = v

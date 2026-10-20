@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kasuganosora/community/utils/translation"
 	"slices"
 	"strconv"
 	"strings"
@@ -1048,6 +1049,8 @@ func applyStoredRedaction(roomID, targetID string) {
 }
 
 func applyStoredRedactionTx(tx *gorm.DB, roomID, targetID string) error {
+	// Redacted text must not linger in the translation cache.
+	translation.PurgeGroupEventAsync(targetID)
 	var target MatrixEvent
 	if err := tx.Where("event_id = ? AND room_id = ?", targetID, roomID).First(&target).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {

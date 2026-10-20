@@ -2,6 +2,8 @@ import { t } from '@/shared/i18n'
 export interface GroupCapabilities {
   send_message: boolean; invite: boolean; kick: boolean; ban: boolean; redact: boolean
   set_name: boolean; set_topic?: boolean; set_avatar: boolean; manage_permissions: boolean; manage_address?: boolean
+  /** Members may translate messages under the instance's translation policy. */
+  translate?: boolean
 }
 export interface GroupPerson { id: string; display_name: string; avatar_url?: string }
 export interface Group {
@@ -19,10 +21,11 @@ export interface GroupEmoji { shortcode: string; url: string; static_url: string
 export interface GroupReaction { key: string; count: number; own: boolean; url?: string; label?: string; shortcode?: string }
 export interface GroupMessage {
   id: string; sender: GroupPerson; body: string; formatted_body?: string
-  kind: 'text' | 'image' | 'file' | 'notice' | 'unsupported'; created_at: number
+  kind: 'text' | 'image' | 'file' | 'notice' | 'sticker' | 'unsupported'; created_at: number; language?: string
   own: boolean; redacted: boolean; edited: boolean; reply_unavailable?: boolean; reply_to?: string
   custom_emojis?: GroupEmoji[]; attachments?: GroupAttachment[]; reactions: GroupReaction[]; transaction_id?: string
 }
+export interface GroupMessageTranslation { content: string; detected_source_language: string; language: string; provider: string; engine: string }
 export interface GroupPage { groups: Group[]; next_cursor: string | null }
 export interface GroupSearchPage extends GroupPage { source: string }
 export interface GroupMessagePage { messages: GroupMessage[]; next_cursor: string | null }

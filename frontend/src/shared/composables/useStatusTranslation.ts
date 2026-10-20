@@ -21,7 +21,8 @@ let pending: Promise<void> | null = null
 /** Whether the instance offers translation (configuration.translation.enabled), loaded once per page. */
 export function useTranslationEnabled() {
   if (!pending) {
-    pending = client.get<{ configuration?: { translation?: { enabled?: boolean; public_only?: boolean } } }>('/api/v2/instance')
+    pending = Promise.resolve()
+      .then(() => client.get<{ configuration?: { translation?: { enabled?: boolean; public_only?: boolean } } }>('/api/v2/instance'))
       .then(({ data }) => {
         enabled.value = data?.configuration?.translation?.enabled === true
         publicOnly.value = data?.configuration?.translation?.public_only === true

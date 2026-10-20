@@ -30,6 +30,12 @@ export interface LlmTranslationSettings {
   user_per_minute: number
   allow_private: boolean
   traditional_provider?: string
+  /** The engine that is not `mode` retries failures. */
+  fallback_enabled?: boolean
+  /** Group chat messages may be translated. */
+  group_messages?: boolean
+  group_messages_default?: boolean
+  traditional_explicit?: boolean
 }
 
 export interface LlmSettings {

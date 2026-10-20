@@ -44,7 +44,7 @@ func (UserUsageDaily) TableName() string { return "llm_user_usage_daily" }
 
 // Models lists the tables owned by this package (for migrations).
 func Models() []any {
-	return []any{&UsageDaily{}, &UserUsageDaily{}, &TranslationCache{}, &TranslationCacheRef{}}
+	return []any{&UsageDaily{}, &UserUsageDaily{}, &TranslationCache{}, &TranslationCacheRef{}, &GroupTranslationCacheRef{}}
 }
 
 // Today returns the current UTC day key.

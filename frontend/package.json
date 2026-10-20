@@ -15,6 +15,7 @@
   "dependencies": {
     "axios": "^1.20.0",
     "dompurify": "^3.4.17",
+    "lottie-web": "^5.13.0",
     "pinia": "^4.1.0",
     "punycode": "^2.3.1",
     "qrcode-generator": "^2.0.4",
