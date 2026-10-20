@@ -236,6 +236,11 @@ func Render(src []byte, size int) ([]byte, string, error) {
 	if ct == "image/avif" {
 		return src, ".avif", nil
 	}
+	if ct == "image/webp" && isAnimatedWebP(src) {
+		// Go's webp decoder reads an animated file's canvas size but cannot
+		// decode its frames; keep it as-is like an animated GIF.
+		return src, ".webp", nil
+	}
 	cfg, format, err := image.DecodeConfig(bytes.NewReader(src))
 	if err != nil {
 		if ct == "image/webp" { // animated / extended WebP
@@ -258,6 +263,11 @@ func Render(src []byte, size int) ([]byte, string, error) {
 	}
 	img, _, err := image.Decode(bytes.NewReader(src))
 	if err != nil {
+		if ct == "image/webp" {
+			// Extended WebP variants the decoder does not handle are still
+			// valid images for browsers: serve the original bytes.
+			return src, ".webp", nil
+		}
 		return nil, "", ErrInvalidType
 	}
 	out := scale(img, size)
@@ -273,6 +283,30 @@ func Render(src []byte, size int) ([]byte, string, error) {
 		return nil, "", err
 	}
 	return buf.Bytes(), ".jpg", nil
+}
+
+// isAnimatedWebP reports whether src is an extended (VP8X) WebP with the
+// animation flag set or an ANIM chunk.
+func isAnimatedWebP(src []byte) bool {
+	if len(src) < 21 || string(src[0:4]) != "RIFF" || string(src[8:12]) != "WEBP" || string(src[12:16]) != "VP8X" {
+		return false
+	}
+	if src[20]&0x02 != 0 {
+		return true
+	}
+	// Walk the chunks for ANIM/ANMF in case the flag is missing.
+	for off := 12; off+8 <= len(src); {
+		id := string(src[off : off+4])
+		n := int(src[off+4]) | int(src[off+5])<<8 | int(src[off+6])<<16 | int(src[off+7])<<24
+		if id == "ANIM" || id == "ANMF" {
+			return true
+		}
+		if n < 0 || n > len(src) {
+			return false
+		}
+		off += 8 + n + n&1
+	}
+	return false
 }
 
 func sniff(b []byte) string {

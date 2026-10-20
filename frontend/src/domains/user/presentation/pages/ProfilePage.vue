@@ -260,7 +260,7 @@ watch(activeTab, () => {
       <RichText v-if="account.note" class="profile-bio" :html="account.note" :emojis="account.emojis" />
 
       <div v-if="account.location || account.birthday || account.bot" class="profile-metadata">
-        <span v-if="account.location" :aria-label="$t('settings.ProfileExtras.location')"><t-icon name="location" size="17" aria-hidden="true" /><span dir="auto">{{ account.location }}</span></span>
+        <span v-if="account.location" :aria-label="$t('settings.ProfileExtras.location')"><t-icon name="location" size="17" aria-hidden="true" /><EmojiText dir="auto" :text="account.location" :emojis="account.emojis" /></span>
         <span v-if="account.birthday" :aria-label="$t('settings.ProfileExtras.birthday')"><t-icon name="cake" size="17" aria-hidden="true" />{{ account.birthday }}</span>
         <span v-if="account.bot"><t-icon name="robot" size="17" aria-hidden="true" />{{ $t('settings.ProfileExtras.isBot') }}</span>
       </div>
@@ -536,6 +536,12 @@ watch(activeTab, () => {
   min-width: 0;
   color: var(--color-label);
 }
+
+@media (max-width: 480px) {
+  .profile-field { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+
+.profile-field dd :deep(a) { overflow-wrap: anywhere; }
 
 .profile-field--verified dd {
   color: var(--color-success, var(--color-label));

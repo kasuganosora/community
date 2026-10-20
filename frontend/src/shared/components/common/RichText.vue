@@ -60,7 +60,7 @@ function onClick(e: MouseEvent) {
 </template>
 
 <style scoped>
-.rich-text :deep(.custom-emoji) { display: inline-block; width: 1.3em; height: 1.3em; max-width: none; object-fit: contain; vertical-align: -0.25em; }
+.rich-text :deep(.custom-emoji) { display: inline-block; height: 1.3em; width: auto; min-width: 1em; max-width: min(100%, 8em); object-fit: contain; vertical-align: -0.3em; }
 .emoji-reveal { color: var(--color-accent-text); font-size: var(--text-footnote); }
 .rich-text {
   /* Long unbroken words and URLs wrap instead of widening the column. */

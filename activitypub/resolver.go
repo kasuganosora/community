@@ -399,6 +399,9 @@ func createRemoteAccount(conn *gorm.DB, actor *Actor) (models.Account, error) {
 		account.IsCat = *actor.IsCat
 	}
 
+	account.Location = remoteLocation(actor)
+	account.Birthday = remoteBirthday(actor)
+
 	// Set avatar
 	if actor.Icon != nil && actor.Icon.URL != "" {
 		account.Avatar = actor.Icon.URL

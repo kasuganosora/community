@@ -61,7 +61,7 @@ func TestUpstreamStatusSemantics(t *testing.T) {
 		410: {status: 404, ttl: permanentFailureTTL}, // 410 stays reserved for our expired links
 		403: {status: 404, ttl: permanentFailureTTL}, // S3-style stores answer 403 for missing keys
 		401: {status: 404, ttl: permanentFailureTTL},
-		429: {status: 503, ttl: transientFailureTTL},
+		429: {status: 503}, // throttling is per host (cooldown), never memoised per URL
 		500: {status: 502, ttl: transientFailureTTL},
 		503: {status: 502, ttl: transientFailureTTL},
 		400: {status: 502, ttl: permanentFailureTTL},

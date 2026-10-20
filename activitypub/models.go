@@ -35,6 +35,9 @@ type Actor struct {
 	Aliases                   []string     `json:"-"`
 	AlsoKnownAs               string       `json:"alsoKnownAs,omitempty"`
 	MovedTo                   string       `json:"movedTo,omitempty"`
+	// Misskey profile extras (vCard terms).
+	VcardBday    string `json:"vcard:bday,omitempty"`
+	VcardAddress string `json:"vcard:Address,omitempty"`
 }
 
 // Endpoints contains additional ActivityPub endpoints.

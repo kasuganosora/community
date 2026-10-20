@@ -38,7 +38,7 @@ func isReactionLike(activity map[string]any) bool {
 
 // customReaction matches Misskey reactions: :name:, :name@.: (sender-local) or
 // :name@host: (an emoji the sender's server cached from another host).
-var customReaction = regexp.MustCompile(`^:([a-zA-Z0-9_]{1,36})(?:@([a-zA-Z0-9.\-]{1,253}(?::[0-9]{1,5})?))?:$`)
+var customReaction = regexp.MustCompile(`^:([a-zA-Z0-9_]{1,128})(?:@([a-zA-Z0-9.\-]{1,253}(?::[0-9]{1,5})?))?:$`)
 
 // foreignReactionEmoji resolves an emoji reaction whose emoji belongs to a host
 // other than the actor's. An existing row for that host is never overwritten;

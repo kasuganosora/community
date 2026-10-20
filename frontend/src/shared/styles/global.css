@@ -188,6 +188,18 @@ img {
 /* Custom emoji are inline glyphs, not block images. */
 img.custom-emoji {
   display: inline-block;
+  height: 1.3em;
+  width: auto;
+  min-width: 1em;
+  max-width: min(100%, 8em);
+  object-fit: contain;
+  vertical-align: -0.3em;
+}
+
+.custom-emoji-fallback {
+  font-size: 0.85em;
+  opacity: 0.75;
+  overflow-wrap: anywhere;
 }
 
 input,

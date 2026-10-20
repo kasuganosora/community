@@ -42,6 +42,7 @@ func setup(t *testing.T, upstream http.Handler) (*httptest.Server, *gin.Engine) 
 	ipStates = map[string]*ipState{}
 	ipMu.Unlock()
 	limiters.Range(func(k, _ any) bool { limiters.Delete(k); return true })
+	cooldowns.Range(func(k, _ any) bool { cooldowns.Delete(k); return true })
 	t.Cleanup(func() { config.C = old; NewClient, Validate = oldClient, oldValidate })
 	srv := httptest.NewServer(upstream)
 	t.Cleanup(srv.Close)

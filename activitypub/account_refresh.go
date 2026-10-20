@@ -118,6 +118,8 @@ func applyActorProfile(tx *gorm.DB, account *models.Account, actor *Actor) error
 	if _, ok := stamps["remote_discovery_checked_at"]; ok && stampStale(account.RemoteDiscoveryCheckedAt, now) {
 		updates["remote_discovery_checked_at"] = stamps["remote_discovery_checked_at"]
 	}
+	updates["location"] = remoteLocation(actor)
+	updates["birthday"] = remoteBirthday(actor)
 	if actor.Icon != nil && actor.Icon.URL != "" {
 		updates["avatar"] = actor.Icon.URL
 		updates["avatar_static"] = actor.Icon.URL

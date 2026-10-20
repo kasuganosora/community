@@ -58,7 +58,10 @@ type failure struct {
 }
 
 // upstreamStatusError carries an origin status out of fetchImage.
-type upstreamStatusError struct{ code int }
+type upstreamStatusError struct {
+	code       int
+	retryAfter string // origin Retry-After, for 429/503
+}
 
 func (e upstreamStatusError) Error() string { return fmt.Sprintf("upstream status %d", e.code) }
 
@@ -71,7 +74,10 @@ func upstreamFailure(code int) failure {
 	case code == http.StatusNotFound || code == http.StatusGone || code == http.StatusUnauthorized || code == http.StatusForbidden:
 		return failure{status: http.StatusNotFound, class: classUpstream, upstream: code, ttl: permanentFailureTTL}
 	case code == http.StatusTooManyRequests:
-		return failure{status: http.StatusServiceUnavailable, class: classUpstream, upstream: code, ttl: transientFailureTTL}
+		// The origin throttles us, the object itself is fine: never memoise
+		// it per URL (that would keep every emoji of a busy profile broken);
+		// the host cooldown honours the origin's Retry-After instead.
+		return failure{status: http.StatusServiceUnavailable, class: classUpstream, upstream: code}
 	case code >= 500:
 		return failure{status: http.StatusBadGateway, class: classUpstream, upstream: code, ttl: transientFailureTTL}
 	default:

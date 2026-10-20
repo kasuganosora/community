@@ -45,6 +45,8 @@ const (
 	maxIPKeys      = 20000
 	sandboxPolicy  = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 	maxFailureKeys = 5000
+	hostConcurrent = 4                // simultaneous origin fetches per host
+	maxCooldown    = 60 * time.Second // cap on an origin's Retry-After
 )
 
 // Overridable in tests.
@@ -74,6 +76,55 @@ var (
 	limiters sync.Map // host -> *rate.Limiter
 	flights  sync.Map // cache key -> *sync.Mutex
 )
+
+var (
+	hostSlots sync.Map // host -> chan struct{}
+	cooldowns sync.Map // host -> time.Time until which the origin asked us to wait
+)
+
+// hostAcquire bounds simultaneous fetches from one origin, so a profile with
+// dozens of emoji does not burst a remote server into rate limiting us.
+func hostAcquire(ctx context.Context, host string) (func(), bool) {
+	v, _ := hostSlots.LoadOrStore(host, make(chan struct{}, hostConcurrent))
+	ch := v.(chan struct{})
+	t := time.NewTimer(acquireWait)
+	defer t.Stop()
+	select {
+	case ch <- struct{}{}:
+		return func() { <-ch }, true
+	case <-t.C:
+		return nil, false
+	case <-ctx.Done():
+		return nil, false
+	}
+}
+
+// hostCooling returns the seconds left of an origin's Retry-After, if any.
+func hostCooling(host string) (string, bool) {
+	v, ok := cooldowns.Load(host)
+	if !ok {
+		return "", false
+	}
+	left := v.(time.Time).Sub(now())
+	if left <= 0 {
+		cooldowns.Delete(host)
+		return "", false
+	}
+	return strconv.Itoa(int((left + time.Second - 1) / time.Second)), true
+}
+
+// coolHost records an origin's 429 Retry-After (default 5s, capped).
+func coolHost(host, retryAfterHeader string) string {
+	secs := 5
+	if n, err := strconv.Atoi(strings.TrimSpace(retryAfterHeader)); err == nil && n > 0 {
+		secs = n
+	} else if t, err := http.ParseTime(retryAfterHeader); err == nil {
+		secs = max(int(t.Sub(now())/time.Second), 1)
+	}
+	d := min(time.Duration(secs)*time.Second, maxCooldown)
+	cooldowns.Store(host, now().Add(d))
+	return strconv.Itoa(int(d / time.Second))
+}
 
 func hostAllowed(host string) bool {
 	l, _ := limiters.LoadOrStore(host, rate.NewLimiter(hostRate, hostBurst))
@@ -227,6 +278,11 @@ func Serve(c *gin.Context) {
 	if kind == mediaproxy.KindAvatar && serveCachedAvatar(c, key, rawURL, host, claims, started) {
 		return
 	}
+	if wait, cooling := hostCooling(host); cooling {
+		c.Header("Retry-After", wait)
+		answerFailure(c, host, kind, started, failure{status: http.StatusServiceUnavailable, class: classRateLimited}, nil)
+		return
+	}
 	if !hostAllowed(host) {
 		answerFailure(c, host, kind, started, failure{status: http.StatusTooManyRequests, class: classRateLimited}, nil)
 		return
@@ -245,6 +301,13 @@ func Serve(c *gin.Context) {
 		return
 	}
 	defer releaseIP()
+	releaseHost, ok := hostAcquire(c.Request.Context(), host)
+	if !ok {
+		c.Header("Retry-After", "2")
+		answerFailure(c, host, kind, started, failure{status: http.StatusServiceUnavailable, class: classBusy}, nil)
+		return
+	}
+	defer releaseHost()
 
 	relay(c, key, rawURL, host, kind, claims, started)
 }
@@ -411,7 +474,9 @@ func relay(c *gin.Context, key, rawURL, host, kind string, claims mediaproxy.Cla
 		return
 	case resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent:
 		f := upstreamFailure(resp.StatusCode)
-		if f.status == http.StatusServiceUnavailable {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			c.Header("Retry-After", coolHost(host, resp.Header.Get("Retry-After")))
+		} else if f.status == http.StatusServiceUnavailable {
 			c.Header("Retry-After", retryAfter(resp.Header.Get("Retry-After")))
 		}
 		fail(f)
@@ -540,7 +605,7 @@ func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediapro
 	}
 	size := avatarcache.NormalizeSize(c.Query("size"))
 	entry, err := cache.Get(c.Request.Context(), "remote|"+rawURL, size, avatarcache.RemoteTTL(), func(ctx context.Context) ([]byte, error) {
-		if !hostAllowed(host) {
+		if _, cooling := hostCooling(host); cooling || !hostAllowed(host) {
 			return nil, errBusy
 		}
 		release, ok := acquire(ctx)
@@ -548,19 +613,35 @@ func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediapro
 			return nil, errBusy
 		}
 		defer release()
-		return fetchImage(ctx, rawURL)
+		releaseHost, ok := hostAcquire(ctx, host)
+		if !ok {
+			return nil, errBusy
+		}
+		defer releaseHost()
+		data, err := fetchImage(ctx, rawURL)
+		var up upstreamStatusError
+		if errors.As(err, &up) && up.code == http.StatusTooManyRequests {
+			coolHost(host, up.retryAfter)
+		}
+		return data, err
 	})
 	if err != nil {
 		var f failure
 		switch {
 		case errors.Is(err, errBusy):
-			c.Header("Retry-After", "2")
+			wait := "2"
+			if w, cooling := hostCooling(host); cooling {
+				wait = w
+			}
+			c.Header("Retry-After", wait)
 			answerFailure(c, host, mediaproxy.KindAvatar, started, failure{status: http.StatusServiceUnavailable, class: classBusy}, nil)
 			return true
 		case errors.Is(err, avatarcache.ErrTooLarge):
 			f = failure{status: http.StatusRequestEntityTooLarge, class: classSizeLimit, ttl: permanentFailureTTL}
 		case errors.Is(err, avatarcache.ErrInvalidType):
-			f = failure{status: http.StatusUnsupportedMediaType, class: classContentType, ttl: permanentFailureTTL}
+			// A decode failure may be our decoder's limit, not a bad file:
+			// remember it only briefly so a fixed build serves it at once.
+			f = failure{status: http.StatusUnsupportedMediaType, class: classContentType, ttl: transientFailureTTL}
 		default:
 			// The fetch is detached from this request, so a cancellation
 			// here is the fetch deadline, not the visitor leaving.
@@ -598,7 +679,7 @@ func fetchImage(ctx context.Context, rawURL string) ([]byte, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, upstreamStatusError{code: resp.StatusCode}
+		return nil, upstreamStatusError{code: resp.StatusCode, retryAfter: resp.Header.Get("Retry-After")}
 	}
 	limit := min(mediaproxy.MaxBytes(), int64(avatarcache.MaxSourceBytes))
 	if resp.ContentLength > limit {

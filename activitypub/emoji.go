@@ -17,7 +17,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-var emojiName = regexp.MustCompile(`^:([a-zA-Z0-9_]{1,36}):$`)
+var emojiName = regexp.MustCompile(`^:([a-zA-Z0-9_]{1,128}):$`)
 
 // Import metadata only: media fetching, if requested later, still uses the
 // existing SSRF-protected federation transport. Never fetch arbitrary tag IDs.

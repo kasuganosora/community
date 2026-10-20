@@ -65,7 +65,7 @@ func EmojisInText(emojis []*Emoji, text, domain string, outbound bool) []*Emoji 
 }
 
 func AccountEmojiText(account *Account) string {
-	text := account.DisplayName + " " + account.Note
+	text := account.DisplayName + " " + account.Note + " " + account.Location
 	if account.Extra != nil {
 		for _, f := range account.Extra.Fields {
 			text += " " + f.Name + " " + f.Val

@@ -559,6 +559,12 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		if profile.IsCat != nil {
 			updates["is_cat"] = *profile.IsCat
 		}
+		if _, ok := object["vcard:Address"]; ok {
+			updates["location"] = remoteLocation(&profile)
+		}
+		if _, ok := object["vcard:bday"]; ok {
+			updates["birthday"] = remoteBirthday(&profile)
+		}
 		if hasName && (validName || nameValue == nil) {
 			updates["display_name"] = name
 		}

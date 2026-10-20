@@ -1,3 +1,4 @@
+import { installEmojiFallback } from '@/shared/utils/emojiFallback'
 import { createApp } from 'vue'
 // Must stay first: resolves the UI language before other modules evaluate.
 import { i18n, t } from '@/shared/i18n'
@@ -51,6 +52,7 @@ setAuthExpiredCallback(() => {
   })
 })
 
+installEmojiFallback()
 app.mount('#app')
 
 // Service worker + automatic alignment with the server's frontend build.

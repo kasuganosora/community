@@ -50,6 +50,31 @@ func remoteProfileFields(actor *Actor) []models.AccountField {
 	return fields
 }
 
+// remoteLocation is the actor's Misskey location (vcard:Address) as plain
+// text bounded to the column width.
+func remoteLocation(actor *Actor) string {
+	if actor == nil {
+		return ""
+	}
+	return truncateRunes(strings.TrimSpace(htmlsafe.StripTags(actor.VcardAddress)), 128)
+}
+
+// remoteBirthday is the actor's Misskey birthday (vcard:bday) when it is a
+// valid YYYY-MM-DD date, else "".
+func remoteBirthday(actor *Actor) string {
+	if actor == nil {
+		return ""
+	}
+	b := strings.TrimSpace(actor.VcardBday)
+	if len(b) != 10 {
+		return ""
+	}
+	if _, err := time.Parse("2006-01-02", b); err != nil {
+		return ""
+	}
+	return b
+}
+
 func truncateRunes(s string, n int) string {
 	if utf8.RuneCountInString(s) <= n {
 		return s
