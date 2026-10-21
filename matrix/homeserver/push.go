@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/kasuganosora/community/activitypub"
 	"io"
 	"net/http"
 	"strconv"
@@ -149,8 +150,16 @@ type PushService struct {
 // NewPushService 创建推送服务.
 func NewPushService(hs *HomeServer) *PushService {
 	return &PushService{
-		hs:     hs,
-		client: &http.Client{Timeout: 10 * time.Second},
+		hs: hs,
+		// SSRF-safe transport: every resolved address is checked at dial
+		// time. Redirects are not followed.
+		client: &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: activitypub.NewSafeRoundTripper(nil, 10*time.Second),
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 	}
 }
 

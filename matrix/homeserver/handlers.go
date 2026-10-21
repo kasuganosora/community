@@ -2868,6 +2868,22 @@ func handleSetPusher(c *gin.Context) {
 		return
 	}
 
+	// Reject push gateway URLs that are not https or point at internal
+	// addresses (SSRF). Deletions (kind null) carry no URL to check.
+	if pusher.Kind != "" {
+		raw, _ := pusher.Data["url"].(string)
+		if raw != "" || pusher.Kind == "http" {
+			if err := validatePusherURL(raw); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"errcode": "M_INVALID_PARAM",
+					"error":   "invalid pusher url: " + err.Error(),
+				})
+
+				return
+			}
+		}
+	}
+
 	// Associate the pusher with the current device
 	pusher.DeviceID = c.GetString("device_id")
 

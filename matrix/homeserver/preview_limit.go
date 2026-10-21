@@ -1,6 +1,9 @@
 package homeserver
 
 import (
+	"errors"
+	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -21,4 +24,18 @@ func previewURLRateLimit() gin.HandlerFunc {
 	})
 
 	return previewURLLimit
+}
+
+// validatePusherURL requires an https push gateway URL whose host resolves
+// only to public addresses.
+func validatePusherURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(u.Scheme, "https") {
+		return errors.New("url must use https")
+	}
+
+	return validateURLForFetch(raw)
 }

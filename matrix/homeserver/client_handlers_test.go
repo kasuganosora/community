@@ -466,12 +466,19 @@ func TestHandleSetPusher_FullHS(t *testing.T) {
 		handleSetPusher(c)
 	})
 
-	body := `{"pushkey":"https://example.com/push","kind":"http","app_id":"myapp","app_display_name":"App","device_display_name":"Dev","lang":"en"}`
+	body := `{"pushkey":"https://example.com/push","kind":"http","app_id":"myapp","app_display_name":"App","device_display_name":"Dev","lang":"en","data":{"url":"https://8.8.8.8/_matrix/push/v1/notify"}}`
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/pushers/set", strings.NewReader(body))
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+
+	for _, bad := range []string{"", "http://8.8.8.8/notify", "https://127.0.0.1/notify", "https://169.254.169.254/x", "https://100.64.0.1/x", "https://198.18.0.1/x"} {
+		body := `{"pushkey":"k","kind":"http","app_id":"myapp","data":{"url":"` + bad + `"}}`
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/pushers/set", strings.NewReader(body)))
+		assert.Equal(t, http.StatusBadRequest, w.Code, bad)
+	}
 }
 
 func TestHandleSetPusher_BadJSON(t *testing.T) {
