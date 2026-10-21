@@ -317,6 +317,7 @@ func APIRateLimitMiddleware(redisClient *redis.Client, pathPrefix string, rpm in
 		key := fmt.Sprintf("api:%s:%s", pathPrefix, getRateLimitKey(c))
 
 		if !limiter.Allow(key) {
+			c.Header("Retry-After", "60")
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error":       "API rate limit exceeded for " + pathPrefix,
 				"retry_after": 60,

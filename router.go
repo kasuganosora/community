@@ -170,7 +170,7 @@ func SetRouter(app gin.IRouter) {
 	// ===== 账户注册与登录（自定义扩展，公开接口）=====
 	v1ApiGroup.POST("/accounts/register", account.Register)
 	v1ApiGroup.GET("/accounts/verify_email", account.VerifyEmail)
-	v1ApiGroup.POST("/accounts/login", account.Login)
+	v1ApiGroup.POST("/accounts/login", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/accounts/login", 30), account.Login)
 	v1ApiGroup.POST("/accounts/login/two_factor", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/accounts/login/two_factor", 30), account.LoginTwoFactor)
 	v1ApiGroup.POST("/accounts/reset_password", account.RecoverPasswordVerifyEmail)
 	v1ApiGroup.POST("/accounts/reset_password/verify_token", account.RecoverPassword)
@@ -215,8 +215,9 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroupV1.GET("/instance/activity", instance.Activity)
 
 	// 状态翻译（公开/可选认证）
-	maybeAuthGroupV1.POST("/statuses/:id/translate", status.Translate)
-	maybeAuthGroupV1.POST("/statuses/:id/translate/:lang", status.Translate)
+	translateLimit := middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/statuses/:id/translate", 20)
+	maybeAuthGroupV1.POST("/statuses/:id/translate", translateLimit, status.Translate)
+	maybeAuthGroupV1.POST("/statuses/:id/translate/:lang", translateLimit, status.Translate)
 	maybeAuthGroupV1.GET("/instance/translation_languages", status.TranslationLanguages)
 
 	// 邀请码查询（公开）
@@ -598,7 +599,7 @@ func SetRouter(app gin.IRouter) {
 	// ===== 向后兼容：v2 接口（deprecated）=====
 	v2ApiGroup.POST("/accounts/register", account.Register)
 	v2ApiGroup.GET("/accounts/verify_email", account.VerifyEmail)
-	v2ApiGroup.POST("/accounts/login", account.Login)
+	v2ApiGroup.POST("/accounts/login", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v2/accounts/login", 30), account.Login)
 	v2ApiGroup.POST("/accounts/login/two_factor", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v2/accounts/login/two_factor", 30), account.LoginTwoFactor)
 	v2ApiGroup.POST("/accounts/reset_password", account.RecoverPasswordVerifyEmail)
 	v2ApiGroup.POST("/accounts/reset_password/verify_token", account.RecoverPassword)

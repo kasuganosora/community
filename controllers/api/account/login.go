@@ -49,6 +49,14 @@ func Login(c *gin.Context) {
 		identifier = req.Email
 	}
 
+	clientIP := c.ClientIP()
+	if blocked, retry := middleware.LoginBlocked(identifier, clientIP); blocked {
+		c.Header("Retry-After", strconv.Itoa(retry))
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many failed login attempts", "retry_after": retry})
+
+		return
+	}
+
 	user, err := models.FindUserForLogin(db.GetDB(), identifier)
 	if err != nil && req.Email != "" && req.Email != identifier {
 		user, err = models.FindUserForLogin(db.GetDB(), req.Email)
@@ -56,6 +64,7 @@ func Login(c *gin.Context) {
 
 	if err != nil {
 		// 不泄露用户是否存在：无论用户不存在还是密码错误，都返回相同的错误信息和状态码
+		middleware.RecordLoginFailure(identifier, clientIP)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid username or password"})
 
 		return
@@ -66,12 +75,14 @@ func Login(c *gin.Context) {
 	err = db.GetDB().Where("user_id = ?", user.Id).First(usersd).Error
 	if err != nil {
 		// 不泄露用户敏感数据是否存在，返回与认证失败相同的错误
+		middleware.RecordLoginFailure(identifier, clientIP)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid username or password"})
 
 		return
 	}
 
 	if usersd.CheckPassword(req.Password) != nil {
+		middleware.RecordLoginFailure(identifier, clientIP)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid username or password"})
 
 		return
