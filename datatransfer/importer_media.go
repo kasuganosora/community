@@ -161,6 +161,11 @@ func sharedMediaOwner(b *Bundle, m Media) string {
 			shared = true
 		}
 	}
+	for _, d := range b.AvatarDecorations {
+		if d.MediaID == m.ID {
+			shared = true
+		}
+	}
 	for _, a := range b.Accounts {
 		if a.AvatarID == m.ID || a.HeaderID == m.ID {
 			shared = true

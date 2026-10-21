@@ -49,7 +49,7 @@ from urllib.parse import unquote, urlsplit
 SCHEMA = "community-transfer/v1"
 METHODS = ("aid", "aidx", "meid", "meidg", "objectid", "ulid")
 SECTIONS = ("accounts", "credentials", "keys", "posts", "media", "relations", "lists", "reactions", "bookmarks",
-            "polls", "poll_votes", "emojis", "relays", "records", "issues")
+            "polls", "poll_votes", "emojis", "avatar_decorations", "avatar_decoration_selections", "relays", "records", "issues")
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -1014,6 +1014,7 @@ class Converter:
         self.post_ids = None
         self.media_urls = {}
         self.emoji_urls = {r.get("originalUrl") or r.get("publicUrl") for r in self.tables.get("emoji")} - {None, ""}
+        self.decoration_urls = {r.get("url") for r in self.tables.get("avatar_decoration")} - {None, ""}
         self.emoji_ids = {(r.get("name"), r.get("host") or ""): sid(r["id"]) for r in self.tables.get("emoji")}
         self.system_users = {sid(r.get("userId")) for r in self.tables.get("system_account")}
         # Streaming exports drop dangling references (deleted rows, remote cache
@@ -1288,7 +1289,8 @@ class Converter:
         custom emoji images, which are migrated as emojis. usage is a short
         token for the report: meta.<column>, <table>.<column> or unreferenced."""
         urls = {r.get(c) for c in ("url", "webpublicUrl", "thumbnailUrl")} - {None, ""}
-        if urls & self.emoji_urls:
+        if urls & self.emoji_urls or urls & self.decoration_urls:
+            # Exported with their emoji / avatar decoration.
             return [], "", ""
         meta_cols = sorted({k for row in self.tables.get("meta", []) for k, v in row.items() if isinstance(v, str) and v in urls})
         supported = [c for c in meta_cols if c in META_ASSET_COLUMNS]
@@ -1296,7 +1298,7 @@ class Converter:
             return supported, "", ""
         if meta_cols:
             return [], "used by meta.%s, which has no Community equivalent" % ", meta.".join(meta_cols), ",".join("meta." + c for c in meta_cols)
-        for table, col, what in (("ad", "imageUrl", "an ad image"), ("avatar_decoration", "url", "an avatar decoration"), ("role", "iconUrl", "a role icon"),
+        for table, col, what in (("ad", "imageUrl", "an ad image"), ("role", "iconUrl", "a role icon"),
                                  ("flash", "thumbnailUrl", "a Play thumbnail")):
             ids = [sid(x.get("id")) for x in self.tables.get(table, []) if x.get(col) in urls]
             if ids:
@@ -1592,6 +1594,68 @@ class Converter:
         if referenced_by_url:
             self.issue("info", "object_storage_reference", "emoji", "", "%d object-storage emoji keep their original URL." % referenced_by_url, count=referenced_by_url)
 
+    def decorations(self):
+        """Misskey avatar_decoration -> avatar_decorations (image exported as
+        ownerless media "avatar_decoration:<id>", like custom emoji images) and
+        user.avatarDecorations -> avatar_decoration_selections. Role limits
+        (roleIdsThatCanBeUsedThisDecoration) are dropped: roles are not
+        migrated, so imported decorations are available to everyone."""
+        restricted = 0
+        self.stage("avatar_decorations", "avatar_decoration")
+        for r in self.tables.get("avatar_decoration", []):
+            self.progress.advance()
+            id_ = sid(r["id"])
+            url = r.get("url") or ""
+            d = {"id": id_, "name": r.get("name") or "", "description": r.get("description") or "", "url": url}
+            if r.get("roleIdsThatCanBeUsedThisDecoration"):
+                restricted += 1
+            asset_id = "avatar_decoration:" + id_
+            m = {"id": asset_id, "owner_id": "", "name": (r.get("name") or id_) + ".png", "content_type": "application/octet-stream", "remote_url": url}
+            object_key = self.object_key(url)
+            try:
+                if object_key and self.object_mode == "reference":
+                    m["storage_reference"] = True
+                    m["content_type"] = "image/png"
+                elif object_key and self.object_mode == "copy":
+                    # The object URL is not a same-origin media route: no alias.
+                    m.update(self.copy_asset(object_key, root=self.object_dir))
+                    m["content_type"] = self.copied_image_type(m)
+                else:
+                    m.update(self.copy_asset(self.local_url_key(url)))
+                    m["content_type"] = self.copied_image_type(m)
+                    m["original_url"] = url
+                d["media_id"] = asset_id
+                self.bundle["media"].append(m)
+            except (ExportError, OSError):
+                self.issue("warning", "avatar_decoration_image_unavailable", "avatar_decoration", id_,
+                           "Avatar decoration image bytes are not in the local/object-storage snapshot; the decoration is not imported.")
+            self.bundle["avatar_decorations"].append(d)
+        if restricted:
+            self.issue("info", "avatar_decoration_roles_dropped", "avatar_decoration", "",
+                       "%d avatar decoration(s) were limited to roles; roles are not migrated, so they are available to everyone." % restricted, count=restricted)
+        self.stage("avatar_decoration_selections")
+        for id_ in sorted(self.local_users):
+            u = self.users.get(id_) or {}
+            raw = u.get("avatarDecorations")
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except ValueError:
+                    raw = None
+            places = []
+            for x in raw if isinstance(raw, list) else []:
+                if not isinstance(x, dict) or not x.get("id"):
+                    continue
+                p = {"id": sid(x["id"])}
+                for src, dst in (("angle", "angle"), ("offsetX", "offset_x"), ("offsetY", "offset_y")):
+                    if isinstance(x.get(src), (int, float)) and not isinstance(x.get(src), bool) and x[src]:
+                        p[dst] = x[src]
+                if x.get("flipH"):
+                    p["flip_h"] = True
+                places.append(p)
+            if places:
+                self.bundle["avatar_decoration_selections"].append({"account_id": id_, "decorations": places})
+
     def media_ref(self, file_id, owner):
         file_id = sid(file_id)
         if file_id and self.trim_references and not self.known("drive_file", file_id):
@@ -1613,6 +1677,7 @@ class Converter:
         self.posts()
         self.relationships()
         self.emojis()
+        self.decorations()
         self.progress.finish()
         return self.bundle
 

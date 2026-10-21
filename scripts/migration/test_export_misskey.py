@@ -335,6 +335,58 @@ class ExportTests(unittest.TestCase):
         details = {i["source_id"]: i["details"] for i in b["issues"] if i["code"] == "misskey_meta_asset"}
         self.assertEqual(details[ident(72)], {"usage": "meta.logoImageUrl", "file_name": "f72.png", "size": 0, "content_type": "image/png"})
 
+    def decoration_tables(self):
+        (self.source / "deco1").write_bytes(b"\x89PNG\r\n\x1a\ndeco")
+        self.tables["avatar_decoration"] = [
+            {"id": ident(80), "name": "Cat ears", "description": "meow", "url": "https://source.test/files/deco1", "roleIdsThatCanBeUsedThisDecoration": [ident(90)]},
+            {"id": ident(81), "name": "Lost", "description": "", "url": "https://elsewhere.test/x.png", "roleIdsThatCanBeUsedThisDecoration": []}]
+        # The decoration image is an ownerless drive file: exported with the decoration, not listed.
+        self.tables["drive_file"] = [{"id": ident(82), "userId": None, "userHost": None, "name": "deco1", "type": "image/png", "url": "https://source.test/files/deco1", "isLink": True}]
+        self.tables["user"][0]["avatarDecorations"] = [{"id": ident(80), "angle": 0.125, "flipH": True, "offsetX": 0.05, "offsetY": -0.1}, {"id": "unknownid"}]
+        self.tables["user"][1]["avatarDecorations"] = []
+        self.tables["user"][2]["avatarDecorations"] = [{"id": ident(80)}]  # remote user: not migrated
+
+    def test_avatar_decorations_definitions_images_and_selections(self):
+        self.decoration_tables()
+        b = self.converter().convert()
+        defs = {d["id"]: d for d in b["avatar_decorations"]}
+        self.assertEqual(defs[ident(80)], {"id": ident(80), "name": "Cat ears", "description": "meow", "url": "https://source.test/files/deco1", "media_id": "avatar_decoration:" + ident(80)})
+        self.assertNotIn("media_id", defs[ident(81)])
+        self.assertNotIn("roleIdsThatCanBeUsedThisDecoration", defs[ident(80)])
+        media = {x["id"]: x for x in b["media"]}
+        asset = media["avatar_decoration:" + ident(80)]
+        self.assertEqual(asset["owner_id"], "")
+        self.assertEqual(asset["content_type"], "image/png")
+        self.assertEqual(asset["original_url"], "https://source.test/files/deco1")
+        self.assertTrue((self.output / asset["path"]).exists())
+        self.assertNotIn(ident(82), media)
+        codes = {i["code"]: i for i in b["issues"]}
+        self.assertNotIn("misskey_meta_asset", codes, "decoration images are migrated, not listed as skipped")
+        self.assertEqual(codes["avatar_decoration_image_unavailable"]["source_id"], ident(81))
+        self.assertEqual(codes["avatar_decoration_roles_dropped"]["details"], {"count": 1})
+        self.assertEqual(b["avatar_decoration_selections"], [{"account_id": self.a, "decorations": [
+            {"id": ident(80), "angle": 0.125, "offset_x": 0.05, "offset_y": -0.1, "flip_h": True}, {"id": "unknownid"}]}])
+
+    def test_avatar_decorations_object_storage_reference(self):
+        self.tables["avatar_decoration"] = [{"id": ident(80), "name": "R2", "url": "https://r2.test/deco/a.png"}]
+        b = self.converter(object_mode="reference", object_base_url="https://r2.test").convert()
+        asset = [x for x in b["media"] if x["id"] == "avatar_decoration:" + ident(80)][0]
+        self.assertTrue(asset["storage_reference"])
+        self.assertEqual(asset["remote_url"], "https://r2.test/deco/a.png")
+        self.assertEqual(b["avatar_decorations"][0]["media_id"], asset["id"])
+
+    def test_avatar_decorations_stream_sink(self):
+        self.decoration_tables()
+        expected = self.converter().convert()
+        out = io.StringIO()
+        sink = m.StreamSink(self.output, {k: v for k, v in expected.items() if k not in m.SECTIONS}, stream=out)
+        self.converter(sink=sink).convert()
+        sink.finish()
+        lines = [json.loads(x) for x in out.getvalue().splitlines()[1:]]
+        for key in ("avatar_decorations", "avatar_decoration_selections"):
+            self.assertEqual([x["v"] for x in lines if x["s"] == key], expected[key], key)
+        self.assertEqual(len([x for x in lines if x["s"] == "avatar_decorations"]), 2)
+
     def test_system_actors_and_relays(self):
         ia, ra = ident(30), ident(31)
         self.tables["user"] += [{"id": ia, "username": "instance.actor", "host": None}, {"id": ra, "username": "relay.actor", "host": None}]
@@ -461,6 +513,7 @@ class ExportTests(unittest.TestCase):
 
     def test_file_sink_streams_same_bundle_as_memory(self):
         self.tables["note"] = [{"id": ident(4), "userId": self.a, "visibility": "public", "text": "hi", "fileIds": []}]
+        self.decoration_tables()
         expected = self.converter().convert()
         sink = m.FileSink(self.output, {k: v for k, v in expected.items() if k not in m.SECTIONS})
         c = self.converter(sink=sink)

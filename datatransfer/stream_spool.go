@@ -34,7 +34,7 @@ type Spool struct {
 
 // spoolSections are the bundle array sections, in bundle.json order.
 var spoolSections = []string{"accounts", "credentials", "keys", "posts", "media", "relations", "lists", "reactions", "bookmarks",
-	"polls", "poll_votes", "emojis", "relays", "records", "issues"}
+	"polls", "poll_votes", "emojis", "avatar_decorations", "avatar_decoration_selections", "relays", "records", "issues"}
 
 func knownSection(s string) bool {
 	for _, v := range spoolSections {
@@ -249,7 +249,7 @@ func (s *Spool) add(section string, raw []byte) error {
 		}
 	case "keys":
 		id = k.AccountID + "\n" + k.KeyID
-	case "credentials":
+	case "credentials", "avatar_decoration_selections":
 		id = k.AccountID
 	case "records":
 		id, acct = k.Kind+"\n"+k.ID, k.OwnerID
@@ -495,7 +495,7 @@ const DuplicateSourceIDCode = "duplicate_source_id"
 
 // duplicateSourceSections are the sections whose spool id is a source
 // identity (relations, reactions and bookmarks are keyed by content).
-var duplicateSourceSections = []string{"accounts", "credentials", "keys", "media", "emojis", "posts", "polls", "poll_votes", "lists", "records"}
+var duplicateSourceSections = []string{"accounts", "credentials", "keys", "media", "emojis", "avatar_decorations", "avatar_decoration_selections", "posts", "polls", "poll_votes", "lists", "records"}
 
 // DuplicateSourceIDs reports, per section (and per raw record kind), source
 // ids that occur more than once, with counts and up to five sample ids.
@@ -551,4 +551,26 @@ func (s *Spool) DuplicateSourceIDs() ([]Issue, error) {
 		}
 	}
 	return out, nil
+}
+
+// decorationsUsingMedia returns the spooled avatar decoration definitions
+// whose image is the given media record.
+func (s *Spool) decorationsUsingMedia(mediaID string) ([]json.RawMessage, error) {
+	if err := s.flush(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(`SELECT raw FROM rec WHERE section = 'avatar_decorations' AND json_extract(raw, '$.media_id') = ? ORDER BY seq`, mediaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []json.RawMessage
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		out = append(out, json.RawMessage(raw))
+	}
+	return out, rows.Err()
 }

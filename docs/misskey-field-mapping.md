@@ -25,7 +25,7 @@ it; "no target" = Community has no equivalent.
 | alsoKnownAs (simple-array: comma-joined text) | also_known_as (split list) | accounts.also_known_as (local + remote) | **fixed** (round 9: was read as one value, all dropped) |
 | requireSigninToViewContents | settings | accounts.require_signin_to_view | ok |
 | makeNotesHiddenBefore / FollowersOnlyBefore, chatScope, isDeleted | settings | user_settings (local) / report issue | ok (policy) |
-| avatarDecorations + avatar_decoration catalog | — | accounts.avatar_decorations, avatar_decorations table | gap (catalog import needed; decorations had no ownerless files on maid) |
+| avatarDecorations + avatar_decoration catalog | avatar_decoration_selections, avatar_decorations (+ media `avatar_decoration:<id>`) | accounts.avatar_decorations (+ avatar_decoration_id = first), avatar_decorations table (enabled; image = imported media) | ok (role limits and descriptions dropped; unknown selected ids skipped as info; verify 10a/10b) |
 | role, role_assignment (badges, colors) | private records | roles / role_users | gap (Misskey policies ≠ Community permissions: needs a decision) |
 | profile.autoAcceptFollowed, user.hideOnlineStatus, lastActiveDate | auto_accept_followed, hide_online_status, last_active_at | account privacy columns (0050d7c) | ok |
 | user.speakAsCat | speak_as_cat | account column (0050d7c) | ok |

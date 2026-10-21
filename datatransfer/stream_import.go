@@ -37,9 +37,9 @@ type StreamProgress struct {
 // (already committed copies are skipped by receipt), while references to
 // posts, polls and lists committed by earlier chunks are seeded from receipts.
 var streamStages = []struct{ stage, section string }{
-	{"emojis", "emojis"}, {"accounts", "accounts"}, {"credentials", "credentials"}, {"keys", "keys"}, {"media", "media"}, {"posts", "posts"}, {"polls", "polls"},
+	{"emojis", "emojis"}, {"avatar_decorations", "avatar_decorations"}, {"accounts", "accounts"}, {"credentials", "credentials"}, {"keys", "keys"}, {"media", "media"}, {"posts", "posts"}, {"polls", "polls"},
 	{"relations", "relations"}, {"lists", "lists"}, {"reactions", "reactions"}, {"bookmarks", "bookmarks"},
-	{"poll_votes", "poll_votes"}, {"relays", "relays"}, {"records", "records"},
+	{"poll_votes", "poll_votes"}, {"avatar_decoration_selections", "avatar_decoration_selections"}, {"relays", "relays"}, {"records", "records"},
 }
 
 // StreamStageNames lists the chunked import stages in order.
@@ -151,7 +151,8 @@ func ImportSpool(ctx context.Context, conn *gorm.DB, sp *Spool, o Options, so St
 		}
 	}
 	for _, kv := range [][2]string{{"accounts", "account"}, {"media", "media"}, {"emojis", "emoji"}, {"posts", "post"}, {"relations", "relation"},
-		{"reactions", "reaction"}, {"bookmarks", "bookmark"}, {"polls", "poll"}, {"poll_votes", "poll_vote"}, {"lists", "list"}, {"records", "record"}} {
+		{"reactions", "reaction"}, {"bookmarks", "bookmark"}, {"polls", "poll"}, {"poll_votes", "poll_vote"}, {"lists", "list"}, {"records", "record"},
+		{"avatar_decorations", "avatar_decoration"}, {"avatar_decoration_selections", "avatar_decoration_selection"}} {
 		r.total.Counts[kv[1]] = sp.Count(kv[0])
 	}
 	// One total per aggregated issue, ahead of the per-record issues.
@@ -335,6 +336,16 @@ func appendRecord(b *Bundle, section string, raw json.RawMessage) error {
 		if err = json.Unmarshal(raw, &v); err == nil {
 			b.Emojis = append(b.Emojis, v)
 		}
+	case "avatar_decorations":
+		var v AvatarDecoration
+		if err = json.Unmarshal(raw, &v); err == nil {
+			b.AvatarDecorations = append(b.AvatarDecorations, v)
+		}
+	case "avatar_decoration_selections":
+		var v AvatarDecorationSelection
+		if err = json.Unmarshal(raw, &v); err == nil {
+			b.AvatarDecorationSelections = append(b.AvatarDecorationSelections, v)
+		}
 	case "records":
 		var v PreservedRecord
 		if err = json.Unmarshal(raw, &v); err == nil {
@@ -374,7 +385,7 @@ func (s idset) add(ids ...string) {
 func (r *streamRun) close(b *Bundle) error {
 	r.o.Seed = map[string]map[string]uint64{}
 	for round := 0; round < 8; round++ {
-		have := map[string]idset{"account": {}, "media": {}, "emoji": {}, "post": {}, "poll": {}, "list": {}}
+		have := map[string]idset{"account": {}, "media": {}, "emoji": {}, "post": {}, "poll": {}, "list": {}, "avatar_decoration": {}}
 		for _, a := range b.Accounts {
 			have["account"].add(a.ID)
 		}
@@ -383,6 +394,9 @@ func (r *streamRun) close(b *Bundle) error {
 		}
 		for _, e := range b.Emojis {
 			have["emoji"].add(e.ID)
+		}
+		for _, d := range b.AvatarDecorations {
+			have["avatar_decoration"].add(d.ID)
 		}
 		for _, p := range b.Posts {
 			have["post"].add(p.ID)
@@ -393,7 +407,7 @@ func (r *streamRun) close(b *Bundle) error {
 		for _, l := range b.Lists {
 			have["list"].add(l.ID)
 		}
-		need := map[string]idset{"account": {}, "media": {}, "emoji": {}, "post": {}, "poll": {}, "list": {}}
+		need := map[string]idset{"account": {}, "media": {}, "emoji": {}, "post": {}, "poll": {}, "list": {}, "avatar_decoration": {}}
 		for _, a := range b.Accounts {
 			need["media"].add(a.AvatarID, a.HeaderID)
 			need["emoji"].add(a.EmojiIDs...)
@@ -406,6 +420,15 @@ func (r *streamRun) close(b *Bundle) error {
 		}
 		for _, e := range b.Emojis {
 			need["media"].add(e.MediaID)
+		}
+		for _, d := range b.AvatarDecorations {
+			need["media"].add(d.MediaID)
+		}
+		for _, s := range b.AvatarDecorationSelections {
+			need["account"].add(s.AccountID)
+			for _, p := range s.Decorations {
+				need["avatar_decoration"].add(p.ID)
+			}
 		}
 		for _, p := range b.Posts {
 			need["account"].add(p.AuthorID)
@@ -446,6 +469,28 @@ func (r *streamRun) close(b *Bundle) error {
 			need["account"].add(rec.OwnerID)
 		}
 		added := false
+		// Ownerless decoration images are shared site media only through the
+		// definition using them; carry it along (the media stage sees them too).
+		decorated := idset{}
+		for _, d := range b.AvatarDecorations {
+			decorated.add(d.MediaID)
+		}
+		for _, m := range b.Media {
+			if m.OwnerID != "" || decorated[m.ID] {
+				continue
+			}
+			raws, err := r.sp.decorationsUsingMedia(m.ID)
+			if err != nil {
+				return err
+			}
+			for _, raw := range raws {
+				if err := appendRecord(b, "avatar_decorations", raw); err != nil {
+					return err
+				}
+				added = true
+			}
+			decorated.add(m.ID)
+		}
 		for kind, ids := range need {
 			var missing []string
 			for id := range ids {
@@ -481,7 +526,7 @@ func (r *streamRun) close(b *Bundle) error {
 					pull = append(pull, id)
 				}
 			}
-			section := map[string]string{"account": "accounts", "media": "media", "emoji": "emojis"}[kind]
+			section := map[string]string{"account": "accounts", "media": "media", "emoji": "emojis", "avatar_decoration": "avatar_decorations"}[kind]
 			if section == "" || len(pull) == 0 {
 				continue
 			}
@@ -566,6 +611,15 @@ func dedupe(b *Bundle) {
 		}
 	}
 	b.Emojis = emojis
+	seenD := idset{}
+	decorations := b.AvatarDecorations[:0]
+	for _, d := range b.AvatarDecorations {
+		if !seenD[d.ID] {
+			seenD.add(d.ID)
+			decorations = append(decorations, d)
+		}
+	}
+	b.AvatarDecorations = decorations
 }
 
 // seed resolves already committed source IDs (receipts) and, in preview
@@ -687,7 +741,7 @@ func sortSeqPairs(raws []json.RawMessage, seqs []int64) {
 }
 
 func (r *streamRun) run(b *Bundle) error {
-	if len(b.Accounts)+len(b.Posts)+len(b.Media)+len(b.Emojis)+len(b.Relations)+len(b.Lists)+len(b.Reactions)+len(b.Bookmarks)+len(b.Polls)+len(b.PollVotes)+len(b.Records)+len(b.Relays)+len(b.Issues) == 0 {
+	if len(b.Accounts)+len(b.Posts)+len(b.Media)+len(b.Emojis)+len(b.Relations)+len(b.Lists)+len(b.Reactions)+len(b.Bookmarks)+len(b.Polls)+len(b.PollVotes)+len(b.Records)+len(b.Relays)+len(b.Issues)+len(b.AvatarDecorations)+len(b.AvatarDecorationSelections) == 0 {
 		return nil
 	}
 	var rep *Report
@@ -737,6 +791,9 @@ func (r *streamRun) markSeen(b *Bundle) {
 	}
 	for _, p := range b.Polls {
 		ins("poll", p.ID)
+	}
+	for _, d := range b.AvatarDecorations {
+		ins("avatar_decoration", d.ID)
 	}
 	for _, l := range b.Lists {
 		ins("list", l.ID)

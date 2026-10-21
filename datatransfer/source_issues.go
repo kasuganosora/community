@@ -35,12 +35,14 @@ type sourceIssueSpec struct {
 // source_issue with no ids, details or text from the export.
 var sourceIssueSpecs = func() map[string]sourceIssueSpec {
 	m := map[string]sourceIssueSpec{
-		"misskey_meta_asset":             {"Ownerless local drive file has no Community equivalent and was not migrated; details.usage names what referenced it.", []string{"usage", "file_name", "size", "content_type"}},
-		"object_storage_reference":       {"Object-storage files keep their original URL; the bucket must stay available to the target.", []string{"count"}},
-		"unattached_drive_files_skipped": {"Local drive files referenced by nothing were not exported (--skip-unattached-drive-files).", []string{"count"}},
-		"remote_reference_trimmed":       {"A reference to a record outside the export was dropped; the raw source row keeps it.", nil},
-		"source_records_preserved":       {"Complete source rows of this table are preserved privately; preservation does not imply live support.", nil},
-		"source_id_method":               {"Source ID timestamp method used by the export.", nil},
+		"misskey_meta_asset":                  {"Ownerless local drive file has no Community equivalent and was not migrated; details.usage names what referenced it.", []string{"usage", "file_name", "size", "content_type"}},
+		"object_storage_reference":            {"Object-storage files keep their original URL; the bucket must stay available to the target.", []string{"count"}},
+		"unattached_drive_files_skipped":      {"Local drive files referenced by nothing were not exported (--skip-unattached-drive-files).", []string{"count"}},
+		"remote_reference_trimmed":            {"A reference to a record outside the export was dropped; the raw source row keeps it.", nil},
+		"source_records_preserved":            {"Complete source rows of this table are preserved privately; preservation does not imply live support.", nil},
+		"source_id_method":                    {"Source ID timestamp method used by the export.", nil},
+		"avatar_decoration_image_unavailable": {"Avatar decoration image bytes are not in the snapshot; the decoration is not imported.", nil},
+		"avatar_decoration_roles_dropped":     {"Role-limited avatar decorations are available to everyone; roles are not migrated.", []string{"count"}},
 	}
 	for _, code := range []string{"invalid_source_time", "raw_records_preserved", "source_auth_material", "missing_actor_uri", "missing_local_profile", "nonlocal_private_key", "missing_local_key", "media_bytes_unavailable", "media_variant_unavailable", "external_storage_required", "remote_media_reference", "unknown_visibility", "channel_note_archive", "quote_note_archive", "chat_archive_only", "chat_policy_review", "invalid_poll_counts", "emoji_bytes_unavailable", "source_style_absent", "missing_or_unreadable_media", "password_pepper_unsupported", "media_has_no_original", "emoji_has_no_original", "invalid_remote_media_reference", "local_actor_without_login", "two_factor_requires_adapter", "missing_password_verifier", "unsupported_active_key", "missing_local_signing_key", "unsupported_limited_visibility", "missing_account_emoji", "missing_note_emoji"} {
 		m[code] = sourceIssueSpec{message: "Source backup: " + strings.ReplaceAll(code, "_", " ") + ". Review the private source export and its migration requirements."}

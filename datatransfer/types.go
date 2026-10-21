@@ -25,25 +25,30 @@ type Source struct {
 // Personal bundles identify a single owner; other accounts are references, not
 // authority to create or take over their local identities.
 type Bundle struct {
-	Schema      string            `json:"schema"`
-	Scope       string            `json:"scope"`
-	Source      Source            `json:"source"`
-	OwnerID     string            `json:"owner_id,omitempty"`
-	Accounts    []Account         `json:"accounts,omitempty"`
-	Credentials []Credential      `json:"credentials,omitempty"`
-	Keys        []FederationKey   `json:"keys,omitempty"`
-	Posts       []Post            `json:"posts,omitempty"`
-	Media       []Media           `json:"media,omitempty"`
-	Relations   []Relation        `json:"relations,omitempty"`
-	Lists       []List            `json:"lists,omitempty"`
-	Reactions   []Reaction        `json:"reactions,omitempty"`
-	Bookmarks   []Bookmark        `json:"bookmarks,omitempty"`
-	Polls       []Poll            `json:"polls,omitempty"`
-	PollVotes   []PollVote        `json:"poll_votes,omitempty"`
-	Emojis      []Emoji           `json:"emojis,omitempty"`
-	Records     []PreservedRecord `json:"records,omitempty"`
-	Relays      []SourceRelay     `json:"relays,omitempty"`
-	Issues      []Issue           `json:"issues,omitempty"`
+	Schema      string          `json:"schema"`
+	Scope       string          `json:"scope"`
+	Source      Source          `json:"source"`
+	OwnerID     string          `json:"owner_id,omitempty"`
+	Accounts    []Account       `json:"accounts,omitempty"`
+	Credentials []Credential    `json:"credentials,omitempty"`
+	Keys        []FederationKey `json:"keys,omitempty"`
+	Posts       []Post          `json:"posts,omitempty"`
+	Media       []Media         `json:"media,omitempty"`
+	Relations   []Relation      `json:"relations,omitempty"`
+	Lists       []List          `json:"lists,omitempty"`
+	Reactions   []Reaction      `json:"reactions,omitempty"`
+	Bookmarks   []Bookmark      `json:"bookmarks,omitempty"`
+	Polls       []Poll          `json:"polls,omitempty"`
+	PollVotes   []PollVote      `json:"poll_votes,omitempty"`
+	Emojis      []Emoji         `json:"emojis,omitempty"`
+	// AvatarDecorations are the source instance's decoration definitions;
+	// AvatarDecorationSelections the decorations each account wears. They
+	// are separate sections so account receipts keep their digests.
+	AvatarDecorations          []AvatarDecoration          `json:"avatar_decorations,omitempty"`
+	AvatarDecorationSelections []AvatarDecorationSelection `json:"avatar_decoration_selections,omitempty"`
+	Records                    []PreservedRecord           `json:"records,omitempty"`
+	Relays                     []SourceRelay               `json:"relays,omitempty"`
+	Issues                     []Issue                     `json:"issues,omitempty"`
 }
 
 // SourceRelay is a relay subscription of the source instance. FollowID is the
@@ -347,4 +352,30 @@ type Options struct {
 	// for the streamed run's final link pass instead of settling them as
 	// missing.
 	DeferQuoteLinks bool
+}
+
+// AvatarDecoration is a source avatar decoration definition (Misskey
+// avatar_decoration). MediaID names the imported image; role restrictions
+// are not migrated, so imported decorations are available to everyone.
+type AvatarDecoration struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	URL         string `json:"url,omitempty"`
+	MediaID     string `json:"media_id,omitempty"`
+}
+
+// AvatarDecorationSelection lists the decorations one account wears, in
+// Misskey geometry (user.avatarDecorations).
+type AvatarDecorationSelection struct {
+	AccountID   string                  `json:"account_id"`
+	Decorations []AvatarDecorationPlace `json:"decorations"`
+}
+
+type AvatarDecorationPlace struct {
+	ID      string  `json:"id"`
+	Angle   float64 `json:"angle,omitempty"`
+	FlipH   bool    `json:"flip_h,omitempty"`
+	OffsetX float64 `json:"offset_x,omitempty"`
+	OffsetY float64 `json:"offset_y,omitempty"`
 }
