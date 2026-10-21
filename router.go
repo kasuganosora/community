@@ -1,6 +1,7 @@
 package community
 
 import (
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/controllers"
@@ -31,6 +32,7 @@ import (
 	"github.com/kasuganosora/community/defaultavatar"
 	"github.com/kasuganosora/community/emojiasset"
 	"github.com/kasuganosora/community/linkcard"
+	applog "github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/matrix"
 	"github.com/kasuganosora/community/matrix/homeserver"
 	_ "github.com/kasuganosora/community/mediablur"
@@ -840,10 +842,16 @@ func SetRouter(app gin.IRouter) {
 		PUT("/admin/captcha/config", common.AdminUpdateCaptchaConfig)
 }
 
-// safeRegisterRoutes 捕获重复路由注册时的 panic。
+// safeRegisterRoutes runs a route-group registration and fails fast if it
+// panics (gin panics on duplicate or conflicting routes). Swallowing that
+// panic used to silently drop the whole group, so log it and re-panic to stop
+// startup on what is always a programming error.
 func safeRegisterRoutes(fn func()) {
 	defer func() {
-		_ = recover()
+		if p := recover(); p != nil {
+			applog.Error(fmt.Sprintf("route registration failed: %v", p))
+			panic(p)
+		}
 	}()
 
 	fn()
