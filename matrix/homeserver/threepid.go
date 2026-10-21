@@ -160,13 +160,13 @@ func (ts *ThreePIDService) LookupThreePID(medium, address string) (string, error
 // sendValidationEmail 发送验证邮件.
 func (ts *ThreePIDService) sendValidationEmail(email, token string) {
 	// TODO: 实现邮件发送
-	log.Info("Would send validation email to %s with token %s", email, token)
+	log.Info("Would send validation email to %s", email)
 }
 
 // sendValidationSMS 发送验证短信.
 func (ts *ThreePIDService) sendValidationSMS(phone, token string) {
 	// TODO: 实现短信发送
-	log.Info("Would send validation SMS to %s with token %s", phone, token)
+	log.Info("Would send validation SMS to %s", phone)
 }
 
 // UnbindThreePID 解绑 3PID.

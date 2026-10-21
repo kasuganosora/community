@@ -268,6 +268,12 @@ func (r *Request) Do() (resp *Response, err error) {
 		var resp1 *http.Response
 
 		resp1, err = r.client.Do(req)
+		var uerr *url.Error
+		if errors.As(err, &uerr) && uerr != nil {
+			if pu, perr := url.Parse(uerr.URL); perr == nil {
+				uerr.URL = redactURL(pu)
+			}
+		}
 		if err == nil {
 			resp = &Response{
 				Response: resp1,
@@ -296,7 +302,7 @@ func (r *Request) Do() (resp *Response, err error) {
 			cancel()
 		}
 
-		err = errors.WithMessagef(err, "try fetch %s %s %d times, error %+v", r.method, req.URL.String(), i, err)
+		err = errors.WithMessagef(err, "try fetch %s %s %d times, error %+v", r.method, redactURL(req.URL), i, err)
 
 		log.ErrorV(err)
 
@@ -392,4 +398,22 @@ func (resp *Response) Close() {
 	if resp != nil && resp.Response != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}
+}
+
+// redactURL renders u for logging without its query string, fragment or
+// userinfo, which may carry tokens or other secrets.
+func redactURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	c := *u
+	c.User = nil
+	c.RawQuery = ""
+	c.ForceQuery = false
+	c.Fragment = ""
+	c.RawFragment = ""
+	if u.RawQuery != "" {
+		return c.String() + "?[redacted]"
+	}
+	return c.String()
 }
