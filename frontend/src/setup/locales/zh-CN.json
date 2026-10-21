@@ -326,7 +326,7 @@
       "web_port": "1. Misskey Web 进程已停止（本机 3000 端口未监听）",
       "web_meta": "2. 本机 /api/meta 不可访问",
       "sessions": "3. Misskey 数据库没有其他连接（不含迁移工具自身）",
-      "note_writes": "4. note 表：间隔 30 秒两次采样，max(id) 与行数不变",
+      "note_writes": "4. note 表：间隔 30 秒，max(id) 不变且 note 的增删改计数增量为 0",
       "queues": "5. Redis 队列无活跃任务（未配置 Redis 则跳过）"
     },
     "status": {

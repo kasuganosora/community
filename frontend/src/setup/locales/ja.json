@@ -326,7 +326,7 @@
       "web_port": "1. Misskey の Web プロセスが停止（ローカルのポート 3000 が待ち受けていない）",
       "web_meta": "2. ローカルの /api/meta に到達できない",
       "sessions": "3. Misskey DB に他の接続がない（このツール自身を除く）",
-      "note_writes": "4. note テーブル：30 秒間隔の 2 回の計測で max(id) と行数が同じ",
+      "note_writes": "4. note テーブル：30 秒間隔で max(id) が変わらず、note の挿入・更新・削除カウントの増分が 0",
       "queues": "5. Redis キューに実行中のジョブがない（Redis 未設定ならスキップ）"
     },
     "status": {

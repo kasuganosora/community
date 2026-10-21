@@ -326,7 +326,7 @@
       "web_port": "1. Misskey Web 行程已停止（本機 3000 埠未監聽）",
       "web_meta": "2. 本機 /api/meta 無法存取",
       "sessions": "3. Misskey 資料庫沒有其他連線（不含遷移工具本身）",
-      "note_writes": "4. note 表：間隔 30 秒兩次取樣，max(id) 與列數不變",
+      "note_writes": "4. note 表：間隔 30 秒，max(id) 不變且 note 的增刪改計數增量為 0",
       "queues": "5. Redis 佇列無進行中的工作（未設定 Redis 則略過）"
     },
     "status": {

@@ -326,7 +326,7 @@
       "web_port": "1. Processus web de Misskey arrêté (port local 3000 non à l’écoute)",
       "web_meta": "2. /api/meta local injoignable",
       "sessions": "3. Aucune autre connexion à la base Misskey (hors notre outil)",
-      "note_writes": "4. Table note : deux mesures à 30 s d’intervalle, max(id) et nombre de lignes inchangés",
+      "note_writes": "4. Table note : sur 30 s, max(id) inchangé et deltas des compteurs d’insertions/mises à jour/suppressions de note à 0",
       "queues": "5. Aucune tâche active dans les files Redis (SKIP si Redis non configuré)"
     },
     "status": {

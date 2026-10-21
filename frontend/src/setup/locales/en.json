@@ -326,7 +326,7 @@
       "web_port": "1. Misskey web process stopped (local port 3000 not listening)",
       "web_meta": "2. Local /api/meta unreachable",
       "sessions": "3. No other connections to the Misskey DB (excluding our own tool)",
-      "note_writes": "4. note table: two samples 30s apart, max(id) and row count unchanged",
+      "note_writes": "4. note table: 30s apart, max(id) unchanged and note insert/update/delete count deltas are 0",
       "queues": "5. Redis queues have no active jobs (SKIP if Redis not configured)"
     },
     "status": {

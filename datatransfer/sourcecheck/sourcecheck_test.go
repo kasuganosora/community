@@ -38,7 +38,7 @@ func closedPort(t *testing.T) string {
 }
 
 func quiet() *fakeSource {
-	return &fakeSource{marks: []Watermark{{Inserted: 5, Updated: 3, MaxID: "abc", Rows: 10}}}
+	return &fakeSource{marks: []Watermark{{Inserted: 5, Updated: 3, MaxID: "abc", NoteIns: 10, NoteUpd: 2}}}
 }
 
 func get(r *Result, name string) Check {
@@ -77,11 +77,13 @@ func TestSessionsAreRunning(t *testing.T) {
 
 func TestChangingCountersAreRunning(t *testing.T) {
 	for name, b := range map[string]Watermark{
-		"inserted": {Inserted: 6, Updated: 3, MaxID: "abc", Rows: 10},
-		"maxid":    {Inserted: 5, Updated: 3, MaxID: "abd", Rows: 10},
-		"rows":     {Inserted: 5, Updated: 3, MaxID: "abc", Rows: 9},
+		"inserted": {Inserted: 6, Updated: 3, MaxID: "abc", NoteIns: 10, NoteUpd: 2},
+		"maxid":    {Inserted: 5, Updated: 3, MaxID: "abd", NoteIns: 10, NoteUpd: 2},
+		"note_ins": {Inserted: 5, Updated: 3, MaxID: "abc", NoteIns: 11, NoteUpd: 2},
+		"note_upd": {Inserted: 5, Updated: 3, MaxID: "abc", NoteIns: 10, NoteUpd: 3},
+		"note_del": {Inserted: 5, Updated: 3, MaxID: "abc", NoteIns: 10, NoteUpd: 2, NoteDel: 1},
 	} {
-		src := &fakeSource{marks: []Watermark{{Inserted: 5, Updated: 3, MaxID: "abc", Rows: 10}, b}}
+		src := &fakeSource{marks: []Watermark{{Inserted: 5, Updated: 3, MaxID: "abc", NoteIns: 10, NoteUpd: 2}, b}}
 		var slept time.Duration
 		r := Run(context.Background(), Config{Source: src, WebURL: closedPort(t), Interval: 7 * time.Second, Sleep: func(_ context.Context, d time.Duration) error { slept = d; return nil }})
 		require.Equal(t, Running, r.Status, name)

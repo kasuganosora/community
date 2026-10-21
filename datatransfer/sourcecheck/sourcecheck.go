@@ -7,8 +7,9 @@
 //     database (our own backend and any application_name starting with
 //     "community-transfer" are excluded).
 //   - write_activity: a write watermark sampled twice Interval apart is
-//     identical (pg_stat_database tup_inserted/updated/deleted, plus max(id)
-//     and count(*) of the main post table).
+//     identical: max(id) of the main post table (index) and its
+//     pg_stat_user_tables n_tup_ins/upd/del, plus pg_stat_database
+//     tup_inserted/updated/deleted as extra evidence. No count(*).
 //   - web: the LOCAL source web process (default
 //     http://127.0.0.1:3000/api/meta) does not answer. Never point this at
 //     the public domain: a CDN/cache can answer while the origin is down.
@@ -72,7 +73,7 @@ var Titles = map[string]string{
 	CheckWebPort:  "1. Misskey web process stopped (local port 3000 not listening)",
 	CheckWebMeta:  "2. Local /api/meta unreachable",
 	CheckSessions: "3. No other connections to the Misskey DB (excluding our own tool)",
-	CheckNotes:    "4. note table: two samples 30s apart, max(id) and row count unchanged",
+	CheckNotes:    "4. note table: 30s apart, max(id) unchanged and note insert/update/delete count deltas are 0",
 	CheckQueues:   "5. Redis queues have no active jobs (SKIP if Redis not configured)",
 }
 
@@ -105,7 +106,8 @@ func (s Session) String() string {
 type Watermark struct {
 	Inserted, Updated, Deleted int64
 	MaxID                      string
-	Rows                       int64
+	// Note* are pg_stat_user_tables counters of the post table.
+	NoteIns, NoteUpd, NoteDel int64
 }
 
 // Source reads the source database. pgSource implements it; tests fake it.
@@ -238,14 +240,16 @@ func checkWrites(ctx context.Context, c Config) Check {
 	if a.MaxID != b.MaxID {
 		ch.Reasons = append(ch.Reasons, fmt.Sprintf("note max(id) changed %s -> %s", a.MaxID, b.MaxID))
 	}
-	diff("note row count", a.Rows, b.Rows)
+	diff("note n_tup_ins", a.NoteIns, b.NoteIns)
+	diff("note n_tup_upd", a.NoteUpd, b.NoteUpd)
+	diff("note n_tup_del", a.NoteDel, b.NoteDel)
 	// Extra evidence: database-wide write counters.
 	diff("pg_stat_database tup_inserted", a.Inserted, b.Inserted)
 	diff("pg_stat_database tup_updated", a.Updated, b.Updated)
 	diff("pg_stat_database tup_deleted", a.Deleted, b.Deleted)
 	if len(ch.Reasons) == 0 {
 		ch.Status = Pass
-		ch.Reasons = []string{fmt.Sprintf("no writes in %s (max id %s, %d rows)", c.Interval, b.MaxID, b.Rows)}
+		ch.Reasons = []string{fmt.Sprintf("no writes in %s (max id %s, note ins/upd/del deltas 0)", c.Interval, b.MaxID)}
 	} else {
 		ch.Reasons = append([]string{fmt.Sprintf("writes detected within %s", c.Interval)}, ch.Reasons...)
 	}
@@ -492,8 +496,12 @@ func (p *pgSource) Watermark(ctx context.Context) (Watermark, error) {
 		return w, nil
 	}
 	var maxID sql.NullString
-	q := fmt.Sprintf(`SELECT max(id)::text, count(*) FROM %q`, p.table)
-	if err := p.db.QueryRowContext(ctx, q).Scan(&maxID, &w.Rows); err != nil {
+	// max(id) uses the primary key index; no count(*) on large tables.
+	if err := p.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT max(id)::text FROM %q`, p.table)).Scan(&maxID); err != nil {
+		return w, err
+	}
+	if err := p.db.QueryRowContext(ctx, `SELECT coalesce(sum(n_tup_ins),0)::bigint, coalesce(sum(n_tup_upd),0)::bigint, coalesce(sum(n_tup_del),0)::bigint
+FROM pg_stat_user_tables WHERE relname = $1 AND schemaname = ANY(current_schemas(false))`, p.table).Scan(&w.NoteIns, &w.NoteUpd, &w.NoteDel); err != nil {
 		return w, err
 	}
 	w.MaxID = maxID.String

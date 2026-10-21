@@ -76,7 +76,7 @@ community-transfer ... --work-dir /srv/maid-migration --final-sync --apply --rep
 | 1 | Misskey web process stopped (local port 3000 not listening) | `--source-web-url` 的 host:port 不能 TCP 连通 |
 | 2 | Local /api/meta unreachable | `POST --source-web-url` 无应答或非 2xx；2xx = 仍在运行 |
 | 3 | No other connections to the Misskey DB (excluding our own tool) | `pg_stat_activity` 中本库没有其他 client backend（排除本连接和 `application_name` 以 `community-transfer` 开头的连接）；失败时列出 pid / usename / application_name / client_addr / state / backend_start / query_start |
-| 4 | note table: two samples 30s apart, max(id) and row count unchanged | 间隔 `--source-check-interval`（默认 30s）两次采样 `note` 的 `max(id)` 和 `count(*)` 必须完全一致；`pg_stat_database` 的 tup_inserted/updated/deleted 作为附加证据，变化同样判失败 |
+| 4 | note 表：间隔 30 秒，max(id) 不变且 note 的增删改计数增量为 0（note table: 30s apart, max(id) unchanged and note insert/update/delete count deltas are 0） | 间隔 `--source-check-interval`（默认 30s）两次采样：`note` 的 `max(id)`（走主键索引）不变，且 `pg_stat_user_tables` 中 `relname = 'note'` 的 `n_tup_ins` / `n_tup_upd` / `n_tup_del` 增量全部为 0。不做 `count(*)`（大表太慢）。`pg_stat_database` 的 tup_inserted/updated/deleted（单行，开销可忽略）作为附加证据，变化同样判失败 |
 | 5 | Redis queues have no active jobs (SKIP if Redis not configured) | `--source-redis-url` 给定时，`<prefix>:<queue>:active`（默认前缀 `bull`，队列见 `--source-queues`）必须为空；`wait` 中的积压只作提示。未配置 = SKIP |
 
 除第 5 项可以 SKIP 外，全部通过才是 **STOPPED**，否则为 **RUNNING**：`--final-sync` 打印失败原因后以退出码 3 拒绝运行（不会读源库、不会擦除工作目录）。结果写入 `<work-dir>/source-check.json`。输出不包含 DSN / 密码 / Redis URL。
