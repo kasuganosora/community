@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kasuganosora/community/datatransfer"
 	"github.com/kasuganosora/community/datatransfer/sourcecheck"
 )
 
@@ -66,7 +67,19 @@ func sourceGate(ctx context.Context, d direct, source string) int {
 		return 1
 	}
 	fmt.Fprint(os.Stderr, sourcecheck.Format(res))
-	writeJSONFile(filepath.Join(*d.workDir, "source-check.json"), res)
+	// Records go to --work-dir (created 0700 if missing). Without one the
+	// result is only printed; the run then stops at the usual validation.
+	recordDir := ""
+	if d.workDir != nil && *d.workDir != "" {
+		if err := datatransfer.EnsurePrivateDir(*d.workDir); err == nil {
+			recordDir = *d.workDir
+		} else {
+			fmt.Fprintln(os.Stderr, "WARN work directory is not writable; the source check result is not recorded")
+		}
+	}
+	if recordDir != "" {
+		writeJSONFile(filepath.Join(recordDir, "source-check.json"), res)
+	}
 	if res.Status == sourcecheck.Stopped {
 		return 0
 	}
@@ -79,7 +92,9 @@ func sourceGate(ctx context.Context, d direct, source string) int {
 	fmt.Fprintln(os.Stderr, o.LogLine())
 	fmt.Fprintln(os.Stderr, "--force: final sync against a source that is NOT stopped; writes made after the read are LOST. Rehearsal/copy use only.")
 	fmt.Fprintln(os.Stderr, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-	if f, err := os.OpenFile(filepath.Join(*d.workDir, "source-check-overrides.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
+	if recordDir == "" {
+		fmt.Fprintln(os.Stderr, "WARN no writable --work-dir: the override is only logged above")
+	} else if f, err := os.OpenFile(filepath.Join(recordDir, "source-check-overrides.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
 		_ = json.NewEncoder(f).Encode(o)
 		_ = f.Close()
 	} else {

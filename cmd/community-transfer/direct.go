@@ -215,6 +215,13 @@ func runDirectOnce(d direct, source string, apply bool, reportPath string, chunk
 		}
 		return 0
 	}
+	// The source-stopped gate needs only the source flags: run it before
+	// any other validation and before the target configuration is used, so
+	// a RUNNING source is reported (exit 3) even on a host without target
+	// config.
+	if code := sourceGate(ctx, d, source); code != 0 {
+		return code
+	}
 	if *d.workDir == "" || *d.baseURL == "" || (*d.fetchOnly && *d.finalSync) || *d.batchSize <= 0 || *d.maxRowsPerSec < 0 || *d.batchSleep < 0 {
 		fmt.Fprintln(os.Stderr, "Direct mode needs --source misskey|mastodon, --source-dsn, --source-base-url and --work-dir (--fetch-only and --final-sync are exclusive).")
 		return 1
@@ -230,9 +237,6 @@ func runDirectOnce(d direct, source string, apply bool, reportPath string, chunk
 	}
 	// The exporter runs with umask 077; tighten anything an older run left.
 	_ = datatransfer.TightenTree(*d.workDir)
-	if code := sourceGate(ctx, d, source); code != 0 {
-		return code
-	}
 	state := filepath.Join(*d.workDir, "state")
 	spoolPath := filepath.Join(*d.workDir, "spool.sqlite3")
 	// Seal plaintext secrets an older exporter left in the fetch state; the

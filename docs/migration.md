@@ -79,7 +79,9 @@ community-transfer ... --work-dir /srv/maid-migration --final-sync --apply --rep
 | 4 | note 表：间隔 30 秒，max(id) 不变且 note 的增删改计数增量为 0（note table: 30s apart, max(id) unchanged and note insert/update/delete count deltas are 0） | 间隔 `--source-check-interval`（默认 30s）两次采样：`note` 的 `max(id)`（走主键索引）不变，且 `pg_stat_user_tables` 中 `relname = 'note'` 的 `n_tup_ins` / `n_tup_upd` / `n_tup_del` 增量全部为 0。不做 `count(*)`（大表太慢）。`pg_stat_database` 的 tup_inserted/updated/deleted（单行，开销可忽略）作为附加证据，变化同样判失败 |
 | 5 | Redis queues have no active jobs (SKIP if Redis not configured) | `--source-redis-url` 给定时，`<prefix>:<queue>:active`（默认前缀 `bull`，队列见 `--source-queues`）必须为空；`wait` 中的积压只作提示。未配置 = SKIP |
 
-除第 5 项可以 SKIP 外，全部通过才是 **STOPPED**，否则为 **RUNNING**：`--final-sync` 打印失败原因后以退出码 3 拒绝运行（不会读源库、不会擦除工作目录）。结果写入 `<work-dir>/source-check.json`。输出不包含 DSN / 密码 / Redis URL。
+除第 5 项可以 SKIP 外，全部通过才是 **STOPPED**，否则为 **RUNNING**：`--final-sync` 打印失败原因后以退出码 3 拒绝运行（不会读源库、不会擦除工作目录）。
+
+检测是 `--final-sync` 的**第一步**，只依赖 `--source` / `--source-dsn` 和上面的检测参数：在校验其他参数、查找导出脚本、读取目标库配置（`.env` / `DB_*`）之前执行。所以在还没配好目标库的机器上，源站未停机也会直接得到 RUNNING / 退出码 3；STOPPED 之后才继续常规校验（目标配置缺失时照旧以退出码 1 报错）。结果写入 `--work-dir` 下的 `source-check.json`（目录不存在则以 0700 创建）；没给 `--work-dir` 时只打印，不落盘（随后的常规校验会因缺少 `--work-dir` 退出）。输出不包含 DSN / 密码 / Redis URL。
 
 > ⚠️ `--source-web-url` 必须是**本机或 compose 内部地址**（默认 `http://127.0.0.1:3000/api/meta`，容器内可用 `http://web:3000/api/meta`），**不要填公网域名**：Cloudflare / 缓存可能在源站已停时仍然应答，也可能在源站仍在运行时返回错误页。第 1 项探测的端口就是这个 URL 的 host:port。非本地地址会在结果中给出警告。
 
