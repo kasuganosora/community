@@ -311,52 +311,6 @@ func TestHandleWhoisUser(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-// ===== Shared-secret registration tests =====
-
-func TestHandleSharedSecretRegisterNonce(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.GET("/register", handleSharedSecretRegisterNonce)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/register", nil)
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	var resp map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.NotEmpty(t, resp["nonce"], "should return a nonce")
-}
-
-func TestHandleSharedSecretRegister_BadJSON(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.POST("/register", handleSharedSecretRegister)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(`{invalid`))
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestHandleSharedSecretRegister_InvalidNonce(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.POST("/register", handleSharedSecretRegister)
-
-	body := `{"nonce":"invalid","username":"alice","password":"pass","mac":"abc"}`
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(body))
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "Invalid or expired nonce")
-}
-
-// ===== RegisterAdminRoutes nil HS =====
-
 func TestRegisterAdminRoutes_GlobalHSNil(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	restore := resetGlobalHS(nil)

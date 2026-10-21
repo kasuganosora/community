@@ -1,14 +1,9 @@
 package homeserver
 
 import (
-	"crypto/hmac"
-	"crypto/sha1" //nolint:gosec // G505: reviewed and safe
-	"encoding/hex"
 	"errors"
 	"net/http"
-	"strings"
 
-	"github.com/kasuganosora/community/config"
 	"strconv"
 	"sync"
 	"time"
@@ -317,11 +312,6 @@ func RegisterAdminRoutes(r gin.IRouter) {
 		matrixAdmin.GET("/server_statistics", handleGetServerStats)
 		matrixAdmin.POST("/whois/:userId", handleWhoisUser)
 	}
-
-	// Shared-secret registration (unauthenticated — uses HMAC)
-	// Compatible with Complement test suite
-	r.GET("/_synapse/admin/v1/register", handleSharedSecretRegisterNonce)
-	r.POST("/_synapse/admin/v1/register", handleSharedSecretRegister)
 }
 
 // isUserAdmin checks if a Matrix user ID belongs to an admin account.
@@ -856,121 +846,4 @@ func handleSendServerNotice(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"event_id": resp.EventID})
-}
-
-// ===== Shared-Secret Registration (Complement compatible) =====
-
-// sharedRegistrationSecret returns the configured shared secret. When empty,
-// shared-secret registration is disabled and the routes answer 404.
-func sharedRegistrationSecret() string {
-	return strings.TrimSpace(config.C.MatrixRegistrationSharedSecret)
-}
-
-func sharedSecretRegistrationDisabled(c *gin.Context) bool {
-	if sharedRegistrationSecret() != "" {
-		return false
-	}
-	c.JSON(http.StatusNotFound, gin.H{"errcode": "M_UNRECOGNIZED", "error": "Shared-secret registration is disabled"})
-
-	return true
-}
-
-var (
-	nonceStore = make(map[string]time.Time)
-	nonceMu    sync.Mutex
-)
-
-// handleSharedSecretRegisterNonce returns a nonce for shared-secret registration.
-func handleSharedSecretRegisterNonce(c *gin.Context) {
-	if sharedSecretRegistrationDisabled(c) {
-		return
-	}
-	nonce := generateSID() + generateSID()
-
-	nonceMu.Lock()
-	nonceStore[nonce] = time.Now()
-	// Clean up old nonces (> 5 minutes)
-	for k, v := range nonceStore {
-		if time.Since(v) > 5*time.Minute {
-			delete(nonceStore, k)
-		}
-	}
-	nonceMu.Unlock()
-
-	c.JSON(http.StatusOK, gin.H{
-		"nonce": nonce,
-	})
-}
-
-// handleSharedSecretRegister handles shared-secret admin registration.
-func handleSharedSecretRegister(c *gin.Context) {
-	if sharedSecretRegistrationDisabled(c) {
-		return
-	}
-	var req struct {
-		Nonce    string `json:"nonce"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Admin    bool   `json:"admin"`
-		Mac      string `json:"mac"`
-	}
-	err := c.ShouldBindJSON(&req)
-
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_BAD_JSON", "error": "Bad JSON"}) //nolint:goconst
-
-		return
-	}
-
-	// Validate nonce
-	nonceMu.Lock()
-
-	ts, ok := nonceStore[req.Nonce]
-	if ok {
-		delete(nonceStore, req.Nonce)
-	}
-	nonceMu.Unlock()
-
-	if !ok || time.Since(ts) > 5*time.Minute {
-		c.JSON(http.StatusBadRequest, gin.H{"errcode": "M_UNKNOWN", "error": "Invalid or expired nonce"})
-
-		return
-	}
-
-	// Verify HMAC: HMAC-SHA1(key=secret, message=nonce\x00username\x00password\x00admin|notadmin)
-	adminStr := "notadmin"
-	if req.Admin {
-		adminStr = "admin"
-	}
-
-	mac := hmac.New(sha1.New, []byte(sharedRegistrationSecret()))
-	mac.Write([]byte(req.Nonce))
-	mac.Write([]byte{0})
-	mac.Write([]byte(req.Username))
-	mac.Write([]byte{0})
-	mac.Write([]byte(req.Password))
-	mac.Write([]byte{0})
-	mac.Write([]byte(adminStr))
-	expectedMAC := hex.EncodeToString(mac.Sum(nil))
-
-	if !hmac.Equal([]byte(req.Mac), []byte(expectedMAC)) {
-		c.JSON(http.StatusForbidden, gin.H{"errcode": "M_FORBIDDEN", "error": "HMAC mismatch"})
-
-		return
-	}
-
-	hs := GetHomeServer()
-
-	resp, regErr := hs.Auth.Register(&RegisterRequest{
-		Username: req.Username,
-		Password: req.Password,
-		Auth:     &UIAuthRequest{Type: "m.login.dummy"},
-	}, req.Admin)
-	if regErr != nil {
-		c.JSON(http.StatusBadRequest, regErr)
-
-		return
-	}
-
-	c.JSON(http.StatusOK, resp)
 }
