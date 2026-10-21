@@ -32,7 +32,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
-	"github.com/kasuganosora/community/httpclient"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/media"
 	"github.com/kasuganosora/community/storage"
@@ -639,7 +638,7 @@ type URLPreview struct {
 // isBlockedAddress reports whether an IP address is private, loopback,
 // link-local, or otherwise unsuitable for outbound requests (SSRF protection).
 func isBlockedAddress(ip net.IP) bool {
-	if ip == nil {
+	if ip == nil || activitypub.IsBannedIP(ip) {
 		return true
 	}
 
@@ -708,6 +707,32 @@ func validateURLForFetch(rawURL string) error {
 	return nil
 }
 
+const (
+	maxPreviewHTMLSize  = 2 * 1024 * 1024
+	maxPreviewImageSize = 10 * 1024 * 1024
+)
+
+// fetchPreviewBody GETs rawURL with the SSRF-safe client and reads at most
+// limit bytes of the body.
+func fetchPreviewBody(rawURL string, limit int64) ([]byte, error) {
+	client := activitypub.NewSafeHTTPClientWithConnectTimeout(10*time.Second, 3, 5*time.Second)
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil) //nolint:noctx // bounded by client timeout
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "CommunityMatrixBot/1.0 (+https://github.com/matrix-org)")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("preview fetch: status %d", resp.StatusCode)
+	}
+
+	return io.ReadAll(io.LimitReader(resp.Body, limit))
+}
+
 // GetURLPreview 获取 URL 预览.
 func (hs *HomeServer) GetURLPreview(urlStr string) *URLPreview {
 	// Validate URL to prevent SSRF attacks (e.g., accessing internal
@@ -722,13 +747,9 @@ func (hs *HomeServer) GetURLPreview(urlStr string) *URLPreview {
 		}
 	}
 
-	// 使用 httpclient 获取页面
-	client := httpclient.NewClient()
-	req := client.NewRequest("GET", urlStr)
-	req.SetTimeout(10)
-	req.SetUserAgent("CommunityMatrixBot/1.0 (+https://github.com/matrix-org)")
-
-	resp, err := req.Do()
+	// Fetch through the SSRF-safe client: every DNS answer is checked at dial
+	// time and every redirect is re-validated.
+	htmlBytes, err := fetchPreviewBody(urlStr, maxPreviewHTMLSize)
 	if err != nil {
 		return &URLPreview{
 			OGTitle: urlStr,
@@ -736,17 +757,7 @@ func (hs *HomeServer) GetURLPreview(urlStr string) *URLPreview {
 			OGURL:   urlStr,
 		}
 	}
-	defer resp.Close()
-
-	// 读取响应
-	htmlContent, err := resp.String()
-	if err != nil {
-		return &URLPreview{
-			OGTitle: urlStr,
-			OGType:  "website",
-			OGURL:   urlStr,
-		}
-	}
+	htmlContent := string(htmlBytes)
 
 	// 解析 Open Graph 标签
 	preview := parseOpenGraphTags(htmlContent, urlStr)
@@ -786,11 +797,6 @@ func (hs *HomeServer) processPreviewImage(preview *URLPreview, baseURL string) {
 		}
 	}
 
-	// 下载图片
-	imgClient := httpclient.NewClient()
-	imgReq := imgClient.NewRequest("GET", imageURL)
-	imgReq.SetTimeout(10)
-
 	// Validate image URL to prevent SSRF (og:image can point anywhere).
 	if err := validateURLForFetch(imageURL); err != nil {
 		log.Warn("preview image URL blocked: %v", err)
@@ -798,19 +804,12 @@ func (hs *HomeServer) processPreviewImage(preview *URLPreview, baseURL string) {
 		return
 	}
 
-	imgResp, err := imgReq.Do()
-	if err != nil {
-		return
-	}
-	defer imgResp.Close()
-
-	imgBytes, err := imgResp.GetBodyData()
+	imgBytes, err := fetchPreviewBody(imageURL, maxPreviewImageSize+1)
 	if err != nil || len(imgBytes) == 0 {
 		return
 	}
 
 	// Limit preview image size to prevent excessive memory usage (10 MB).
-	const maxPreviewImageSize = 10 * 1024 * 1024
 	if len(imgBytes) > maxPreviewImageSize {
 		log.Warn("preview image too large: %d bytes", len(imgBytes))
 

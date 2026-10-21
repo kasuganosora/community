@@ -60,6 +60,10 @@ var ssrfBannedNetworks = func() []*net.IPNet {
 // isBannedIP returns true if the IP address falls within a banned network range.
 // For IPv4-mapped IPv6 addresses (::ffff:a.b.c.d), the IPv4 portion is checked
 // against the IPv4 ban list to prevent bypassing filters via IPv6 representation.
+// IsBannedIP reports whether ip is in the SSRF banned network list
+// (loopback, private, link-local, CGNAT, benchmarking, NAT64, reserved, ...).
+func IsBannedIP(ip net.IP) bool { return isBannedIP(ip) }
+
 func isBannedIP(ip net.IP) bool {
 	if ip == nil {
 		return true

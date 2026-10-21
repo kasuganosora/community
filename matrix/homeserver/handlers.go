@@ -234,7 +234,7 @@ func RegisterRoutes(r gin.IRouter) {
 		api.POST("/media/upload", handleUploadMedia)
 		api.GET("/media/download/:serverName/:mediaId", handleDownloadMedia)
 		api.GET("/media/thumbnail/:serverName/:mediaId", handleThumbnailMedia)
-		api.GET("/media/preview_url", handlePreviewURL)
+		api.GET("/media/preview_url", previewURLRateLimit(), handlePreviewURL)
 		api.GET("/media/config", handleGetMediaConfig)
 		api.GET("/media/config/:userId", handleGetMediaConfigPerUser)
 	}
@@ -243,19 +243,19 @@ func RegisterRoutes(r gin.IRouter) {
 	r.POST("/_matrix/media/v1/upload", matrixAuthMiddleware(), handleUploadMedia)
 	r.GET("/_matrix/media/v1/download/:serverName/:mediaId", handleLegacyMediaFetch("download"))
 	r.GET("/_matrix/media/v1/thumbnail/:serverName/:mediaId", handleLegacyMediaFetch("thumbnail"))
-	r.GET("/_matrix/media/v1/preview_url", handlePreviewURL)
+	r.GET("/_matrix/media/v1/preview_url", matrixAuthMiddleware(), previewURLRateLimit(), handlePreviewURL)
 
 	// Legacy r0 media paths used by older clients.
 	r.GET("/_matrix/media/r0/download/:serverName/:mediaId", handleLegacyMediaFetch("download"))
 	r.GET("/_matrix/media/r0/thumbnail/:serverName/:mediaId", handleLegacyMediaFetch("thumbnail"))
-	r.GET("/_matrix/media/r0/preview_url", handlePreviewURL)
+	r.GET("/_matrix/media/r0/preview_url", matrixAuthMiddleware(), previewURLRateLimit(), handlePreviewURL)
 	r.GET("/_matrix/media/r0/config", handleGetMediaConfig)
 
 	// 媒体 (v3 endpoint)
 	r.POST("/_matrix/media/v3/upload", matrixAuthMiddleware(), handleUploadMedia)
 	r.GET("/_matrix/media/v3/download/:serverName/:mediaId", handleLegacyMediaFetch("download"))
 	r.GET("/_matrix/media/v3/thumbnail/:serverName/:mediaId", handleLegacyMediaFetch("thumbnail"))
-	r.GET("/_matrix/media/v3/preview_url", handlePreviewURL)
+	r.GET("/_matrix/media/v3/preview_url", matrixAuthMiddleware(), previewURLRateLimit(), handlePreviewURL)
 
 	// 媒体 (client/v1 authenticated endpoint - requires auth, returns 401 without token)
 	clientV1Media := r.Group("/_matrix/client/v1/media")
@@ -266,7 +266,7 @@ func RegisterRoutes(r gin.IRouter) {
 		clientV1Media.GET("/thumbnail/:serverName/*mediaPath", handleThumbnailMediaV1)
 		clientV1Media.POST("/upload", handleUploadMedia)
 		clientV1Media.GET("/config", handleGetMediaConfig)
-		clientV1Media.GET("/preview_url", handlePreviewURL)
+		clientV1Media.GET("/preview_url", previewURLRateLimit(), handlePreviewURL)
 	}
 
 	// r0 兼容 - unauthenticated endpoints
