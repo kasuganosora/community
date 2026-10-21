@@ -41,11 +41,18 @@ func RequestLogMiddleware() gin.HandlerFunc {
 		duration := time.Since(start)
 		status := c.Writer.Status()
 
+		// Route pattern when matched (omits private IDs); for unmatched/404
+		// requests fall back to the raw path (never the query string).
+		logPath := c.FullPath()
+		if logPath == "" {
+			logPath = c.Request.URL.Path
+		}
+
 		fields := map[string]any{
 			"request_id": requestID,
 			"method":     c.Request.Method,
-			"path":       c.FullPath(), // Route pattern only; omit private IDs and query values.
-			"status":     status,       //nolint:goconst
+			"path":       logPath,
+			"status":     status, //nolint:goconst
 			"duration":   duration.Milliseconds(),
 			"size":       c.Writer.Size(),
 		}
