@@ -312,7 +312,7 @@ func setupServer() *gin.Engine {
 	app.GET("/ready", health.ReadinessHandler())
 
 	// Prometheus 指标端点
-	app.GET("/metrics", metrics.Handler())
+	app.GET("/metrics", metrics.AccessGuard(config.C.MetricsToken, config.C.MetricsAllowedCIDRs), metrics.Handler())
 
 	// 日志统计端点（需要管理员权限）
 	logsAdminGroup := app.Group("/admin/logs", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(),

@@ -44,6 +44,8 @@ type Config struct {
 	// Reverse proxies whose forwarding headers are believed (see package
 	// clientip). Empty means loopback and private ranges.
 	TrustedProxies      string `env:"TRUSTED_PROXIES"`       // comma separated IPs/CIDRs
+	MetricsToken        string `env:"METRICS_TOKEN"`         // optional bearer token for GET /metrics
+	MetricsAllowedCIDRs string `env:"METRICS_ALLOWED_CIDRS"` // optional comma separated CIDRs/IPs allowed to GET /metrics
 	TrustedProxyHeaders string `env:"TRUSTED_PROXY_HEADERS"` // comma separated, in order of preference; empty means X-Real-IP,X-Forwarded-For
 	CORSAllowedOrigins  string `env:"CORS_ALLOWED_ORIGINS"`  // 逗号分隔的允许来源列表，为空则允许所有（仅开发模式）
 
