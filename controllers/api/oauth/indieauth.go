@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/config"
 	"github.com/pkg/errors"
 )
@@ -281,11 +282,9 @@ func isDialable(ip net.IP) bool {
 		return allowLoopbackClients()
 	}
 
-	if ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() {
-		return false
-	}
-
-	if v4 := ip.To4(); v4 != nil && v4[0] >= 240 {
+	// Enforce the shared SSRF banned-CIDR list (private, CGNAT, benchmark,
+	// NAT64, reserved, ...) so all outbound fetchers stay consistent.
+	if activitypub.IsBannedIP(ip) {
 		return false
 	}
 
