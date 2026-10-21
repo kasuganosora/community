@@ -67,6 +67,41 @@ community-transfer ... --work-dir /srv/maid-migration --final-sync --apply --rep
 
 `--final-sync` 读取 `bulk_started - 5 分钟` 以后更新的行，并删除源站已删除的行，然后导入。
 
+### 源站停机检测（`--final-sync` 前强制执行）
+
+`--final-sync` 开始读源库之前会先检测 Misskey（web + worker）是否已经完全停机，五项依次显示 通过 / 失败 / 跳过：
+
+| # | 检测项 | 判定 |
+| --- | --- | --- |
+| 1 | Misskey web process stopped (local port 3000 not listening) | `--source-web-url` 的 host:port 不能 TCP 连通 |
+| 2 | Local /api/meta unreachable | `POST --source-web-url` 无应答或非 2xx；2xx = 仍在运行 |
+| 3 | No other connections to the Misskey DB (excluding our own tool) | `pg_stat_activity` 中本库没有其他 client backend（排除本连接和 `application_name` 以 `community-transfer` 开头的连接）；失败时列出 pid / usename / application_name / client_addr / state / backend_start / query_start |
+| 4 | note table: two samples 30s apart, max(id) and row count unchanged | 间隔 `--source-check-interval`（默认 30s）两次采样 `note` 的 `max(id)` 和 `count(*)` 必须完全一致；`pg_stat_database` 的 tup_inserted/updated/deleted 作为附加证据，变化同样判失败 |
+| 5 | Redis queues have no active jobs (SKIP if Redis not configured) | `--source-redis-url` 给定时，`<prefix>:<queue>:active`（默认前缀 `bull`，队列见 `--source-queues`）必须为空；`wait` 中的积压只作提示。未配置 = SKIP |
+
+除第 5 项可以 SKIP 外，全部通过才是 **STOPPED**，否则为 **RUNNING**：`--final-sync` 打印失败原因后以退出码 3 拒绝运行（不会读源库、不会擦除工作目录）。结果写入 `<work-dir>/source-check.json`。输出不包含 DSN / 密码 / Redis URL。
+
+> ⚠️ `--source-web-url` 必须是**本机或 compose 内部地址**（默认 `http://127.0.0.1:3000/api/meta`，容器内可用 `http://web:3000/api/meta`），**不要填公网域名**：Cloudflare / 缓存可能在源站已停时仍然应答，也可能在源站仍在运行时返回错误页。第 1 项探测的端口就是这个 URL 的 host:port。非本地地址会在结果中给出警告。
+
+| 参数 | 说明 |
+| --- | --- |
+| `--check-source-stopped` | 只做检测并退出：STOPPED 退出码 0，RUNNING 退出码 3。只需要 `--source` 和 `--source-dsn`（以及下面的检测参数） |
+| `--force` | 检测为 RUNNING 也继续 `--final-sync`。**仅限在副本上演练**：打印醒目警告和一行 `WARN source-stopped check overridden with force via=cli time=… operator=… status=RUNNING failed_checks=…`，并追加到 `<work-dir>/source-check-overrides.jsonl`（操作者取 `TRANSFER_OPERATOR` / `SUDO_USER` / `USER`） |
+| `--source-web-url` | 本机 Misskey web 地址，默认 `http://127.0.0.1:3000/api/meta` |
+| `--source-redis-url` | Misskey Redis，`redis://[:密码@]host:port/db`；为空则第 5 项 SKIP |
+| `--source-redis-prefix` / `--source-queues` | Bull 键前缀（默认 `bull`）和队列名列表 |
+| `--source-check-interval` | 第 4 项两次采样的间隔，默认 `30s` |
+
+- `--fetch-only` 不检测、不拦截（源站可以在线），只打印一行提示。
+- 不带 `--fetch-only` / `--final-sync` 的直连运行、以及 `--reuse-spool`（不读源库）不受影响，已有的演练命令照常可用。用 dump 恢复出来的副本库本身是安静的，检测会通过。
+- 安装向导（Misskey 模式）在「准备迁移」页显示同样的五项检测面板（本机 Web 地址、可选的 Misskey Redis），带「重新检测」按钮；STOPPED 之前「开始迁移」按钮不可用。「高级」里的 `--force` 复选框与 CLI 一致。服务器在读取 Misskey 数据的阶段（`misskey_export`）开始前会再检测一次：RUNNING 时阶段失败（`source_running`），停机后点重试即可；强制运行写一条 WARN 日志，并记入任务状态 `source_check_overrides`，最近一次检测结果在 `source_check`。
+
+```sh
+# 停掉 Misskey web + worker 之后
+community-transfer --source misskey --source-dsn "..." --check-source-stopped \
+  --source-web-url http://127.0.0.1:3000/api/meta --source-redis-url redis://127.0.0.1:6379/0
+```
+
 ### 断点续传与幂等
 
 - 读源阶段：状态目录逐页检查点，中断后原命令重跑即可。

@@ -18,6 +18,7 @@ import (
 
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/datatransfer"
+	"github.com/kasuganosora/community/datatransfer/sourcecheck"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/migrate"
@@ -32,6 +33,10 @@ type direct struct {
 	fetchOnly, finalSync, includeRemote, reuseSpool, keepSecretSpool, skipUnattached *bool
 	batchSize                                                                        *int
 	maxRowsPerSec, batchSleep                                                        *float64
+	// source-stopped preflight (see datatransfer/sourcecheck)
+	checkStopped, force                   *bool
+	webURL, redisURL, redisPrefix, queues *string
+	checkInterval                         *time.Duration
 }
 
 func directFlags() direct {
@@ -58,6 +63,13 @@ func directFlags() direct {
 		batchSize:     flag.Int("batch-size", 5000, "direct mode: rows per keyset page / read-only source transaction"),
 		maxRowsPerSec: flag.Float64("max-rows-per-sec", 0, "direct mode: throttle source reads (0 = unlimited)"),
 		batchSleep:    flag.Float64("batch-sleep", 0, "direct mode: seconds to sleep after every source page"),
+		checkStopped:  flag.Bool("check-source-stopped", false, "direct mode: only run the source-stopped check (sessions, write activity, local web, Bull queues) and exit 0 if STOPPED, 3 if RUNNING"),
+		force:         flag.Bool("force", false, "direct mode: run --final-sync even though the source-stopped check says RUNNING (rehearsals on copies only; logged as WARN and recorded in --work-dir)"),
+		webURL:        flag.String("source-web-url", sourcecheck.DefaultWebURL, "direct mode: LOCAL/internal source web endpoint for the stopped check (e.g. http://127.0.0.1:3000/api/meta or http://web:3000/api/meta; never the public domain behind a CDN); - disables"),
+		redisURL:      flag.String("source-redis-url", "", "direct mode: source Misskey Redis (redis://[:password@]host:port/db) for the Bull queue check; empty = check skipped"),
+		redisPrefix:   flag.String("source-redis-prefix", sourcecheck.DefaultPrefix, "direct mode: Bull key prefix of the source Misskey queues"),
+		queues:        flag.String("source-queues", strings.Join(sourcecheck.DefaultQueues, ","), "direct mode: comma-separated Bull queue names to check"),
+		checkInterval: flag.Duration("source-check-interval", sourcecheck.DefaultInterval, "direct mode: time between the two write-watermark samples of the stopped check"),
 	}
 }
 
@@ -148,6 +160,10 @@ func exporterArgs(d direct, source, script, state, out string) []string {
 // bundle.json is written or loaded.
 func runDirect(d direct, source string, apply bool, reportPath string, chunkSize, maxFiles int, maxBytes int64) int {
 	code := runDirectOnce(d, source, apply, reportPath, chunkSize, maxFiles, maxBytes)
+	// 3 = source-stopped check said RUNNING: nothing was read, keep the work dir as is.
+	if (d.checkStopped != nil && *d.checkStopped) || code == exitSourceRunning {
+		return code
+	}
 	if code != 0 && *d.workDir != "" && !*d.fetchOnly && !*d.keepSecretSpool {
 		scrubFailedRun(*d.workDir)
 	}
@@ -187,6 +203,18 @@ func scrubFailedRun(workDir string) {
 func runDirectOnce(d direct, source string, apply bool, reportPath string, chunkSize, maxFiles int, maxBytes int64) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if d.checkStopped != nil && *d.checkStopped {
+		res, err := sourceCheck(ctx, d, source)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		fmt.Fprint(os.Stdout, sourcecheck.Format(res))
+		if res.Status != sourcecheck.Stopped {
+			return exitSourceRunning
+		}
+		return 0
+	}
 	if *d.workDir == "" || *d.baseURL == "" || (*d.fetchOnly && *d.finalSync) || *d.batchSize <= 0 || *d.maxRowsPerSec < 0 || *d.batchSleep < 0 {
 		fmt.Fprintln(os.Stderr, "Direct mode needs --source misskey|mastodon, --source-dsn, --source-base-url and --work-dir (--fetch-only and --final-sync are exclusive).")
 		return 1
@@ -202,6 +230,9 @@ func runDirectOnce(d direct, source string, apply bool, reportPath string, chunk
 	}
 	// The exporter runs with umask 077; tighten anything an older run left.
 	_ = datatransfer.TightenTree(*d.workDir)
+	if code := sourceGate(ctx, d, source); code != 0 {
+		return code
+	}
 	state := filepath.Join(*d.workDir, "state")
 	spoolPath := filepath.Join(*d.workDir, "spool.sqlite3")
 	// Seal plaintext secrets an older exporter left in the fetch state; the

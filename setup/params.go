@@ -97,6 +97,8 @@ type MisskeyParams struct {
 	// downloads every object (resumable) and imports the bytes.
 	MediaMode     string              `json:"media_mode"`
 	ObjectStorage ObjectStorageParams `json:"object_storage"`
+	// StopCheck gates the final read on Misskey being stopped.
+	StopCheck StopCheckParams `json:"stop_check"`
 }
 
 func (p *DatabaseParams) normalize() *Error {

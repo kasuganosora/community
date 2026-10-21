@@ -278,7 +278,8 @@
     "mastodon_not_mastodon": "Mastodon のデータベースではないようです。",
     "mastodon_files_required": "Mastodon の public/system ディレクトリを入力してください。",
     "mastodon_files_missing": "public/system ディレクトリがコンテナ内に存在しません。",
-    "builtin_database_unavailable": "この環境では内蔵データベースを利用できません。別の種類を選択してください。"
+    "builtin_database_unavailable": "この環境では内蔵データベースを利用できません。別の種類を選択してください。",
+    "source_running": "Misskey がまだ動作しています。Misskey の web と worker を停止してから再試行してください。"
   },
   "mastodon": {
     "step": "Mastodon の移行元",
@@ -301,5 +302,37 @@
     "import": "インポート",
     "media": "メディアをコピー",
     "final sync": "最終同期"
+  },
+  "stopCheck": {
+    "title": "移行元は停止していますか",
+    "hint": "最終同期は Misskey の web と worker が完全に停止してから開始してください。5 項目すべてに合格する必要があります（Redis のみスキップ可）。",
+    "webURL": "ローカルの Misskey Web URL",
+    "webURLHint": "ローカルまたは compose 内部のアドレス（例: http://127.0.0.1:3000/api/meta、http://web:3000/api/meta）。公開ドメインは不可：Misskey 停止中でも CDN やキャッシュが応答することがあります。",
+    "redisAddress": "Misskey の Redis（任意）",
+    "redisHint": "Misskey の Redis の host:port。空欄ならキューの確認をスキップします。",
+    "redisPrefix": "キューのキー接頭辞",
+    "redisPassword": "Redis パスワード",
+    "redisDB": "Redis データベース番号",
+    "run": "確認する",
+    "recheck": "再確認",
+    "checking": "確認中（約 30 秒）…",
+    "stopped": "STOPPED：Misskey は停止しています。最終同期を開始できます。",
+    "running": "RUNNING：Misskey は停止していません。不合格の項目を解消して再確認してください。",
+    "blocked": "結果が STOPPED になるまで移行は開始できません。",
+    "advanced": "詳細設定",
+    "force": "Misskey が停止していなくても開始する（--force）",
+    "forceHint": "データベースのコピーでのリハーサル専用です。読み取り後の書き込みは失われます。強制実行は毎回警告としてログとジョブに記録されます。",
+    "items": {
+      "web_port": "1. Misskey の Web プロセスが停止（ローカルのポート 3000 が待ち受けていない）",
+      "web_meta": "2. ローカルの /api/meta に到達できない",
+      "sessions": "3. Misskey DB に他の接続がない（このツール自身を除く）",
+      "note_writes": "4. note テーブル：30 秒間隔の 2 回の計測で max(id) と行数が同じ",
+      "queues": "5. Redis キューに実行中のジョブがない（Redis 未設定ならスキップ）"
+    },
+    "status": {
+      "pass": "合格",
+      "fail": "不合格",
+      "skipped": "スキップ"
+    }
   }
 }

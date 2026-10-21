@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kasuganosora/community/datatransfer/sourcecheck"
 	"github.com/kasuganosora/community/log"
 )
 
@@ -83,6 +84,10 @@ type Job struct {
 	// retry before the config stage finished.
 	Target DatabaseParams `json:"target"`
 	Redis  RedisParams    `json:"redis"`
+	// SourceCheck is the last "source stopped" check before the final read;
+	// SourceCheckOverrides records every forced run.
+	SourceCheck          *sourcecheck.Result    `json:"source_check,omitempty"`
+	SourceCheckOverrides []sourcecheck.Override `json:"source_check_overrides,omitempty"`
 }
 
 // jobSecrets are needed only while a job runs and are deleted afterwards.
@@ -93,6 +98,8 @@ type jobSecrets struct {
 	AdminHash        string `json:"admin_hash"`
 	MisskeyPassword  string `json:"misskey_password,omitempty"` // source DB password (Misskey or Mastodon)
 	S3SecretKey      string `json:"s3_secret_key,omitempty"`
+	// MisskeyRedisPassword is the source Redis password of the stop check.
+	MisskeyRedisPassword string `json:"misskey_redis_password,omitempty"`
 }
 
 const maxLogLines = 500

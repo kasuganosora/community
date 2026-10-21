@@ -9,6 +9,13 @@ const job = { id: 'job-1', status: 'running', stages: [{ name: 'schema', status:
 const calls: { path: string; body: Record<string, unknown>; signal?: AbortSignal | null }[] = []
 const overrides = new Map<string, () => Promise<Response>>()
 let wrappers: VueWrapper[] = []
+const checkNames = ['web_port', 'web_meta', 'sessions', 'note_writes', 'queues']
+function stoppedResult(status: 'STOPPED' | 'RUNNING') {
+  return { status, checked_at: '2026-10-21T10:00:00Z', checks: checkNames.map(name => ({
+    name, title: name, status: name === 'queues' ? 'skipped' : status === 'RUNNING' && name === 'sessions' ? 'fail' : 'pass',
+    reasons: status === 'RUNNING' && name === 'sessions' ? ['1 other client session(s) connected to the source database', 'pid=42 user=misskey'] : ['ok'],
+  })) }
+}
 beforeEach(() => {
   applyLocale('en')
   sessionStorage.removeItem('setup-token')
@@ -21,6 +28,7 @@ beforeEach(() => {
     if (path === 'status') return reply({ env_file: '/app/config/.env', defaults: { sqlite_path: '/app/data/community.db' } })
     if (path === 'install' || path === 'job' || path === 'job/retry') return reply(job)
     if (path === 'test/misskey') return reply({ inspection: { counts: { users: 2 }, id_method: 'aid', detected_base_url: 'https://old.example', uses_object_storage: false } })
+    if (path === 'test/source-stopped') return reply({ result: stoppedResult('STOPPED') })
     if (path === 'test/mastodon') return reply({ inspection: { counts: { local_users: 2, remote_users: 5 }, detected_base_url: 'https://old.example' } })
     return reply({ ok: true })
   }))
@@ -237,6 +245,7 @@ async function finishMigrationReview(w: VueWrapper) {
   await w.get('[data-field="password"]').setValue('qa-password')
   await submit(w)
   expect(w.get('h2').text()).toBe('Ready to migrate')
+  if (w.find('[data-testid="stop-check-run"]').exists()) { await w.get('[data-testid="stop-check-run"]').trigger('click'); await flushPromises() }
 }
 function storedMediaInspection(extra = {}) {
   return reply({ inspection: {
@@ -449,5 +458,47 @@ describe('migration progress bar', () => {
     expect(bar.classes()).toContain('stage__bar--failed')
     expect(bar.text()).toContain('stopped here')
     expect(bar.text()).not.toContain('left')
+  })
+})
+
+describe('source stopped check', () => {
+  async function toReview() {
+    const w = await setup(); await toMedia(w, 'misskey'); await submit(w)
+    await submit(w); await submit(w); await submit(w)
+    await w.get('[data-field="username"]').setValue('admin')
+    await w.get('[data-field="email"]').setValue('admin@example.org')
+    await w.get('[data-field="password"]').setValue('qa-password')
+    await submit(w)
+    return w
+  }
+  const primary = (w: VueWrapper) => w.get('.actions .btn--primary').element as HTMLButtonElement
+  it('blocks the final sync until Misskey is STOPPED and lists every check', async () => {
+    const w = await toReview()
+    expect(w.find('[data-testid="stop-check"]').exists()).toBe(true)
+    expect(primary(w).disabled).toBe(true)
+    overrides.set('test/source-stopped', () => reply({ result: stoppedResult('RUNNING') }))
+    await w.get('[data-testid="stop-check-run"]').trigger('click'); await flushPromises()
+    expect(w.findAll('.stop-check__item').map(i => i.attributes('data-check'))).toEqual(checkNames)
+    expect(w.get('[data-check="sessions"]').text()).toContain('Fail')
+    expect(w.get('[data-check="sessions"]').text()).toContain('pid=42')
+    expect(w.get('[data-check="queues"]').text()).toContain('Skipped')
+    expect(w.get('[data-check="web_port"]').text()).toContain('local port 3000 not listening')
+    expect(w.get('[data-testid="stop-check-run"]').text()).toBe('Check again')
+    expect(primary(w).disabled).toBe(true)
+    overrides.delete('test/source-stopped')
+    await w.get('[data-testid="stop-check-run"]').trigger('click'); await flushPromises()
+    expect(w.get('[data-testid="stop-check-status"]').text()).toContain('STOPPED')
+    expect(primary(w).disabled).toBe(false)
+    await submit(w)
+    expect(calls.find(c => c.path === 'install')?.body.misskey).toMatchObject({ stop_check: { web_url: 'http://127.0.0.1:3000/api/meta', force: false } })
+  })
+  it('the force override enables the button and is sent to the server', async () => {
+    const w = await toReview()
+    overrides.set('test/source-stopped', () => reply({ result: stoppedResult('RUNNING') }))
+    await w.get('[data-testid="stop-check-run"]').trigger('click'); await flushPromises()
+    await w.get('[data-testid="stop-check-force"]').setValue(true)
+    expect(primary(w).disabled).toBe(false)
+    await submit(w)
+    expect(calls.find(c => c.path === 'install')?.body.misskey).toMatchObject({ stop_check: { force: true } })
   })
 })

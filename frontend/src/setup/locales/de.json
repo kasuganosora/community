@@ -278,7 +278,8 @@
     "mastodon_not_mastodon": "Diese Datenbank sieht nicht nach einer Mastodon-Datenbank aus.",
     "mastodon_files_required": "Gib das Mastodon-Verzeichnis public/system an.",
     "mastodon_files_missing": "Das Verzeichnis public/system existiert im Container nicht.",
-    "builtin_database_unavailable": "In dieser Bereitstellung ist keine integrierte Datenbank verfügbar. Wählen Sie einen anderen Datenbanktyp."
+    "builtin_database_unavailable": "In dieser Bereitstellung ist keine integrierte Datenbank verfügbar. Wählen Sie einen anderen Datenbanktyp.",
+    "source_running": "Misskey läuft noch. Stoppe Misskey Web und Worker und versuche es erneut."
   },
   "mastodon": {
     "step": "Mastodon-Quelle",
@@ -301,5 +302,37 @@
     "import": "Import",
     "media": "Medien werden kopiert",
     "final sync": "Abschließende Synchronisierung"
+  },
+  "stopCheck": {
+    "title": "Ist das Quell-Misskey gestoppt?",
+    "hint": "Das abschließende Lesen darf erst beginnen, wenn Web und Worker von Misskey vollständig gestoppt sind. Alle fünf Prüfungen müssen bestehen (nur die Redis-Prüfung darf übersprungen werden).",
+    "webURL": "Lokale Misskey-Web-URL",
+    "webURLHint": "Lokale oder Compose-interne Adresse, z. B. http://127.0.0.1:3000/api/meta oder http://web:3000/api/meta. Niemals die öffentliche Domain: Ein CDN oder Cache kann antworten, obwohl Misskey gestoppt ist.",
+    "redisAddress": "Misskey-Redis (optional)",
+    "redisHint": "host:port des Misskey-Redis. Leer lassen, um die Warteschlangenprüfung zu überspringen.",
+    "redisPrefix": "Schlüsselpräfix der Warteschlangen",
+    "redisPassword": "Redis-Passwort",
+    "redisDB": "Redis-Datenbank",
+    "run": "Jetzt prüfen",
+    "recheck": "Erneut prüfen",
+    "checking": "Prüfe (etwa 30 s)…",
+    "stopped": "STOPPED: Misskey ist gestoppt. Die abschließende Synchronisierung kann beginnen.",
+    "running": "RUNNING: Misskey ist nicht gestoppt. Behebe die fehlgeschlagenen Prüfungen und prüfe erneut.",
+    "blocked": "Die Migration kann erst beginnen, wenn die Prüfung STOPPED meldet.",
+    "advanced": "Erweitert",
+    "force": "Auch starten, wenn Misskey nicht gestoppt ist (--force)",
+    "forceHint": "Nur für Proben auf einer Datenbankkopie. Schreibvorgänge nach dem Lesen gehen verloren. Jeder erzwungene Lauf wird als Warnung protokolliert und im Auftrag festgehalten.",
+    "items": {
+      "web_port": "1. Misskey-Webprozess gestoppt (lokaler Port 3000 lauscht nicht)",
+      "web_meta": "2. Lokales /api/meta nicht erreichbar",
+      "sessions": "3. Keine anderen Verbindungen zur Misskey-DB (außer unserem Werkzeug)",
+      "note_writes": "4. Tabelle note: zwei Messungen im Abstand von 30 s, max(id) und Zeilenzahl unverändert",
+      "queues": "5. Keine aktiven Jobs in den Redis-Warteschlangen (SKIP, wenn Redis nicht konfiguriert)"
+    },
+    "status": {
+      "pass": "Bestanden",
+      "fail": "Fehlgeschlagen",
+      "skipped": "Übersprungen"
+    }
   }
 }

@@ -595,6 +595,10 @@ func stageMisskeyExport(ctx context.Context, r *runner) error {
 	if !exporterAvailable(script) {
 		return fail("export_tool_missing")
 	}
+	// The final read must not start while Misskey (web + worker) still runs.
+	if err := r.gateSourceStopped(ctx, *m); err != nil {
+		return err
+	}
 	_ = os.RemoveAll(out)
 	idMethod := m.IDMethod
 	if idMethod == "" {

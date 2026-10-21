@@ -278,7 +278,8 @@
     "mastodon_not_mastodon": "That database doesn’t look like a Mastodon database.",
     "mastodon_files_required": "Enter the Mastodon public/system directory.",
     "mastodon_files_missing": "The public/system directory doesn’t exist inside the container.",
-    "builtin_database_unavailable": "No built-in database is available in this deployment. Choose another database type."
+    "builtin_database_unavailable": "No built-in database is available in this deployment. Choose another database type.",
+    "source_running": "Misskey is still running. Stop Misskey web and worker, then retry."
   },
   "mastodon": {
     "step": "Mastodon source",
@@ -301,5 +302,37 @@
     "import": "Importing",
     "media": "Copying media",
     "final sync": "Final sync"
+  },
+  "stopCheck": {
+    "title": "Is the Misskey source stopped?",
+    "hint": "The final read must start only after Misskey web and worker are fully stopped. All five checks must pass (only the Redis check may be skipped).",
+    "webURL": "Local Misskey web URL",
+    "webURLHint": "The local or compose-internal address, e.g. http://127.0.0.1:3000/api/meta or http://web:3000/api/meta. Never the public domain: a CDN or cache can answer while Misskey is down.",
+    "redisAddress": "Misskey Redis (optional)",
+    "redisHint": "host:port of Misskey's Redis. Leave empty to skip the queue check.",
+    "redisPrefix": "Queue key prefix",
+    "redisPassword": "Redis password",
+    "redisDB": "Redis database",
+    "run": "Check now",
+    "recheck": "Check again",
+    "checking": "Checking (about 30 s)…",
+    "stopped": "STOPPED: Misskey is stopped. The final sync can start.",
+    "running": "RUNNING: Misskey is not stopped. Fix the failed checks below and check again.",
+    "blocked": "The migration can start only after the check says STOPPED.",
+    "advanced": "Advanced",
+    "force": "Start even if Misskey is not stopped (--force)",
+    "forceHint": "For rehearsals on a database copy only. Writes after the read are lost. Every forced run is logged as a warning and recorded in the job.",
+    "items": {
+      "web_port": "1. Misskey web process stopped (local port 3000 not listening)",
+      "web_meta": "2. Local /api/meta unreachable",
+      "sessions": "3. No other connections to the Misskey DB (excluding our own tool)",
+      "note_writes": "4. note table: two samples 30s apart, max(id) and row count unchanged",
+      "queues": "5. Redis queues have no active jobs (SKIP if Redis not configured)"
+    },
+    "status": {
+      "pass": "Pass",
+      "fail": "Fail",
+      "skipped": "Skipped"
+    }
   }
 }

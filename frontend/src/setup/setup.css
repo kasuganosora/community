@@ -156,3 +156,15 @@ input:disabled, select:disabled { opacity: .65; cursor: wait; }
 .stage__bar-stopped { color: var(--err); font-weight: 600; }
 @keyframes bar-slide { 0% { left: -35%; } 100% { left: 100%; } }
 @media (prefers-reduced-motion: reduce) { .bar__fill--indeterminate { animation: none; left: 0; width: 100%; opacity: .5; } .bar__fill { transition: none; } }
+
+.stop-check { margin-top: 20px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; gap: 12px; }
+.stop-check h3 { margin: 0; font-size: 16px; }
+.stop-check__list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.stop-check__item { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.stop-check__head { display: flex; justify-content: space-between; gap: 12px; }
+.stop-check__item--pass .stop-check__status { color: var(--ok); }
+.stop-check__item--fail { border-color: color-mix(in srgb, var(--err) 35%, var(--border)); }
+.stop-check__item--fail .stop-check__status { color: var(--err); }
+.stop-check__item--skipped .stop-check__status { color: var(--muted); }
+.stop-check__reasons { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.stop-check__advanced summary { cursor: pointer; color: var(--muted); }

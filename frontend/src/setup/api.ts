@@ -57,3 +57,6 @@ export interface Inspection {
   object_storage?: { endpoint: string; bucket: string; region: string; access_key: string; public_url: string; path_style: boolean }
   has_object_secret?: boolean
 }
+
+export interface SourceCheckItem { name: 'web_port' | 'web_meta' | 'sessions' | 'note_writes' | 'queues'; title: string; status: 'pass' | 'fail' | 'skipped'; reasons?: string[] }
+export interface SourceCheckResult { status: 'STOPPED' | 'RUNNING'; checks: SourceCheckItem[]; checked_at: string }

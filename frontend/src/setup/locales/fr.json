@@ -278,7 +278,8 @@
     "mastodon_not_mastodon": "Cette base ne ressemble pas à une base Mastodon.",
     "mastodon_files_required": "Indiquez le répertoire public/system de Mastodon.",
     "mastodon_files_missing": "Le répertoire public/system n’existe pas dans le conteneur.",
-    "builtin_database_unavailable": "Aucune base de données intégrée n’est disponible. Choisissez un autre type de base de données."
+    "builtin_database_unavailable": "Aucune base de données intégrée n’est disponible. Choisissez un autre type de base de données.",
+    "source_running": "Misskey fonctionne encore. Arrêtez le web et le worker de Misskey puis réessayez."
   },
   "mastodon": {
     "step": "Source Mastodon",
@@ -301,5 +302,37 @@
     "import": "Importation",
     "media": "Copie des médias",
     "final sync": "Synchronisation finale"
+  },
+  "stopCheck": {
+    "title": "Le Misskey source est-il arrêté ?",
+    "hint": "La lecture finale ne doit commencer qu’une fois le web et le worker de Misskey complètement arrêtés. Les cinq vérifications doivent réussir (seule celle de Redis peut être ignorée).",
+    "webURL": "URL locale du web Misskey",
+    "webURLHint": "Adresse locale ou interne à compose, p. ex. http://127.0.0.1:3000/api/meta ou http://web:3000/api/meta. Jamais le domaine public : un CDN ou un cache peut répondre alors que Misskey est arrêté.",
+    "redisAddress": "Redis de Misskey (facultatif)",
+    "redisHint": "host:port du Redis de Misskey. Laissez vide pour ignorer la vérification des files.",
+    "redisPrefix": "Préfixe des clés de file",
+    "redisPassword": "Mot de passe Redis",
+    "redisDB": "Base Redis",
+    "run": "Vérifier",
+    "recheck": "Vérifier à nouveau",
+    "checking": "Vérification (environ 30 s)…",
+    "stopped": "STOPPED : Misskey est arrêté. La synchronisation finale peut commencer.",
+    "running": "RUNNING : Misskey n’est pas arrêté. Corrigez les vérifications en échec puis vérifiez à nouveau.",
+    "blocked": "La migration ne peut commencer qu’une fois le résultat STOPPED.",
+    "advanced": "Avancé",
+    "force": "Démarrer même si Misskey n’est pas arrêté (--force)",
+    "forceHint": "Uniquement pour des répétitions sur une copie de la base. Les écritures postérieures à la lecture sont perdues. Chaque exécution forcée est journalisée en avertissement et enregistrée dans la tâche.",
+    "items": {
+      "web_port": "1. Processus web de Misskey arrêté (port local 3000 non à l’écoute)",
+      "web_meta": "2. /api/meta local injoignable",
+      "sessions": "3. Aucune autre connexion à la base Misskey (hors notre outil)",
+      "note_writes": "4. Table note : deux mesures à 30 s d’intervalle, max(id) et nombre de lignes inchangés",
+      "queues": "5. Aucune tâche active dans les files Redis (SKIP si Redis non configuré)"
+    },
+    "status": {
+      "pass": "Réussi",
+      "fail": "Échec",
+      "skipped": "Ignoré"
+    }
   }
 }

@@ -278,7 +278,8 @@
     "mastodon_not_mastodon": "此資料庫看起來不是 Mastodon 資料庫。",
     "mastodon_files_required": "請輸入 Mastodon 的 public/system 目錄。",
     "mastodon_files_missing": "容器內不存在該 public/system 目錄。",
-    "builtin_database_unavailable": "目前部署未提供內建資料庫，請選擇其他資料庫類型。"
+    "builtin_database_unavailable": "目前部署未提供內建資料庫，請選擇其他資料庫類型。",
+    "source_running": "Misskey 仍在執行。請停止 Misskey web 與 worker 後重試。"
   },
   "mastodon": {
     "step": "Mastodon 來源",
@@ -301,5 +302,37 @@
     "import": "匯入",
     "media": "複製媒體",
     "final sync": "最終同步"
+  },
+  "stopCheck": {
+    "title": "來源站是否已停機",
+    "hint": "最終同步必須在 Misskey 的 web 與 worker 全部停止後才能開始。五項檢測必須全部通過（只有 Redis 一項可以略過）。",
+    "webURL": "本機 Misskey Web 位址",
+    "webURLHint": "填本機或 compose 內部位址，例如 http://127.0.0.1:3000/api/meta 或 http://web:3000/api/meta。不要填公開網域：CDN／快取可能在 Misskey 已停時仍然回應。",
+    "redisAddress": "Misskey Redis（選填）",
+    "redisHint": "Misskey 使用的 Redis 的 host:port。留空則略過佇列檢測。",
+    "redisPrefix": "佇列鍵前綴",
+    "redisPassword": "Redis 密碼",
+    "redisDB": "Redis 資料庫編號",
+    "run": "開始檢測",
+    "recheck": "重新檢測",
+    "checking": "檢測中（約 30 秒）…",
+    "stopped": "已停機（STOPPED）：可以開始最終同步。",
+    "running": "仍在執行（RUNNING）：請處理下方失敗的項目後重新檢測。",
+    "blocked": "檢測結果為「已停機」後才能開始遷移。",
+    "advanced": "進階",
+    "force": "即使 Misskey 未停機也開始（--force）",
+    "forceHint": "僅用於在資料庫副本上演練。讀取之後的寫入會遺失。每次強制執行都會記錄一則警告並寫入任務紀錄。",
+    "items": {
+      "web_port": "1. Misskey Web 行程已停止（本機 3000 埠未監聽）",
+      "web_meta": "2. 本機 /api/meta 無法存取",
+      "sessions": "3. Misskey 資料庫沒有其他連線（不含遷移工具本身）",
+      "note_writes": "4. note 表：間隔 30 秒兩次取樣，max(id) 與列數不變",
+      "queues": "5. Redis 佇列無進行中的工作（未設定 Redis 則略過）"
+    },
+    "status": {
+      "pass": "通過",
+      "fail": "失敗",
+      "skipped": "略過"
+    }
   }
 }

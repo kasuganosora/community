@@ -138,6 +138,7 @@ func (s *Server) Handler() *gin.Engine {
 	api.POST("/test/misskey", s.testMisskey)
 	api.POST("/test/mastodon", s.testMastodon)
 	api.POST("/test/object-storage", s.testObjectStorage)
+	api.POST("/test/source-stopped", s.testSourceStopped)
 	api.POST("/install", s.install)
 	api.GET("/job", func(c *gin.Context) {
 		if !s.checkToken(c) {
@@ -525,8 +526,10 @@ func prepareInstall(ctx context.Context, req *InstallRequest) (*Job, *jobSecrets
 		}
 		secrets.MisskeyPassword = m.Password
 		secrets.S3SecretKey = m.ObjectStorage.SecretKey
+		secrets.MisskeyRedisPassword = m.StopCheck.RedisPassword
 		m.Password = ""
 		m.ObjectStorage.SecretKey = ""
+		m.StopCheck.RedisPassword = ""
 	} else if req.Mode == "mastodon" {
 		if req.Mastodon == nil {
 			return nil, nil, fail("mastodon_fields_required")

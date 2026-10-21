@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { call, getToken, setToken, SetupApiError, type Inspection, type Job, type StageProgress } from './api'
+import { call, getToken, setToken, SetupApiError, type Inspection, type Job, type SourceCheckResult, type StageProgress } from './api'
 import { LOCALES, applyLocale, type Locale } from './i18n'
 import SecretField from './SecretField.vue'
 import { normalizeSetupDomain, normalizeStorageURL } from './validation'
@@ -51,6 +51,12 @@ const source = reactive({
   media_source: 'local' as 'local' | 's3', files_path: '/misskey/files', media_mode: 'reference' as 'reference' | 'copy',
   object_storage: { endpoint: '', bucket: '', region: '', access_key: '', secret_key: '', public_url: '', path_style: true },
 })
+// "Is Misskey stopped?" check before the final read. web_url must be the
+// LOCAL Misskey (never the public domain behind a CDN).
+const stopCheck = reactive({ web_url: 'http://127.0.0.1:3000/api/meta', redis_address: '', redis_password: '', redis_db: 0, redis_prefix: 'bull', force: false })
+const sourceCheck = ref<SourceCheckResult | null>(null)
+const sourceStopped = computed(() => sourceCheck.value?.status === 'STOPPED')
+watch(() => [stopCheck.web_url, stopCheck.redis_address, stopCheck.redis_password, stopCheck.redis_db, stopCheck.redis_prefix], () => { sourceCheck.value = null })
 // Mastodon has no ID method and keeps its storage settings outside the database.
 const mastodonSource = reactive({
   host: '127.0.0.1', port: 5432, name: 'mastodon_production', user: 'mastodon', password: '', sslmode: 'disable', id_method: '',
@@ -101,7 +107,9 @@ const primaryLabel = computed(() => {
   if (returningToReview.value) return t('common.reviewBack')
   return t('common.next')
 })
-const primaryDisabled = computed(() => busy.value || step.value === 'token' && !token.value.trim())
+// The final read starts with the install: block it until Misskey is stopped (or forced).
+const needsStopCheck = computed(() => mode.value === 'misskey' && step.value === 'review')
+const primaryDisabled = computed(() => busy.value || step.value === 'token' && !token.value.trim() || needsStopCheck.value && !sourceStopped.value && !stopCheck.force)
 
 const steps = computed<Step[]>(() => migrating.value
   ? ['language', 'token', 'mode', 'source', 'media', 'domain', 'database', 'redis', 'admin', 'review']
@@ -168,8 +176,15 @@ function databaseBody() {
   return db.type === 'sqlite' ? { type: 'sqlite', path: db.path } : { ...db, port: Number(db.port) }
 }
 function misskeyBody() {
-  return { ...source, port: Number(source.port), object_storage: storageBody(source) }
+  return { ...source, port: Number(source.port), object_storage: storageBody(source), stop_check: { ...stopCheck, redis_db: Number(stopCheck.redis_db) } }
 }
+function checkStatusText(status: string) { return t(`stopCheck.status.${status}`) }
+const runSourceCheck = () => guarded('stopcheck', async () => {
+  sourceCheck.value = null
+  const res = await request<{ result: SourceCheckResult }>('POST', 'test/source-stopped', misskeyBody())
+  if (!active) return
+  sourceCheck.value = res.result
+})
 function storageBody(value: typeof source) {
   // Hidden credentials are not relevant to local files or URL references.
   if (value.media_source === 'local') return {}
@@ -658,6 +673,32 @@ onBeforeUnmount(() => { active = false; pollVersion++; clearTimeout(poll); clear
             <div v-if="migrating" class="summary__row"><dt>{{ stepLabel('source') }}</dt><dd>{{ src.host }}:{{ src.port }} / {{ src.name }}</dd><dd><button type="button" class="btn btn--ghost btn--edit" :aria-label="`${t('common.edit')} · ${stepLabel('source')}`" @click="editStep('source')">{{ t('common.edit') }}</button></dd></div>
             <div v-if="migrating" class="summary__row"><dt>{{ t('steps.media') }}</dt><dd>{{ mediaSummary }}</dd><dd><button type="button" class="btn btn--ghost btn--edit" :aria-label="`${t('common.edit')} · ${t('steps.media')}`" @click="editStep('media')">{{ t('common.edit') }}</button></dd></div>
           </dl>
+          <section v-if="mode === 'misskey'" class="stop-check" data-testid="stop-check" aria-labelledby="stop-check-title">
+            <h3 id="stop-check-title">{{ t('stopCheck.title') }}</h3>
+            <p class="muted">{{ t('stopCheck.hint') }}</p>
+            <div class="grid">
+              <label class="field field--wide"><span>{{ t('stopCheck.webURL') }}</span><input v-model="stopCheck.web_url" data-field="stop_web_url" type="url" required spellcheck="false" autocapitalize="off"><small>{{ t('stopCheck.webURLHint') }}</small></label>
+              <label class="field"><span>{{ t('stopCheck.redisAddress') }}</span><input v-model="stopCheck.redis_address" data-field="stop_redis_address" placeholder="127.0.0.1:6379" spellcheck="false" autocapitalize="off"><small>{{ t('stopCheck.redisHint') }}</small></label>
+              <label class="field"><span>{{ t('stopCheck.redisPrefix') }}</span><input v-model="stopCheck.redis_prefix" spellcheck="false" autocapitalize="off"></label>
+              <label v-if="stopCheck.redis_address" class="field"><span>{{ t('stopCheck.redisPassword') }}</span><input v-model="stopCheck.redis_password" type="password" autocomplete="off"></label>
+              <label v-if="stopCheck.redis_address" class="field"><span>{{ t('stopCheck.redisDB') }}</span><input v-model.number="stopCheck.redis_db" type="number" min="0" max="15"></label>
+            </div>
+            <p v-if="sourceCheck" class="notice" :class="sourceStopped ? 'notice--ok' : 'notice--error'" role="status" data-testid="stop-check-status">{{ sourceStopped ? t('stopCheck.stopped') : t('stopCheck.running') }}</p>
+            <ol v-if="sourceCheck" class="stop-check__list">
+              <li v-for="c in sourceCheck.checks" :key="c.name" :class="`stop-check__item stop-check__item--${c.status}`" :data-check="c.name">
+                <div class="stop-check__head"><span class="stop-check__name">{{ te(`stopCheck.items.${c.name}`) ? t(`stopCheck.items.${c.name}`) : c.title }}</span><b class="stop-check__status">{{ checkStatusText(c.status) }}</b></div>
+                <ul v-if="c.reasons?.length" class="stop-check__reasons"><li v-for="(r, i) in c.reasons" :key="i">{{ r }}</li></ul>
+              </li>
+            </ol>
+            <div class="actions">
+              <button type="button" class="btn" :disabled="busy" data-testid="stop-check-run" @click="runSourceCheck"><span v-if="busy && pending === 'stopcheck'" class="spinner" aria-hidden="true" />{{ busy && pending === 'stopcheck' ? t('stopCheck.checking') : sourceCheck ? t('stopCheck.recheck') : t('stopCheck.run') }}</button>
+            </div>
+            <details class="stop-check__advanced">
+              <summary>{{ t('stopCheck.advanced') }}</summary>
+              <label class="choice"><input v-model="stopCheck.force" type="checkbox" data-testid="stop-check-force"><strong>{{ t('stopCheck.force') }}</strong><small>{{ t('stopCheck.forceHint') }}</small></label>
+            </details>
+            <p v-if="!sourceStopped && !stopCheck.force" class="notice notice--warn" role="status">{{ t('stopCheck.blocked') }}</p>
+          </section>
           <p class="muted">{{ t('review.hint', { path: envFile }) }}</p>
         </template>
         </fieldset>
