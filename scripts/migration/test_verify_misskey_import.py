@@ -30,6 +30,8 @@ class FakeDB:
     def q(self, sql):
         w, s = self.w, sql
         if self.name == "misskey":
+            if "/* 2-full */" in s:
+                return [[u, "u" + u, w.get("mk_keys", {}).get(u, PEM)] for u in w["mk_users"]] + [["9ia", "instance.actor", w["mk_instance_key"]]]
             if "instance.actor" in s:
                 return [["9ia", w["mk_instance_key"]]]
             if "relay.actor" in s:
@@ -43,6 +45,9 @@ class FakeDB:
             if "FROM following" in s:
                 return [["0", "0"]]
             return [["0"]]
+        if "/* 2-full */" in s:
+            rows = [[str(10 + i), O + "/users/" + u, w.get("cm_keys", {}).get(u, PEM), O + "/users/" + u + "#main-key"] for i, u in enumerate(w["cm_users"])]
+            return rows + ([["7", O + "/users/9ia", w["cm_instance_key"], None]] if w["cm_users"] else [])
         if "local_actor_uri FROM accounts" in s:
             return [[O + "/users/" + u] for u in w["cm_users"]]
         if "count(*) FROM accounts" in s:
@@ -139,6 +144,35 @@ class VerifyTests(unittest.TestCase):
         code, out = run(world(designated=False))
         self.assertEqual(code, 1)
         self.assertIn("[FAIL] 5 instance actor key", out)
+
+    def test_full_key_check_passes_for_every_user(self):
+        code, out = run(world())
+        self.assertIn("[PASS] 2-full actor URI/publicKey (all local users, DB): 4/4", out)
+        self.assertIn("instance.actor", out)
+
+    def test_full_key_check_fails_on_one_wrong_key(self):
+        bad = "-----BEGIN PUBLIC KEY-----\nBBBB\n-----END PUBLIC KEY-----"
+        code, out = run(world(cm_keys={"b2": bad}))
+        self.assertEqual(code, 1)
+        self.assertIn("[FAIL] 2-full actor URI/publicKey (all local users, DB): 3/4", out)
+        self.assertIn("b2 @ub2: account 11 public key sha256 %s != misskey %s" % (v.key_digest(bad)[:16], v.key_digest(PEM)[:16]), out)
+        self.assertNotIn("BBBB", out, "key material is never printed")
+
+    def test_full_key_check_whitespace_normalized(self):
+        code, out = run(world(cm_keys={"a1": PEM.replace("\n", "\r\n") + "\n"}))
+        self.assertIn("[PASS] 2-full", out)
+
+    def test_full_key_check_fails_on_missing_rows(self):
+        code, out = run(world(cm_users=["a1", "b2"], cm_keys={"a1": None}, mk_keys={"b2": None}))
+        self.assertEqual(code, 1)
+        self.assertIn("[FAIL] 2-full", out)
+        self.assertIn("c3 @uc3: no community account with local_actor_uri %s/users/c3" % O, out)
+        self.assertIn("a1 @ua1: account 10 has no account_keys.public_key", out)
+        self.assertIn("b2 @ub2: misskey user_keypair.publicKey missing", out)
+
+    def test_full_key_check_instance_actor_key(self):
+        code, out = run(world(cm_instance_key=PEM))
+        self.assertIn("9ia @instance.actor (instance actor): account 7 public key sha256", out)
 
     def test_connection_error_reported_not_http0(self):
         code, out = run(world(down=True))
@@ -366,3 +400,59 @@ class PinCheckTest(unittest.TestCase):
     def test_missing_local_pin_fails(self):
         st, out = self.run_check(["1", "30"], "0")
         self.assertEqual(st, "FAIL", out)
+
+
+class DecorationCheckTest(unittest.TestCase):
+    class DB:
+        def __init__(self, tables, answers):
+            self.tables, self.answers = tables, answers
+
+        def has_table(self, t):
+            return t in self.tables
+
+        def q(self, sql):
+            for key, rows in self.answers:
+                if key in sql:
+                    return rows
+            raise AssertionError(sql)
+
+    def run_check(self, mk_defs, mk_sel, cm_defs, receipts, cm_sel):
+        mk = self.DB({"avatar_decoration"}, [("FROM avatar_decoration", [[d] for d in mk_defs]), ("avatarDecorations", mk_sel)])
+        cm = self.DB({"avatar_decorations", "data_transfer_receipts"}, [("FROM avatar_decorations", [[d] for d in cm_defs]),
+                                                                       ("data_transfer_receipts", receipts), ("avatar_decorations FROM accounts", cm_sel)])
+        rep = v.Report(True)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            v.decoration_check(mk, cm, O, rep)
+        return dict(rep.results), out.getvalue()
+
+    MK = [["a1", json.dumps([{"id": "d1", "angle": 0.125, "flipH": True, "offsetX": 0.05, "offsetY": -0.1}, {"id": "gone"}, {"id": "d2"}])],
+          ["b2", json.dumps([{"id": "d2", "angle": -0.7}])]]
+    REC = [["d1", "101"], ["d2", "102"]]
+
+    def good(self):
+        return [[O + "/users/a1", json.dumps([{"id": "101", "angle": 0.125, "flip_h": True, "offset_x": 0.05, "offset_y": -0.1}, {"id": "102"}])],
+                [O + "/users/b2", json.dumps([{"id": "102", "angle": -0.5}])]]
+
+    def test_matching_import_passes(self):
+        res, out = self.run_check(["d1", "d2"], self.MK, ["101", "102", "5"], self.REC, self.good())
+        self.assertEqual(res, {"10a avatar decoration definitions": "PASS", "10b avatar decoration selections": "PASS"}, out)
+        self.assertIn("a1: gone", out, "unknown decoration is info, not a failure")
+
+    def test_missing_definition_fails(self):
+        res, out = self.run_check(["d1", "d2"], self.MK, ["101"], self.REC, self.good())
+        self.assertEqual(res["10a avatar decoration definitions"], "FAIL")
+        self.assertEqual(res["10b avatar decoration selections"], "FAIL")
+
+    def test_geometry_difference_fails(self):
+        cm = self.good()
+        cm[0][1] = json.dumps([{"id": "101", "angle": 0.125, "offset_x": 0.05, "offset_y": -0.1}, {"id": "102"}])
+        res, out = self.run_check(["d1", "d2"], self.MK, ["101", "102"], self.REC, cm)
+        self.assertEqual(res["10b avatar decoration selections"], "FAIL")
+        self.assertIn("a1: misskey 2 decoration(s), community 2; first difference at #0", out)
+
+    def test_missing_selection_and_extra_selection_fail(self):
+        cm = self.good()[:1] + [[O + "/users/z9", json.dumps([{"id": "101"}])]]
+        res, out = self.run_check(["d1", "d2"], self.MK, ["101", "102"], self.REC, cm)
+        self.assertEqual(res["10b avatar decoration selections"], "FAIL")
+        self.assertIn("b2: misskey 1 decoration(s), community 0", out)
+        self.assertIn("z9: community has decorations, misskey has none", out)

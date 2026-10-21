@@ -114,6 +114,13 @@ def key_hash(pem):
     return hashlib.sha256(norm.encode()).hexdigest()[:16]
 
 
+def key_digest(pem):
+    """Full SHA-256 of a normalized (whitespace-free) PEM, None when unset."""
+    if not pem:
+        return None
+    return hashlib.sha256(re.sub(r"\s+", "", pem).encode()).hexdigest()
+
+
 # ---------------------------------------------------------------- http
 class HTTP:
     def __init__(self, base, host, proto, timeout):
@@ -526,6 +533,9 @@ def run(args):
         ok_n += 1
     rep.add("2 actor id/publicKey/webfinger", bool(sample) and ok_n == len(sample) and not fails, "%d/%d sampled users OK" % (ok_n, len(sample)), fails)
 
+    # (2-full) every local actor URI and public key, at the database level
+    full_key_check(mk, cm, origin, rep)
+
     # (3) notes
     notes = mk.q('SELECT id FROM note WHERE "userHost" IS NULL AND visibility IN (\'public\', \'home\') ORDER BY random() LIMIT %d' % args.sample)
     fails, ok_n = [], 0
@@ -641,9 +651,178 @@ def run(args):
     # pins are its server's featured collection, refreshed by federation.
     pin_check(mk, cm, origin, rep)
 
+    # (10) avatar decorations: definitions and per-account selections
+    decoration_check(mk, cm, origin, rep)
+
     failed = [n for n, s in rep.results if s == "FAIL"]
     print("\nSUMMARY: %d checks, %d PASS, %d FAIL" % (len(rep.results), len(rep.results) - len(failed), len(failed)))
     return 1 if failed else 0
+
+
+SYSTEM_ACTORS = ("instance.actor", "relay.actor")
+
+
+def full_key_check(mk, cm, origin, rep):
+    """2-full: for EVERY live local Misskey user, including the instance and
+    relay actors, the Community account must have actor URI
+    <origin>/users/<misskey id> (accounts.local_actor_uri), keyId <uri>#main-key
+    when set, and a public key whose normalized SHA-256 equals Misskey's
+    user_keypair.publicKey. Lists every mismatch; any mismatch is a FAIL.
+    Prints ids, usernames and key hash prefixes, never key material."""
+    src = mk.q('SELECT /* 2-full */ u.id, u.username, k."publicKey" FROM "user" u LEFT JOIN user_keypair k ON k."userId" = u.id '
+               'WHERE u.host IS NULL AND u."isDeleted" = false ORDER BY u.id')
+    tgt = {}
+    for r in cm.q("SELECT /* 2-full */ a.id, a.local_actor_uri, k.public_key, k.key_id FROM accounts a LEFT JOIN account_keys k ON k.account_id = a.id "
+                  "WHERE a.domain IS NULL AND a.deleted_at IS NULL AND a.local_actor_uri LIKE %s ORDER BY a.id" % lit(origin + "/users/%")):
+        if len(r) >= 4 and r[1]:
+            tgt.setdefault(r[1], []).append(r)
+    fails, ok_n, system = [], 0, []
+    for r in src:
+        uid, uname, mk_pem = (r + [None, None, None])[:3]
+        uid = uid or ""
+        if not SAFE_ID.match(uid):
+            fails.append("%r: unsafe misskey user id, cannot verify" % uid[:40])
+            continue
+        label = "%s @%s" % (uid, uname)
+        if uname in SYSTEM_ACTORS:
+            label += " (%s)" % ("instance actor" if uname == "instance.actor" else "relay actor")
+            system.append(uname)
+        want = "%s/users/%s" % (origin, uid)
+        rows = tgt.get(want, [])
+        want_h = key_digest(mk_pem)
+        if not want_h:
+            fails.append("%s: misskey user_keypair.publicKey missing" % label)
+            continue
+        if not rows:
+            fails.append("%s: no community account with local_actor_uri %s" % (label, want))
+            continue
+        if len({x[0] for x in rows}) > 1:
+            fails.append("%s: %d community accounts share local_actor_uri %s" % (label, len({x[0] for x in rows}), want))
+            continue
+        if len(rows) > 1:
+            fails.append("%s: account %s has %d account_keys rows" % (label, rows[0][0], len(rows)))
+            continue
+        acc, _, cm_pem, key_id = rows[0][:4]
+        got_h = key_digest(cm_pem)
+        if not got_h:
+            fails.append("%s: account %s has no account_keys.public_key" % (label, acc))
+            continue
+        if got_h != want_h:
+            fails.append("%s: account %s public key sha256 %s != misskey %s" % (label, acc, got_h[:16], want_h[:16]))
+            continue
+        if key_id and key_id != want + "#main-key":
+            fails.append("%s: account %s key_id %r != %s#main-key" % (label, acc, key_id, want))
+            continue
+        ok_n += 1
+    extra = sorted(set(tgt) - {"%s/users/%s" % (origin, (r or [""])[0]) for r in src})
+    rep.add("2-full actor URI/publicKey (all local users, DB)", bool(src) and not fails,
+            "%d/%d live local misskey users match (system actors included: %s); community accounts with %s/users/* identity=%d"
+            % (ok_n, len(src), ", ".join(sorted(system)) or "none", origin, len(tgt)), fails)
+    if extra:
+        rep.info("2-full actor URI/publicKey (all local users, DB)",
+                 "%d community %s/users/* account(s) have no live local misskey user (e.g. deleted on the source)" % (len(extra), origin),
+                 [u[len(origin) + len("/users/"):] for u in extra])
+
+
+def clamp_decoration(v, limit):
+    """The importer's geometry normalization (models.AvatarDecorationSelection.Normalized)."""
+    try:
+        v = float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if v != v or v in (float("inf"), float("-inf")):
+        return 0.0
+    v = max(-limit, min(limit, v))
+    return float("%.4f" % v)
+
+
+def decoration_tuple(d, id_key, flip_key, ox_key, oy_key):
+    return (str(d.get(id_key) or ""), clamp_decoration(d.get("angle"), 0.5), bool(d.get(flip_key)),
+            clamp_decoration(d.get(ox_key), 0.25), clamp_decoration(d.get(oy_key), 0.25))
+
+
+def parse_json_list(raw):
+    try:
+        v = json.loads(raw) if raw else []
+    except ValueError:
+        return None
+    return v if isinstance(v, list) else None
+
+
+def decoration_check(mk, cm, origin, rep):
+    """10a: every Misskey avatar_decoration has an imported Community
+    decoration (data_transfer_receipts kind avatar_decoration -> an existing
+    avatar_decorations row). 10b: every live local account wears the same
+    decorations (mapped id, angle, flipH, offsetX, offsetY) as on Misskey.
+    Decorations not among the source definitions are skipped by the importer
+    and reported as info."""
+    if not mk.has_table("avatar_decoration"):
+        rep.add("10a avatar decoration definitions", None, "misskey has no avatar_decoration table")
+        return
+    mk_defs = [r[0] for r in mk.q("SELECT /* 10 */ id FROM avatar_decoration ORDER BY id") if r and r[0]]
+    for table in ("avatar_decorations", "data_transfer_receipts"):
+        if not cm.has_table(table):
+            rep.add("10a avatar decoration definitions", not mk_defs, "community has no %s table; misskey definitions=%d" % (table, len(mk_defs)))
+            return
+    cm_rows = {r[0] for r in cm.q("SELECT /* 10 */ id FROM avatar_decorations") if r}
+    mapping = {}
+    for r in cm.q("SELECT /* 10 */ source_id, target_id FROM data_transfer_receipts WHERE kind = 'avatar_decoration' AND target_id > 0"):
+        if len(r) >= 2 and r[1] in cm_rows:
+            mapping[r[0]] = r[1]
+    missing = [d for d in mk_defs if d not in mapping]
+    rep.add("10a avatar decoration definitions", not missing,
+            "misskey definitions=%d; imported (receipt -> existing row)=%d; community decorations total=%d"
+            % (len(mk_defs), len(mk_defs) - len(missing), len(cm_rows)),
+            ["%s: not imported (see avatar_decoration_image_unavailable in the import report)" % d for d in missing])
+    known = set(mk_defs)
+    src = mk.q("SELECT /* 10 */ u.id, to_jsonb(u)->>'avatarDecorations' FROM \"user\" u "
+               "WHERE u.host IS NULL AND u.\"isDeleted\" = false AND COALESCE(to_jsonb(u)->>'avatarDecorations', '[]') NOT IN ('[]', '')")
+    tgt = {}
+    for r in cm.q("SELECT /* 10 */ local_actor_uri, avatar_decorations FROM accounts WHERE domain IS NULL AND deleted_at IS NULL "
+                  "AND local_actor_uri LIKE %s AND avatar_decorations IS NOT NULL AND avatar_decorations NOT IN ('', '[]', 'null')" % lit(origin + "/users/%")):
+        if len(r) >= 2 and r[0]:
+            tgt[r[0]] = r[1]
+    fails, skipped, ok_n, seen = [], [], 0, set()
+    for r in src:
+        uid = (r or [""])[0] or ""
+        if not SAFE_ID.match(uid):
+            fails.append("%r: unsafe misskey user id, cannot verify" % uid[:40])
+            continue
+        want_uri = "%s/users/%s" % (origin, uid)
+        seen.add(want_uri)
+        raw = parse_json_list(r[1] if len(r) > 1 else None)
+        if raw is None:
+            fails.append("%s: misskey avatarDecorations is not a JSON array" % uid)
+            continue
+        want, ids = [], set()
+        for d in raw:
+            if not isinstance(d, dict):
+                continue
+            t = decoration_tuple(d, "id", "flipH", "offsetX", "offsetY")
+            if t[0] not in known:
+                skipped.append("%s: %s" % (uid, t[0] if SAFE_ID.match(t[0]) else "?"))
+                continue
+            mapped = mapping.get(t[0])
+            if mapped is None or mapped in ids or len(want) >= 16:
+                if mapped is None:
+                    want.append(("<not imported %s>" % t[0],) + t[1:])
+                continue
+            ids.add(mapped)
+            want.append((mapped,) + t[1:])
+        got_raw = parse_json_list(tgt.get(want_uri))
+        got = [decoration_tuple(d, "id", "flip_h", "offset_x", "offset_y") for d in (got_raw or []) if isinstance(d, dict)]
+        if want == got:
+            ok_n += 1
+        else:
+            fails.append("%s: misskey %d decoration(s), community %d; first difference at #%d"
+                         % (uid, len(want), len(got), next((i for i, (a, b) in enumerate(zip(want, got)) if a != b), min(len(want), len(got)))))
+    for uri in sorted(set(tgt) - seen):
+        if parse_json_list(tgt[uri]):
+            fails.append("%s: community has decorations, misskey has none" % uri[len(origin) + len("/users/"):])
+    rep.add("10b avatar decoration selections", not fails,
+            "%d/%d misskey local users with decorations match (id + angle/flipH/offsetX/offsetY)" % (ok_n, len(src)), fails)
+    if skipped:
+        rep.info("10b avatar decoration selections", "%d selected decoration(s) are not among the misskey definitions; the importer skips them (avatar_decoration_unknown)" % len(skipped), skipped)
 
 
 def default_extracted_at(args, out=sys.stderr):
