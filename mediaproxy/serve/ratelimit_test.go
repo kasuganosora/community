@@ -11,6 +11,9 @@ import (
 )
 
 func TestOrigin429HonoursRetryAfterWithoutPerURLMemo(t *testing.T) {
+	oldBound := hostWaitBound
+	hostWaitBound = time.Second // the 7s pause outlasts it: answer at once
+	t.Cleanup(func() { hostWaitBound = oldBound })
 	var throttle atomic.Bool
 	throttle.Store(true)
 	var hits atomic.Int32
@@ -30,7 +33,7 @@ func TestOrigin429HonoursRetryAfterWithoutPerURLMemo(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 	require.Equal(t, "7", w.Header().Get("Retry-After"))
 
-	// During the cooldown the origin is not contacted again.
+	// During a pause longer than the wait bound the origin is not contacted.
 	other := proxyPath("emoji", srv.URL+"/emoji/another_fictional.png")
 	w = do(r, "GET", other, nil)
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
@@ -82,4 +85,20 @@ func TestPerHostConcurrencyIsBounded(t *testing.T) {
 	wg.Wait()
 	require.LessOrEqual(t, int(peak.Load()), hostConcurrent)
 	require.Positive(t, int(peak.Load()))
+}
+
+func TestShortHostPauseIsWaitedOut(t *testing.T) {
+	oldBound := hostWaitBound
+	hostWaitBound = 3 * time.Second
+	t.Cleanup(func() { hostWaitBound = oldBound })
+	png := pngBytes()
+	srv, r := setup(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(png)
+	}))
+	coolHost("127.0.0.1", "1")
+	start := time.Now()
+	w := do(r, "GET", proxyPath("emoji", srv.URL+"/emoji/fictional_wait.png"), nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.GreaterOrEqual(t, time.Since(start), 900*time.Millisecond)
 }

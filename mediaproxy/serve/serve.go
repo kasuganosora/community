@@ -49,6 +49,10 @@ const (
 	maxCooldown    = 60 * time.Second // cap on an origin's Retry-After
 )
 
+// hostWaitBound is how long a cache miss may queue for a paused or busy
+// origin before the proxy answers 503. Overridable in tests.
+var hostWaitBound = 12 * time.Second
+
 // Overridable in tests.
 var (
 	fetchTimeout  = 15 * time.Second // whole download of a cached avatar
@@ -85,9 +89,16 @@ var (
 // hostAcquire bounds simultaneous fetches from one origin, so a profile with
 // dozens of emoji does not burst a remote server into rate limiting us.
 func hostAcquire(ctx context.Context, host string) (func(), bool) {
+	return hostAcquireWithin(ctx, host, acquireWait)
+}
+
+func hostAcquireWithin(ctx context.Context, host string, wait time.Duration) (func(), bool) {
 	v, _ := hostSlots.LoadOrStore(host, make(chan struct{}, hostConcurrent))
 	ch := v.(chan struct{})
-	t := time.NewTimer(acquireWait)
+	if wait <= 0 {
+		wait = time.Millisecond
+	}
+	t := time.NewTimer(wait)
 	defer t.Stop()
 	select {
 	case ch <- struct{}{}:
@@ -111,6 +122,32 @@ func hostCooling(host string) (string, bool) {
 		return "", false
 	}
 	return strconv.Itoa(int((left + time.Second - 1) / time.Second)), true
+}
+
+// waitCooldown blocks while host is paused (its Retry-After), as long as
+// the pause ends before deadline. It reports false when the pause outlasts
+// the deadline or ctx ends.
+func waitCooldown(ctx context.Context, host string, deadline time.Time) bool {
+	v, ok := cooldowns.Load(host)
+	if !ok {
+		return true
+	}
+	until := v.(time.Time)
+	left := until.Sub(now())
+	if left <= 0 {
+		return true
+	}
+	if until.After(deadline) {
+		return false
+	}
+	t := time.NewTimer(left)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // coolHost records an origin's 429 Retry-After (default 5s, capped).
@@ -255,7 +292,23 @@ func Serve(c *gin.Context) {
 	}
 	host := strings.ToLower(u.Hostname())
 	key := failureKey(rawURL)
+	// A stored avatar/emoji is answered before any failure memo, rate
+	// limit or origin pause: those only guard fetches from the origin.
+	stale := false
+	if cacheKey, size, _, ok := cachedRendition(c, kind, rawURL); ok {
+		if cache := avatarCache(); cache != nil {
+			if e, fresh, found := cache.Peek(cacheKey, size, avatarcache.RemoteTTL()); found {
+				if fresh && serveEntry(c, e, claims) {
+					return
+				}
+				stale = true
+			}
+		}
+	}
 	if rec, ok := recentlyFailed(key); ok {
+		if stale && serveStale(c, kind, rawURL, claims) {
+			return
+		}
 		answerFailure(c, host, kind, started, rec.failure(), &rec)
 		return
 	}
@@ -272,16 +325,20 @@ func Serve(c *gin.Context) {
 	}
 	ip := c.ClientIP()
 	if !ipAllowed(ip) {
+		if stale && serveStale(c, kind, rawURL, claims) {
+			return
+		}
 		answerFailure(c, host, kind, started, failure{status: http.StatusTooManyRequests, class: classRateLimited}, nil)
 		return
 	}
-	if kind == mediaproxy.KindAvatar && serveCachedAvatar(c, key, rawURL, host, claims, started) {
+	if cacheKey, size, render, ok := cachedRendition(c, kind, rawURL); ok && serveCached(c, key, rawURL, host, kind, claims, started, cacheKey, size, render) {
 		return
 	}
-	if kind == mediaproxy.KindEmoji && c.Request.Method == http.MethodGet && serveCachedEmoji(c, key, rawURL, host, claims, started) {
-		return
-	}
-	if wait, cooling := hostCooling(host); cooling {
+	if !waitCooldown(c.Request.Context(), host, now().Add(hostWaitBound)) {
+		wait, _ := hostCooling(host)
+		if wait == "" {
+			wait = "2"
+		}
 		c.Header("Retry-After", wait)
 		answerFailure(c, host, kind, started, failure{status: http.StatusServiceUnavailable, class: classRateLimited}, nil)
 		return
@@ -595,28 +652,52 @@ func cacheControlFor(claims mediaproxy.Claims) string {
 // errBusy marks a fetch refused by the local host/concurrency limits.
 var errBusy = errors.New("media proxy busy")
 
+// errCooling: the origin was paused while this fetch queued; wait again.
+var errCooling = errors.New("origin paused")
+
 // avatarCache is the cache used for avatars; overridable in tests.
 var avatarCache = avatarcache.Default
 
-// serveCachedAvatar answers an avatar from the resized disk cache (fetching
-// it on a miss). It returns false when the cache is unavailable so the
-// caller relays the original instead.
-func serveCachedAvatar(c *gin.Context, key, rawURL, host string, claims mediaproxy.Claims, started time.Time) bool {
-	size := avatarcache.NormalizeSize(c.Query("size"))
-	cacheKey, render := "remote|"+rawURL, avatarcache.Render
-	if c.Query("static") == "1" {
-		// avatar_static: the first frame of an animated avatar.
-		cacheKey, render = "remote-static|"+rawURL, avatarcache.RenderStatic
+// cachedRendition names the disk-cache rendition for avatars (resized, or
+// the first-frame still with ?static=1) and custom emoji (byte for byte:
+// emoji may be wide; origins such as misskey.io rate-limit refetching
+// dozens of them per profile view). ok is false for other kinds.
+func cachedRendition(c *gin.Context, kind, rawURL string) (cacheKey string, size int, render func([]byte, int) ([]byte, string, error), ok bool) {
+	switch kind {
+	case mediaproxy.KindAvatar:
+		size = avatarcache.NormalizeSize(c.Query("size"))
+		if c.Query("static") == "1" {
+			return "remote-static|" + rawURL, size, avatarcache.RenderStatic, true
+		}
+		return "remote|" + rawURL, size, avatarcache.Render, true
+	case mediaproxy.KindEmoji:
+		return "emoji|" + rawURL, 0, avatarcache.Passthrough, true
 	}
-	return serveCached(c, key, rawURL, host, mediaproxy.KindAvatar, claims, started, cacheKey, size, render)
+	return "", 0, nil, false
 }
 
-// serveCachedEmoji answers custom emoji from the same disk cache, byte for
-// byte (no resizing: emoji may be wide). Profiles show dozens of them, and
-// origins such as misskey.io rate-limit repeated fetches, so every emoji is
-// fetched from the origin once per RemoteTTL instead of per page view.
-func serveCachedEmoji(c *gin.Context, key, rawURL, host string, claims mediaproxy.Claims, started time.Time) bool {
-	return serveCached(c, key, rawURL, host, mediaproxy.KindEmoji, claims, started, "emoji|"+rawURL, 0, avatarcache.Passthrough)
+// serveStale answers a stored (expired) rendition, if there still is one.
+func serveStale(c *gin.Context, kind, rawURL string, claims mediaproxy.Claims) bool {
+	cache := avatarCache()
+	cacheKey, size, _, ok := cachedRendition(c, kind, rawURL)
+	if cache == nil || !ok {
+		return false
+	}
+	e, _, found := cache.Peek(cacheKey, size, 0)
+	return found && serveEntry(c, e, claims)
+}
+
+// serveEntry writes a cached file; false when it vanished (evicted).
+func serveEntry(c *gin.Context, entry *avatarcache.Entry, claims mediaproxy.Claims) bool {
+	f, err := os.Open(entry.Path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	setCommonHeaders(c, entry.ContentType)
+	c.Header("Cache-Control", cacheControlFor(claims))
+	http.ServeContent(c.Writer, c.Request, "", entry.ModTime, f)
+	return true
 }
 
 func serveCached(c *gin.Context, key, rawURL, host, kind string, claims mediaproxy.Claims, started time.Time, cacheKey string, size int, render func([]byte, int) ([]byte, string, error)) bool {
@@ -625,25 +706,39 @@ func serveCached(c *gin.Context, key, rawURL, host, kind string, claims mediapro
 		return false
 	}
 	entry, err := cache.GetRendered(c.Request.Context(), cacheKey, size, avatarcache.RemoteTTL(), func(ctx context.Context) ([]byte, error) {
-		if _, cooling := hostCooling(host); cooling || !hostAllowed(host) {
-			return nil, errBusy
+		// Queue (bounded) behind a paused or busy origin instead of failing
+		// at once; a 429 while queued pauses the host and waits again.
+		deadline := now().Add(hostWaitBound)
+		for {
+			if !waitCooldown(ctx, host, deadline) || !hostAllowed(host) {
+				return nil, errBusy
+			}
+			data, err := func() ([]byte, error) {
+				release, ok := acquire(ctx)
+				if !ok {
+					return nil, errBusy
+				}
+				defer release()
+				releaseHost, ok := hostAcquireWithin(ctx, host, deadline.Sub(now()))
+				if !ok {
+					return nil, errBusy
+				}
+				defer releaseHost()
+				if _, cooling := hostCooling(host); cooling {
+					return nil, errCooling // paused while we queued
+				}
+				return fetchImage(ctx, rawURL)
+			}()
+			var up upstreamStatusError
+			if errors.As(err, &up) && up.code == http.StatusTooManyRequests {
+				coolHost(host, up.retryAfter)
+				continue
+			}
+			if errors.Is(err, errCooling) {
+				continue
+			}
+			return data, err
 		}
-		release, ok := acquire(ctx)
-		if !ok {
-			return nil, errBusy
-		}
-		defer release()
-		releaseHost, ok := hostAcquire(ctx, host)
-		if !ok {
-			return nil, errBusy
-		}
-		defer releaseHost()
-		data, err := fetchImage(ctx, rawURL)
-		var up upstreamStatusError
-		if errors.As(err, &up) && up.code == http.StatusTooManyRequests {
-			coolHost(host, up.retryAfter)
-		}
-		return data, err
 	}, render)
 	if err != nil {
 		var f failure
@@ -671,15 +766,7 @@ func serveCached(c *gin.Context, key, rawURL, host, kind string, claims mediapro
 		answerFailure(c, host, kind, started, f, nil)
 		return true
 	}
-	f, err := os.Open(entry.Path)
-	if err != nil {
-		return false // evicted between lookup and open
-	}
-	defer func() { _ = f.Close() }()
-	setCommonHeaders(c, entry.ContentType)
-	c.Header("Cache-Control", cacheControlFor(claims))
-	http.ServeContent(c.Writer, c.Request, "", entry.ModTime, f)
-	return true
+	return serveEntry(c, entry, claims) // false: evicted between lookup and open
 }
 
 // fetchImage downloads a raster image source in full, bounded by

@@ -133,6 +133,17 @@ func (c *Cache) lookup(base string) (*Entry, bool) {
 	return nil, false
 }
 
+// Peek returns a stored rendition of key at size without fetching, fresh
+// or not; fresh reports whether it is younger than ttl (ttl <= 0: always).
+func (c *Cache) Peek(key string, size int, ttl time.Duration) (e *Entry, fresh, ok bool) {
+	e, ok = c.lookup(c.fileBase(key, size))
+	if !ok {
+		return nil, false, false
+	}
+	c.touch(e.Path)
+	return e, ttl <= 0 || c.now().Sub(e.ModTime) < ttl, true
+}
+
 // Get returns the rendition of key at size. ttl > 0 makes entries older
 // than ttl refetch; when that refetch fails the stale entry is still served.
 func (c *Cache) Get(ctx context.Context, key string, size int, ttl time.Duration, fetch Fetcher) (*Entry, error) {

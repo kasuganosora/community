@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/kasuganosora/community/avatarcache"
 	"github.com/stretchr/testify/require"
@@ -90,6 +91,35 @@ func TestEmojiAreCachedOnDiskByteForByte(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 		require.Equal(t, "image/png", w.Header().Get("Content-Type"))
 		require.True(t, bytes.Equal(wide, w.Body.Bytes()))
+	}
+	require.EqualValues(t, 1, hits.Load())
+}
+
+func TestCachedEmojiIsServedDuringHostPause(t *testing.T) {
+	img := pngBytes()
+	var hits atomic.Int32
+	srv, r := setup(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(img)
+	}))
+	cache, err := avatarcache.New(t.TempDir(), 0)
+	require.NoError(t, err)
+	old := avatarCache
+	avatarCache = func() *avatarcache.Cache { return cache }
+	t.Cleanup(func() { avatarCache = old })
+	raw := srv.URL + "/emoji/fictional_cached.png"
+	require.Equal(t, http.StatusOK, do(r, "GET", proxyPath("emoji", raw), nil).Code)
+
+	// The origin is paused for longer than any wait, and the URL even has
+	// a failure memo: the stored copy is still answered, for GET and HEAD,
+	// through a freshly sealed token.
+	coolHost("127.0.0.1", "60")
+	markFailedLocal(failureKey(raw), failureRecord{status: 503, class: classUpstream, expires: now().Add(time.Minute)})
+	for _, m := range []string{"GET", "HEAD"} {
+		w := do(r, m, proxyPath("emoji", raw)+"?retry=1", nil)
+		require.Equal(t, http.StatusOK, w.Code, m)
+		require.Equal(t, "image/png", w.Header().Get("Content-Type"), m)
 	}
 	require.EqualValues(t, 1, hits.Load())
 }

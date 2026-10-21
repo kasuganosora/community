@@ -206,3 +206,17 @@ func TestTraditionalGatewayFieldsUsed(t *testing.T) {
 	require.Equal(t, "hy-mt", body["provider"])
 	require.Equal(t, "en", body["detected_source_language"])
 }
+
+// With the LLM fallback enabled, a gateway 422 (unsupported language or a
+// refused echo) is retried on the LLM instead of being returned.
+func TestTraditional422FallsBackToLLMWhenEnabled(t *testing.T) {
+	for _, code := range []string{"translation_language_unsupported", "translation_unchanged"} {
+		t.Run(code, func(t *testing.T) {
+			ts, fake := setupFakeLLM(t, map[string]any{translation.KeyMode: translation.ModeTraditional, translation.KeyFallback: true})
+			useHTTPGateway(t, 422, `{"error":"translation failed on all engines","code":"`+code+`"}`)
+			status, body := translateAs(t, ts, remoteStatus(ts, "no", "<p>Et fiktivt notat om hagepumpen som bråker</p>"), "en")
+			require.Equal(t, 200, status, body)
+			require.EqualValues(t, 1, fake.calls.Load())
+		})
+	}
+}
