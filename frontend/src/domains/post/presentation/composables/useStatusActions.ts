@@ -1,5 +1,7 @@
 import { sessionEpoch } from '@/shared/api/sessionScope'
-import { ref, reactive, watch } from 'vue'
+import { reactive, watch, onScopeDispose, getCurrentScope } from 'vue'
+import { MessagePlugin, preloadFeedback } from '@/shared/ui/feedback'
+import { t } from '@/shared/i18n'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 
@@ -47,96 +49,136 @@ export function applyStatusUpdate(
   }
 }
 
+type ToggleKind = 'fav' | 'reblog' | 'bm'
+
+interface ToggleSpec {
+  flag: 'favourited' | 'reblogged' | 'bookmarked'
+  count?: 'favourites_count' | 'reblogs_count'
+  on: (id: string) => Promise<MastodonStatus>
+  off: (id: string) => Promise<MastodonStatus>
+  errorKey: string
+}
+
+const SPECS: Record<ToggleKind, ToggleSpec> = {
+  fav: { flag: 'favourited', count: 'favourites_count', on: id => postApi.favourite(id), off: id => postApi.unfavourite(id), errorKey: 'shared.PostActions.s15' },
+  reblog: { flag: 'reblogged', count: 'reblogs_count', on: id => postApi.reblog(id), off: id => postApi.unreblog(id), errorKey: 'shared.PostActions.s16' },
+  bm: { flag: 'bookmarked', on: id => postApi.bookmark(id), off: id => postApi.unbookmark(id), errorKey: 'shared.PostActions.s17' },
+}
+
+interface ToggleState {
+  epoch: number
+  /** What the user last asked for (what the UI shows). */
+  desired: boolean
+  /** Last state the server confirmed (rollback target). */
+  confirmed: boolean
+  confirmedCount: number | undefined
+  inFlight: boolean
+}
+
+/** Per status+action toggle state, shared by every page so the same post stays consistent everywhere. */
+const toggleStates = new Map<string, ToggleState>()
+/** Every mounted state source (timeline store, thread lists, notifications…), so an action on one page updates all copies. */
+const updaters = new Set<StatusUpdater>()
+/** Keys currently awaiting the server (reactive, for callers that want to show it). */
+export const pendingActions = reactive(new Set<string>())
+
+watch(sessionEpoch, () => { toggleStates.clear(); pendingActions.clear() }, { flush: 'sync' })
+
+function broadcast(own: StatusUpdater, id: string, updates: Partial<MastodonStatus>) {
+  own(id, updates)
+  for (const u of updaters) if (u !== own) u(id, updates)
+  const cached = editedStatuses.get(id)
+  if (cached) Object.assign(cached, updates)
+}
+
+function toastError(e: unknown, key: string) {
+  console.error('Status action failed:', e)
+  try { MessagePlugin.error(t(key)) } catch { /* toast is best effort */ }
+}
+
 /**
- * Shared post-action logic: optimistic update + API call + revert on failure.
+ * Shared post-action logic with optimistic UI.
  *
- * The `updateStatus` callback is responsible for writing changes back to
- * whatever state source the caller uses (Pinia store, local ref, etc.).
- * This eliminates the ~120 lines of duplicated action handlers that were
- * previously copy-pasted across HomePage and ExplorePage.
+ * A click flips the flag and count at once on every copy of the status
+ * (including reblog wrappers and other mounted pages). Requests per
+ * status+action are serialized: clicks made while a request is in flight only
+ * change the desired state, and once the request settles one more request is
+ * sent if the server state differs from what the user ended on. On success the
+ * server counts are written back only when nothing newer is queued, so there is
+ * no flicker; on failure the UI returns to the last server-confirmed state and a
+ * localized toast is shown.
  */
 export function useStatusActions(updateStatus: StatusUpdater) {
-  function scopedUpdater() {
+  updaters.add(updateStatus)
+  if (getCurrentScope()) onScopeDispose(() => updaters.delete(updateStatus))
+
+  function toggle(kind: ToggleKind, status: MastodonStatus): Promise<void> {
+    const spec = SPECS[kind]
+    const id = status.id
+    const key = `${kind}:${id}`
     const epoch = sessionEpoch.value
-    return (id: string, updates: Partial<MastodonStatus>) => {
+    let st = toggleStates.get(key)
+    if (!st || st.epoch !== epoch) {
+      st = { epoch, desired: !!status[spec.flag], confirmed: !!status[spec.flag], confirmedCount: spec.count ? status[spec.count] : undefined, inFlight: false }
+      toggleStates.set(key, st)
+    }
+    const state = st
+    const apply = (updates: Partial<MastodonStatus>) => {
       if (sessionEpoch.value !== epoch) return
-      updateStatus(id, updates)
-      const cached = editedStatuses.get(id)
-      if (cached) Object.assign(cached, updates)
+      broadcast(updateStatus, id, updates)
     }
-  }
-  // Track which status actions are currently in-flight to prevent
-  // duplicate toggles from rapid clicks causing state desync.
-  const pendingActions = ref(new Set<string>())
-
-  async function toggleReblog(status: MastodonStatus) {
-    const update = scopedUpdater()
-    const actionKey = `reblog:${status.id}`
-    if (pendingActions.value.has(actionKey)) return
-    pendingActions.value.add(actionKey)
-
-    const wasReblogged = status.reblogged
-    // Optimistic update for immediate UI feedback
-    update(status.id, { reblogged: !wasReblogged })
-    try {
-      const updated = wasReblogged
-        ? await postApi.unreblog(status.id)
-        : await postApi.reblog(status.id)
-      update(status.id, { reblogged: updated.reblogged, reblogs_count: updated.reblogs_count })
-    } catch (e) {
-      // Revert optimistic update on failure
-      update(status.id, { reblogged: wasReblogged })
-      console.error('Failed to toggle reblog:', e)
-    } finally {
-      pendingActions.value.delete(actionKey)
+    const shownCount = (value: boolean) => spec.count && state.confirmedCount !== undefined
+      ? Math.max(0, state.confirmedCount + (value === state.confirmed ? 0 : value ? 1 : -1))
+      : undefined
+    const optimistic = (value: boolean): Partial<MastodonStatus> => {
+      const u: Partial<MastodonStatus> = { [spec.flag]: value }
+      const c = shownCount(value)
+      if (spec.count && c !== undefined) (u as Record<string, unknown>)[spec.count] = c
+      return u
     }
-  }
 
-  async function toggleFavourite(status: MastodonStatus) {
-    const update = scopedUpdater()
-    const actionKey = `fav:${status.id}`
-    if (pendingActions.value.has(actionKey)) return
-    pendingActions.value.add(actionKey)
+    state.desired = !state.desired
+    apply(optimistic(state.desired))
+    if (state.inFlight) return Promise.resolve()
 
-    const wasFavourited = status.favourited
-    // Optimistic update for immediate UI feedback
-    update(status.id, { favourited: !wasFavourited })
-    try {
-      const updated = wasFavourited
-        ? await postApi.unfavourite(status.id)
-        : await postApi.favourite(status.id)
-      update(status.id, { favourited: updated.favourited, favourites_count: updated.favourites_count })
-    } catch (e) {
-      // Revert optimistic update on failure
-      update(status.id, { favourited: wasFavourited })
-      console.error('Failed to toggle favourite:', e)
-    } finally {
-      pendingActions.value.delete(actionKey)
+    state.inFlight = true
+    // Fetch the toast code now so a failure can be reported without another round trip.
+    try { preloadFeedback() } catch { /* best effort */ }
+    pendingActions.add(key)
+    const run = async (): Promise<void> => {
+      while (state.desired !== state.confirmed) {
+        const target = state.desired
+        try {
+          const updated = await (target ? spec.on(id) : spec.off(id))
+          if (sessionEpoch.value !== epoch) return
+          const fallbackCount = shownCount(target)
+          state.confirmed = updated?.[spec.flag] ?? target
+          if (spec.count && typeof updated?.[spec.count] === 'number') state.confirmedCount = updated[spec.count]
+          else state.confirmedCount = fallbackCount ?? state.confirmedCount
+          // Server reports a different state than requested: accept it.
+          if (state.confirmed !== target && state.desired === target) state.desired = state.confirmed
+        } catch (e) {
+          if (sessionEpoch.value !== epoch) return
+          state.desired = state.confirmed
+          apply(optimistic(state.confirmed))
+          toastError(e, spec.errorKey)
+          return
+        }
+      }
+      // Settled: reconcile with the server (same values as shown unless others also acted).
+      apply(optimistic(state.confirmed))
     }
+    return run().finally(() => {
+      state.inFlight = false
+      pendingActions.delete(key)
+      if (toggleStates.get(key) === state && !state.inFlight) toggleStates.delete(key)
+    })
   }
 
-  async function toggleBookmark(status: MastodonStatus) {
-    const update = scopedUpdater()
-    const actionKey = `bm:${status.id}`
-    if (pendingActions.value.has(actionKey)) return
-    pendingActions.value.add(actionKey)
-
-    const wasBookmarked = status.bookmarked
-    // Optimistic update for immediate UI feedback
-    update(status.id, { bookmarked: !wasBookmarked })
-    try {
-      const updated = wasBookmarked
-        ? await postApi.unbookmark(status.id)
-        : await postApi.bookmark(status.id)
-      update(status.id, { bookmarked: updated.bookmarked })
-    } catch (e) {
-      // Revert optimistic update on failure
-      update(status.id, { bookmarked: wasBookmarked })
-      console.error('Failed to toggle bookmark:', e)
-    } finally {
-      pendingActions.value.delete(actionKey)
-    }
+  return {
+    pendingActions,
+    toggleReblog: (s: MastodonStatus) => toggle('reblog', s),
+    toggleFavourite: (s: MastodonStatus) => toggle('fav', s),
+    toggleBookmark: (s: MastodonStatus) => toggle('bm', s),
   }
-
-  return { pendingActions, toggleReblog, toggleFavourite, toggleBookmark }
 }

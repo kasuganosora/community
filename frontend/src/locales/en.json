@@ -165,7 +165,10 @@
       "s11": "Quote",
       "s12": "Share",
       "s13": "Link copied",
-      "s14": "Sharing failed"
+      "s14": "Sharing failed",
+      "s15": "Couldn’t like the post. Try again.",
+      "s16": "Couldn’t boost the post. Try again.",
+      "s17": "Couldn’t update the bookmark. Try again."
     },
     "PostCard": {
       "s1": "boosted",

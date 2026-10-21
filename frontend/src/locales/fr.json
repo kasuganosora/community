@@ -165,7 +165,10 @@
       "s11": "Citer",
       "s12": "Partager le lien",
       "s13": "Lien copié",
-      "s14": "Échec du partage"
+      "s14": "Échec du partage",
+      "s15": "Impossible d’aimer la publication. Réessayez.",
+      "s16": "Impossible de partager la publication. Réessayez.",
+      "s17": "Impossible de mettre à jour le signet. Réessayez."
     },
     "PostCard": {
       "s1": "a partagé",

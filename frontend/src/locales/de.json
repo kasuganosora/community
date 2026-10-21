@@ -165,7 +165,10 @@
       "s11": "Zitieren",
       "s12": "Link teilen",
       "s13": "Link kopiert",
-      "s14": "Teilen fehlgeschlagen"
+      "s14": "Teilen fehlgeschlagen",
+      "s15": "Gefällt mir fehlgeschlagen. Bitte erneut versuchen.",
+      "s16": "Teilen (Boost) fehlgeschlagen. Bitte erneut versuchen.",
+      "s17": "Lesezeichen konnte nicht aktualisiert werden. Bitte erneut versuchen."
     },
     "PostCard": {
       "s1": "hat geteilt",
