@@ -20,12 +20,17 @@ func Get(c *gin.Context) {
 
 	// Like Mastodon, only the uploader may query an attachment through the
 	// API (other users see it embedded in statuses).
-	query := db.GetDB().Where("id = ?", mediaId)
-	if account, ok := c.Get("account"); ok {
-		if acc, ok := account.(*models.Account); ok && acc != nil {
-			query = query.Where("account_id = ?", acc.Id)
-		}
+	// Fail closed: without an authenticated account there is no owner to
+	// filter by, so refuse instead of returning any attachment.
+	v, _ := c.Get("account")
+	acc, ok := v.(*models.Account)
+	if !ok || acc == nil {
+		c.JSON(401, gin.H{"error": "The access token is invalid"})
+
+		return
 	}
+
+	query := db.GetDB().Where("id = ? AND account_id = ?", mediaId, acc.Id)
 
 	var media models.MediaAttachment
 	if err := query.First(&media).Error; err != nil {
