@@ -380,24 +380,12 @@ func RegisterAccountRoutes(r gin.IRouter) {
 		return
 	}
 
+	// whoami, account/password, account/deactivate and the account_data
+	// routes are registered (behind matrixAuthMiddleware) in RegisterRoutes
+	// in handlers.go. Registering them here again made gin panic on the
+	// duplicate and dropped this whole group, including requestToken.
 	account := r.Group("/_matrix/client/v3")
-	{
-		// 账户信息
-		account.GET("/account/whoami", MatrixAuthMiddleware(), handleWhoami)
-
-		// 密码管理
-		account.POST("/account/password", MatrixAuthMiddleware(), handleChangePassword)
-		account.POST("/account/password/email/requestToken", passwordResetIPRateLimit(), handleRequestPasswordReset)
-
-		// 账户停用
-		account.POST("/account/deactivate", MatrixAuthMiddleware(), handleDeactivate)
-
-		// 账户数据
-		account.GET("/user/:userId/account_data/:type", MatrixAuthMiddleware(), handleGetAccountData)
-		account.PUT("/user/:userId/account_data/:type", MatrixAuthMiddleware(), handleSetAccountData)
-		account.GET("/user/:userId/rooms/:roomId/account_data/:type", MatrixAuthMiddleware(), handleGetRoomAccountData)
-		account.PUT("/user/:userId/rooms/:roomId/account_data/:type", MatrixAuthMiddleware(), handleSetRoomAccountData)
-	}
+	account.POST("/account/password/email/requestToken", passwordResetIPRateLimit(), handleRequestPasswordReset)
 }
 
 // handleWhoami 获取当前用户信息.
