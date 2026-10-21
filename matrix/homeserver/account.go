@@ -82,15 +82,23 @@ func NewAccountService(hs *HomeServer) *AccountService {
 // RequestPasswordReset 请求密码重置.
 func (as *AccountService) RequestPasswordReset(req *PasswordResetRequest) (string, error) {
 	// 查找用户
-	var account models.Account
-	if req.Email != "" {
-		err := db.GetDB().Where("email = ?", req.Email).First(&account).Error
-		if err != nil {
-			// 为了安全，不泄露邮箱是否存在
-			return "", nil //nolint:nilerr
-		}
-	} else {
+	if req.Email == "" {
 		return "", errors.New("email required")
+	}
+
+	// Always hand back a random, non-empty sid so the response does not
+	// reveal whether the address is registered.
+	sid := generateSID()
+
+	// Per-address throttle: silently drop excess requests (same response).
+	if !allowPasswordResetForEmail(req.Email) {
+		return sid, nil
+	}
+
+	var account models.Account
+	if err := db.GetDB().Where("email = ?", req.Email).First(&account).Error; err != nil {
+		// Unknown address: do not write a reset row, do not leak existence.
+		return sid, nil //nolint:nilerr
 	}
 
 	// 生成重置令牌
@@ -112,9 +120,6 @@ func (as *AccountService) RequestPasswordReset(req *PasswordResetRequest) (strin
 	// TODO: 发送邮件或短信
 	userID := fmt.Sprintf("@%s:%s", account.Username, as.hs.Config.ServerName)
 	log.Info("Password reset token generated for user %s", userID)
-
-	// 返回 sid（简化实现）
-	sid := generateSID()
 
 	return sid, nil
 }
@@ -382,7 +387,7 @@ func RegisterAccountRoutes(r gin.IRouter) {
 
 		// 密码管理
 		account.POST("/account/password", MatrixAuthMiddleware(), handleChangePassword)
-		account.POST("/account/password/email/requestToken", handleRequestPasswordReset)
+		account.POST("/account/password/email/requestToken", passwordResetIPRateLimit(), handleRequestPasswordReset)
 
 		// 账户停用
 		account.POST("/account/deactivate", MatrixAuthMiddleware(), handleDeactivate)
