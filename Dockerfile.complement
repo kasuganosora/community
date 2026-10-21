@@ -13,6 +13,7 @@ RUN chmod +x /app/community
 
 # Complement sets SERVER_NAME via env var
 ENV SERVER_NAME=hs1
+ENV MATRIX_REGISTRATION_SHARED_SECRET=complement
 ENV DB_CONNECTION=sqlite
 ENV DB_HOST=/data/community.db
 ENV GIN_MODE=release

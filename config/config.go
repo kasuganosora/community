@@ -43,9 +43,11 @@ type Config struct {
 	WebSocketAllowedOrigins string `env:"WEBSOCKET_ALLOWED_ORIGINS"`
 	// Reverse proxies whose forwarding headers are believed (see package
 	// clientip). Empty means loopback and private ranges.
-	TrustedProxies      string `env:"TRUSTED_PROXIES"`       // comma separated IPs/CIDRs
-	TrustedProxyHeaders string `env:"TRUSTED_PROXY_HEADERS"` // comma separated, in order of preference; empty means X-Real-IP,X-Forwarded-For
-	CORSAllowedOrigins  string `env:"CORS_ALLOWED_ORIGINS"`  // 逗号分隔的允许来源列表，为空则允许所有（仅开发模式）
+	TrustedProxies string `env:"TRUSTED_PROXIES"` // comma separated IPs/CIDRs
+	// MatrixRegistrationSharedSecret enables /_synapse/admin/v1/register when set (Complement/testing only). Unset = route disabled.
+	MatrixRegistrationSharedSecret string `env:"MATRIX_REGISTRATION_SHARED_SECRET"`
+	TrustedProxyHeaders            string `env:"TRUSTED_PROXY_HEADERS"` // comma separated, in order of preference; empty means X-Real-IP,X-Forwarded-For
+	CORSAllowedOrigins             string `env:"CORS_ALLOWED_ORIGINS"`  // 逗号分隔的允许来源列表，为空则允许所有（仅开发模式）
 
 	// Remote media proxy: browsers load remote avatars, headers, media, emoji
 	// and card images through /proxy/media instead of the remote server.

@@ -6,6 +6,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"strings"
+
+	"github.com/kasuganosora/community/config"
 	"strconv"
 	"sync"
 	"time"
@@ -857,7 +860,20 @@ func handleSendServerNotice(c *gin.Context) {
 
 // ===== Shared-Secret Registration (Complement compatible) =====
 
-const sharedRegistrationSecret = "complement"
+// sharedRegistrationSecret returns the configured shared secret. When empty,
+// shared-secret registration is disabled and the routes answer 404.
+func sharedRegistrationSecret() string {
+	return strings.TrimSpace(config.C.MatrixRegistrationSharedSecret)
+}
+
+func sharedSecretRegistrationDisabled(c *gin.Context) bool {
+	if sharedRegistrationSecret() != "" {
+		return false
+	}
+	c.JSON(http.StatusNotFound, gin.H{"errcode": "M_UNRECOGNIZED", "error": "Shared-secret registration is disabled"})
+
+	return true
+}
 
 var (
 	nonceStore = make(map[string]time.Time)
@@ -866,6 +882,9 @@ var (
 
 // handleSharedSecretRegisterNonce returns a nonce for shared-secret registration.
 func handleSharedSecretRegisterNonce(c *gin.Context) {
+	if sharedSecretRegistrationDisabled(c) {
+		return
+	}
 	nonce := generateSID() + generateSID()
 
 	nonceMu.Lock()
@@ -885,6 +904,9 @@ func handleSharedSecretRegisterNonce(c *gin.Context) {
 
 // handleSharedSecretRegister handles shared-secret admin registration.
 func handleSharedSecretRegister(c *gin.Context) {
+	if sharedSecretRegistrationDisabled(c) {
+		return
+	}
 	var req struct {
 		Nonce    string `json:"nonce"`
 		Username string `json:"username"`
@@ -921,7 +943,7 @@ func handleSharedSecretRegister(c *gin.Context) {
 		adminStr = "admin"
 	}
 
-	mac := hmac.New(sha1.New, []byte(sharedRegistrationSecret))
+	mac := hmac.New(sha1.New, []byte(sharedRegistrationSecret()))
 	mac.Write([]byte(req.Nonce))
 	mac.Write([]byte{0})
 	mac.Write([]byte(req.Username))
@@ -943,7 +965,7 @@ func handleSharedSecretRegister(c *gin.Context) {
 		Username: req.Username,
 		Password: req.Password,
 		Auth:     &UIAuthRequest{Type: "m.login.dummy"},
-	}, true)
+	}, req.Admin)
 	if regErr != nil {
 		c.JSON(http.StatusBadRequest, regErr)
 
