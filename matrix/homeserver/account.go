@@ -360,7 +360,8 @@ func (as *AccountService) Whoami(userID string) (*WhoamiResponse, error) {
 
 // WhoamiResponse 用户信息响应.
 type WhoamiResponse struct {
-	UserID string `json:"user_id"`
+	UserID   string `json:"user_id"`
+	DeviceID string `json:"device_id,omitempty"`
 }
 
 // ChangePassword 修改密码.
@@ -403,6 +404,7 @@ func handleWhoami(c *gin.Context) {
 		return
 	}
 
+	resp.DeviceID = c.GetString("device_id")
 	c.JSON(http.StatusOK, resp)
 }
 

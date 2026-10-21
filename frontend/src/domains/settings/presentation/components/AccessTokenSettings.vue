@@ -4,7 +4,7 @@ import { isAxiosError } from 'axios'
 import BottomSheet from '@/shared/components/sheets/BottomSheet.vue'
 import { connectionsApi, type AccessToken } from '../../infrastructure/connectionsApi'
 import { useSettingsScope } from '../composables/useSettingsScope'
-import { adminScopeRows, collapseScopes, needsReauth, scopeLabelKey, userScopeRows } from '../../domain/tokenScopes'
+import { adminScopeRows, collapseScopes, matrixScopeRows, needsReauth, scopeLabelKey, userScopeRows } from '../../domain/tokenScopes'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { formatRelativeTime } from '@/shared/utils/format'
 import { t } from '@/shared/i18n'
@@ -26,8 +26,8 @@ function reset() { editing.value = null; name.value = ''; password.value = ''; o
 const scope = useSettingsScope(() => { loading.value = false; rows.value = []; secret.value = ''; error.value = ''; busy.value = false; creating.value = false; reset() })
 
 function toggle(key: string, on: boolean) { const next = new Set(selected.value); if (on) next.add(key); else next.delete(key); selected.value = next }
-// "Enable all" never turns on admin scopes; "Disable all" clears everything.
-function enableAll() { const next = new Set([...selected.value].filter(s => s.startsWith('admin:'))); userScopeRows.forEach(r => next.add(r.scope)); selected.value = next }
+// "Enable all" never turns on admin or Matrix scopes; "Disable all" clears everything.
+function enableAll() { const next = new Set([...selected.value].filter(s => s.startsWith('admin:') || s.endsWith(':matrix'))); userScopeRows.forEach(r => next.add(r.scope)); selected.value = next }
 function disableAll() { selected.value = new Set() }
 function open() { reset(); creating.value = true }
 /** Opens the sheet prefilled with a token's name and permissions. */
@@ -117,6 +117,11 @@ onMounted(load)
           <legend>{{ $t('settings.Connections.permissions') }}</legend>
           <div class="connection-actions"><button type="button" class="btn btn--secondary" @click="disableAll">{{ $t('settings.Connections.disableAll') }}</button><button type="button" class="btn btn--secondary" @click="enableAll">{{ $t('settings.Connections.enableAll') }}</button></div>
           <label v-for="row in userScopeRows" :key="row.scope" class="connection-toggle"><input type="checkbox" role="switch" :checked="selected.has(row.scope)" @change="toggle(row.scope, ($event.target as HTMLInputElement).checked)" /><span class="token-perm"><span>{{ $t(scopeLabelKey(row.scope)) }}</span><code>{{ row.scope }}</code></span></label>
+        </fieldset>
+        <fieldset :disabled="busy" class="token-perms token-perms--matrix">
+          <legend>{{ $t('settings.Connections.matrixPermissions') }}</legend>
+          <p class="connection-note">{{ $t('settings.Connections.matrixHint') }}</p>
+          <label v-for="row in matrixScopeRows" :key="row.scope" class="connection-toggle"><input type="checkbox" role="switch" :checked="selected.has(row.scope)" @change="toggle(row.scope, ($event.target as HTMLInputElement).checked)" /><span class="token-perm"><span>{{ $t(scopeLabelKey(row.scope)) }}</span><code>{{ row.scope }}</code></span></label>
         </fieldset>
         <fieldset v-if="isAdmin" :disabled="busy" class="token-perms token-perms--admin">
           <legend>{{ $t('settings.Connections.adminPermissions') }}</legend>

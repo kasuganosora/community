@@ -42,6 +42,8 @@ var personalTokenScopes = map[string]scopeBits{
 	"write:statuses":       {AppScopeTypeWrite, AppScopeWriteStatuses},
 	"push":                 {AppScopeTypeOther, AppScopePush},
 	"follow":               {AppScopeTypeOther, AppScopeFollow},
+	"read:matrix":          {AppScopeTypeOther, AppScopeReadMatrix},
+	"write:matrix":         {AppScopeTypeOther, AppScopeWriteMatrix},
 	"admin:read":           {AppScopeTypeAdmin, AppScopeAdminRead},
 	"admin:write":          {AppScopeTypeAdmin, AppScopeAdminWrite},
 	"admin:read:accounts":  {AppScopeTypeAdmin, AppScopeAdminReadAccounts},

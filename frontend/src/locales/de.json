@@ -2993,13 +2993,17 @@
         "admin__read__accounts": "Konten ansehen (Admin)",
         "admin__write__accounts": "Konten verwalten (Admin)",
         "admin__read__reports": "Meldungen ansehen",
-        "admin__write__reports": "Meldungen bearbeiten"
+        "admin__write__reports": "Meldungen bearbeiten",
+        "read__matrix": "Matrix-Chats ansehen (Synchronisierung, Nachrichten lesen)",
+        "write__matrix": "Matrix-Chats nutzen (Nachrichten senden, Räume verwalten, Schlüssel)"
       },
       "disableAll": "Alle deaktivieren",
       "enableAll": "Alle aktivieren",
       "done": "Fertig",
       "adminPermissions": "Admin-Berechtigungen",
       "adminHint": "Wird durch „Alle aktivieren“ nicht eingeschaltet. Bei jeder Anfrage wird deine aktuelle Rolle geprüft.",
+      "matrixPermissions": "Matrix-Chat",
+      "matrixHint": "Erlaubt Matrix-Bots und -Clients, dieses Token für die Matrix-Client-API zu nutzen. Wird von „Alle aktivieren“ nicht eingeschaltet.",
       "confirmPassword": "Aktuelles Passwort",
       "confirmHint": "Admin-Schreibrechte erfordern dein Passwort (und ggf. den 2FA-Code).",
       "otp": "2FA-Code (falls aktiviert)",

@@ -22,6 +22,9 @@ export const adminScopeRows: ScopeRow[] = [
   'admin:read:reports', 'admin:write:reports',
 ].map(scope => ({ scope }))
 
+/** Matrix client API access. Separate from read/write umbrellas: never implied, never collapsed. */
+export const matrixScopeRows: ScopeRow[] = ['read:matrix', 'write:matrix'].map(scope => ({ scope }))
+
 export const scopeLabelKey = (scope: string) => `settings.Connections.scopeLabels.${scope.replace(/:/g, '__')}`
 
 /** Collapses a full set of granular read/write scopes to the parent scope. */

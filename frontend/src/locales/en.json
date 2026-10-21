@@ -2993,13 +2993,17 @@
         "admin__read__accounts": "View accounts (admin)",
         "admin__write__accounts": "Manage accounts (admin)",
         "admin__read__reports": "View reports",
-        "admin__write__reports": "Handle reports"
+        "admin__write__reports": "Handle reports",
+        "read__matrix": "View Matrix chats (sync, read messages)",
+        "write__matrix": "Use Matrix chats (send messages, manage rooms, encryption keys)"
       },
       "disableAll": "Disable all",
       "enableAll": "Enable all",
       "done": "Done",
       "adminPermissions": "Admin permissions",
       "adminHint": "Not turned on by “Enable all”. Checked against your current role on every request.",
+      "matrixPermissions": "Matrix chat",
+      "matrixHint": "Lets Matrix bots and clients use this token on the Matrix client API. Not turned on by “Enable all”.",
       "confirmPassword": "Current password",
       "confirmHint": "Admin write permissions require your password (and 2FA code if enabled).",
       "otp": "Two-factor code (if enabled)",

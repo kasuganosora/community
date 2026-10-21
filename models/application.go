@@ -74,6 +74,10 @@ const (
 	AppScopeFollow = 0x1
 	AppScopePush   = 0x2
 	AppScopeCrypto = 0x4
+	// Matrix client-server API access with the same token. Kept in the
+	// "other" group so the read/write umbrellas never imply them.
+	AppScopeReadMatrix  = 0x8
+	AppScopeWriteMatrix = 0x10
 
 	// 权限类型.
 	AppScopeTypeRead  = 0
@@ -135,6 +139,14 @@ func (s *ApplicationScope) OAuthScopeString() string {
 
 	if s.OtherScope&AppScopePush != 0 {
 		parts = append(parts, "push")
+	}
+
+	if s.OtherScope&AppScopeReadMatrix != 0 {
+		parts = append(parts, "read:matrix")
+	}
+
+	if s.OtherScope&AppScopeWriteMatrix != 0 {
+		parts = append(parts, "write:matrix")
 	}
 
 	return strings.Join(parts, " ")

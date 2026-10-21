@@ -381,20 +381,16 @@ func matrixAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		hs := GetHomeServer()
-
-		session, err := hs.Auth.GetDeviceByToken(auth)
+		session, status, err := resolveMatrixAccessToken(c.Request, auth)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, err)
+			c.JSON(status, err)
 			c.Abort()
 
 			return
 		}
 
-		// 存储用户信息
-		c.Set("user_id", session.UserID)
-		c.Set("device_id", session.DeviceID)
-		c.Set("access_token", auth)
+		// 存储用户信息（统一令牌时 access_token 为绑定设备的内部令牌）
+		setMatrixAuthContext(c, session)
 		c.Next()
 	}
 }

@@ -392,6 +392,12 @@ func parseScopes(scopesStr string) models.ApplicationScope {
 	for scope := range scopeList {
 		scope = strings.TrimSpace(scope)
 		switch {
+		// Matrix scopes must be matched before the read:/write: prefixes:
+		// they are opt-in and never imply (or are implied by) read/write.
+		case scope == "read:matrix":
+			scopes.AddScope(models.AppScopeTypeOther, models.AppScopeReadMatrix)
+		case scope == "write:matrix":
+			scopes.AddScope(models.AppScopeTypeOther, models.AppScopeWriteMatrix)
 		case scope == "read" || strings.HasPrefix(scope, "read:"):
 			scopes.AddScope(models.AppScopeTypeRead, models.AppScopeRead)
 		case scope == "write" || strings.HasPrefix(scope, "write:"):

@@ -21,7 +21,7 @@ func AuthorizationServerMetadata(c *gin.Context) {
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token", "client_credentials", "password"},
 		"code_challenge_methods_supported":      []string{pkceMethodS256},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"},
-		"scopes_supported":                      []string{"read", "write", "follow", "push", "admin:read", "admin:write"},
+		"scopes_supported":                      []string{"read", "write", "follow", "push", "read:matrix", "write:matrix", "admin:read", "admin:write"},
 		"service_documentation":                 base + "/about",
 		"miauth_endpoint":                       base + "/miauth",
 	})

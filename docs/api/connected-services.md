@@ -18,6 +18,43 @@ The API console accepts only this server's `/api/` paths. A pasted token stays
 in memory; leaving the page or switching accounts clears it. HTTP errors from
 the console do not sign out the active account.
 
+### Matrix access with the same token (bots)
+
+There is one token system. A personal access token (or an OAuth access token
+whose app requested the scopes) can also call this server's Matrix
+client-server API (`/_matrix/client/**`, `/_matrix/media/**`) as its owner
+when the Matrix permissions are ticked in Settings → Access tokens:
+
+| Scope | Allows |
+|-------|--------|
+| `read:matrix` | `GET`/`HEAD` requests incl. `/sync`, plus read-only `POST`s: `/keys/query`, `/search`, `/user_directory/search`, `/publicRooms`, `/user/{id}/filter` |
+| `write:matrix` | every other request: sending messages, joins/leaves, room management, `/keys/upload`, to-device, ... |
+
+Bots normally need both. They are never implied by `read`, `write`,
+`follow` or "Enable all", and existing tokens do not get them. Editing the
+scopes keeps the token string; removing them takes effect on the next request.
+
+Use the token exactly like a Matrix access token
+(`Authorization: Bearer <token>`; `?access_token=` works too and is checked
+the same way). No `/login` is needed. Without a Matrix scope the server
+answers `401 M_UNKNOWN_TOKEN`; with only `read:matrix`, mutating requests get
+`403 M_FORBIDDEN`.
+
+Each token is bound to one dedicated Matrix device. Its `device_id` is
+derived from the token (`MTOK` + 12 hex chars, stable for the token's
+lifetime) and its display name is the app name (or "API token"), so `/sync`
+positions, to-device messages and E2EE keys persist; `/account/whoami`
+returns `user_id` and `device_id`. The device is created on first use.
+
+- `POST /logout` with such a token deletes only the bound device session
+  (keys, pending to-device messages); the API token stays valid and the next
+  request starts a fresh, empty device. `POST /logout/all` logs out all of the
+  user's Matrix devices but never revokes API tokens. Revoke the token in
+  Settings to cut off access; its device is removed on the next attempt to use it.
+- Revoked or expired tokens and suspended accounts are rejected immediately.
+- The Matrix admin APIs (`/_synapse/admin/**`, `/_matrix/client/v3/admin/**`) and appservice tokens still
+  require native Matrix credentials; federation is unaffected.
+
 ## Webhooks
 
 `POST /api/v1/settings/webhooks` accepts:

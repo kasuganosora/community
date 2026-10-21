@@ -2993,13 +2993,17 @@
         "admin__read__accounts": "Voir les comptes (admin)",
         "admin__write__accounts": "Gérer les comptes (admin)",
         "admin__read__reports": "Voir les signalements",
-        "admin__write__reports": "Traiter les signalements"
+        "admin__write__reports": "Traiter les signalements",
+        "read__matrix": "Voir les discussions Matrix (synchronisation, lecture)",
+        "write__matrix": "Utiliser les discussions Matrix (envoi, gestion des salons, clés de chiffrement)"
       },
       "disableAll": "Tout désactiver",
       "enableAll": "Tout activer",
       "done": "Terminé",
       "adminPermissions": "Autorisations d’administration",
       "adminHint": "Non activé par « Tout activer ». Vérifié selon votre rôle actuel à chaque requête.",
+      "matrixPermissions": "Discussions Matrix",
+      "matrixHint": "Permet aux bots et clients Matrix d’utiliser ce jeton sur l’API client Matrix. Non activé par « Tout activer ».",
       "confirmPassword": "Mot de passe actuel",
       "confirmHint": "Les autorisations d’écriture admin exigent votre mot de passe (et le code 2FA s’il est activé).",
       "otp": "Code 2FA (si activé)",

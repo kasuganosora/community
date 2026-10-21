@@ -227,6 +227,8 @@ func scopeLabels(scope string) []string {
 		"follow":       "管理你的关注、屏蔽和静音",
 		"push":         "为你订阅推送通知",
 		"admin":        "管理这台服务器",
+		"read:matrix":  "通过 Matrix 客户端 API 同步和读取你的聊天",
+		"write:matrix": "通过 Matrix 客户端 API 以你的身份发送消息和管理聊天室",
 		"write:notes":  "发布和删除帖子",
 		"read:account": "读取你的账户信息",
 	}

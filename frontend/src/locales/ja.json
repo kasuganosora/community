@@ -2993,13 +2993,17 @@
         "admin__read__accounts": "アカウントを見る（管理）",
         "admin__write__accounts": "アカウントを管理する",
         "admin__read__reports": "通報を見る",
-        "admin__write__reports": "通報を処理する"
+        "admin__write__reports": "通報を処理する",
+        "read__matrix": "Matrix チャットを見る（同期・メッセージの読み取り）",
+        "write__matrix": "Matrix チャットを使う（送信・ルーム管理・暗号鍵）"
       },
       "disableAll": "すべて無効",
       "enableAll": "すべて有効",
       "done": "完了",
       "adminPermissions": "管理者権限",
       "adminHint": "「すべて有効」ではオンになりません。リクエストごとに現在の権限で確認されます。",
+      "matrixPermissions": "Matrix チャット",
+      "matrixHint": "Matrix ボットやクライアントがこのトークンで Matrix クライアント API を使えるようにします。「すべて有効」ではオンになりません。",
       "confirmPassword": "現在のパスワード",
       "confirmHint": "管理の書き込み権限にはパスワード（2段階認証が有効ならコードも）が必要です。",
       "otp": "2段階認証コード（有効な場合）",

@@ -2993,13 +2993,17 @@
         "admin__read__accounts": "查看用户（管理）",
         "admin__write__accounts": "管理用户",
         "admin__read__reports": "查看举报",
-        "admin__write__reports": "处理举报"
+        "admin__write__reports": "处理举报",
+        "read__matrix": "查看 Matrix 聊天（同步、读取消息）",
+        "write__matrix": "使用 Matrix 聊天（发送消息、管理房间、加密密钥）"
       },
       "disableAll": "禁用全部",
       "enableAll": "启用全部",
       "done": "完成",
       "adminPermissions": "管理员权限",
       "adminHint": "“启用全部”不会开启这些权限。每次请求都会按你当前的角色重新检查。",
+      "matrixPermissions": "Matrix 聊天",
+      "matrixHint": "允许 Matrix 机器人和客户端用此令牌调用 Matrix 客户端 API。“全部启用”不会开启此项。",
       "confirmPassword": "当前密码",
       "confirmHint": "管理写入权限需要输入密码（如已启用两步验证，还需验证码）。",
       "otp": "两步验证码（如已启用）",

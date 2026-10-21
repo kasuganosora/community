@@ -2993,13 +2993,17 @@
         "admin__read__accounts": "檢視帳號（管理）",
         "admin__write__accounts": "管理帳號",
         "admin__read__reports": "檢視檢舉",
-        "admin__write__reports": "處理檢舉"
+        "admin__write__reports": "處理檢舉",
+        "read__matrix": "檢視 Matrix 聊天（同步、讀取訊息）",
+        "write__matrix": "使用 Matrix 聊天（傳送訊息、管理聊天室、加密金鑰）"
       },
       "disableAll": "全部停用",
       "enableAll": "全部啟用",
       "done": "完成",
       "adminPermissions": "管理員權限",
       "adminHint": "「全部啟用」不會開啟這些權限。每次請求都會依你目前的角色重新檢查。",
+      "matrixPermissions": "Matrix 聊天",
+      "matrixHint": "允許 Matrix 機器人和用戶端以此權杖呼叫 Matrix 用戶端 API。「全部啟用」不會開啟此項。",
       "confirmPassword": "目前密碼",
       "confirmHint": "管理寫入權限需要輸入密碼（如已啟用兩步驟驗證，還需驗證碼）。",
       "otp": "兩步驟驗證碼（如已啟用）",

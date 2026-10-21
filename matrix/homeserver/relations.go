@@ -754,19 +754,15 @@ func MatrixAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		session, matrixErr := hs.Auth.GetDeviceByToken(token)
+		session, status, matrixErr := resolveMatrixAccessToken(c.Request, token)
 		if matrixErr != nil {
-			c.JSON(http.StatusUnauthorized, MatrixError{
-				ErrCode: "M_UNKNOWN_TOKEN",
-				Error:   "Invalid access token",
-			})
+			c.JSON(status, matrixErr)
 			c.Abort()
 
 			return
 		}
 
-		c.Set("user_id", session.UserID)
-		c.Set("device_id", session.DeviceID)
+		setMatrixAuthContext(c, session)
 		c.Next()
 	}
 }
