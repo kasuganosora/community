@@ -1,0 +1,84 @@
+  -account uint
+    	target account ID for personal import
+  -apply
+    	import account data; omitted validates only (target schema upgrades still run)
+  -batch-size int
+    	direct mode: rows per keyset page / read-only source transaction (default 5000)
+  -batch-sleep float
+    	direct mode: seconds to sleep after every source page
+  -check-source-stopped
+    	direct mode: only run the source-stopped check (sessions, write activity, local web, Bull queues) and exit 0 if STOPPED, 3 if RUNNING
+  -chunk-size int
+    	records per transaction for streamed and direct imports (default 1000)
+  -exporter-dir string
+    	direct mode: directory containing export_misskey.py / export_mastodon_db.py (default: ./scripts/migration or next to the binary)
+  -fetch-only
+    	direct mode: bulk read into --work-dir and stop; the source may stay live
+  -final-sync
+    	direct mode: after source writes are stopped, read new/updated/deleted rows, then import
+  -force
+    	direct mode: run --final-sync even though the source-stopped check says RUNNING (rehearsals on copies only; logged as WARN and recorded in --work-dir)
+  -id-method string
+    	direct mode (misskey): config.id of the source; mixed historical formats are detected per ID (default "aidx")
+  -include-remote-cache
+    	direct mode: also migrate the remote-content cache (default: local data and what it references)
+  -input string
+    	private source export directory or backup file
+  -keep-secret-spool
+    	after a successful --apply keep the spool/staging files that hold plaintext source credentials (TOTP secrets etc.) instead of wiping them; debugging only, prints a warning
+  -kind string
+    	archive, notes, following, blocking, muting, domain_blocks, bookmarks, lists or filters (default "archive")
+  -max-expanded-bytes int
+    	maximum uncompressed snapshot size; provision free disk before increasing (default 1073741824)
+  -max-files int
+    	maximum number of archive files (default 20000)
+  -max-json-bytes int
+    	maximum size of one JSON file for the in-memory path (--stream=false or zip/personal input) (default 67108864)
+  -max-records int
+    	maximum normalized records (default 100000)
+  -max-rows-per-sec float
+    	direct mode: throttle source reads (0 = unlimited)
+  -media-dir string
+    	direct mode (mastodon): public/system directory
+  -object-base-url string
+    	direct mode: public URL prefix of the source bucket
+  -object-storage-dir string
+    	direct mode: local mirror of the source bucket (copy mode)
+  -object-storage-mode string
+    	direct mode: error, copy or reference for media in object storage
+  -python string
+    	direct mode: Python 3 interpreter for the source reader (default "python3")
+  -report string
+    	write the safe report to a new private JSON file
+  -reuse-spool
+    	direct mode: skip reading the source and import the existing spool again (resume an interrupted import)
+  -scope string
+    	site or personal (default "site")
+  -skip-unattached-drive-files
+    	direct mode (misskey): do not migrate local drive files that no note, avatar, banner or chat message references (default: import them as unattached media of their owner)
+  -source string
+    	auto, community, misskey or mastodon (default "auto")
+  -source-base-url string
+    	direct mode: public origin of the source server, e.g. https://maid.lat
+  -source-check-interval duration
+    	direct mode: time between the two write-watermark samples of the stopped check (default 30s)
+  -source-dsn string
+    	direct mode: libpq connection string of the source Misskey/Mastodon PostgreSQL (read-only role; no password, use PGPASSFILE)
+  -source-files-dir string
+    	direct mode (misskey): local drive files directory snapshot
+  -source-queues string
+    	direct mode: comma-separated Bull queue names to check (default "deliver,inbox,db,relationship,objectStorage,userWebhookDeliver,systemWebhookDeliver,endedPollNotification,postScheduledNote,system")
+  -source-redis-prefix string
+    	direct mode: Bull key prefix of the source Misskey queues (default "bull")
+  -source-redis-url string
+    	direct mode: source Misskey Redis (redis://[:password@]host:port/db) for the Bull queue check; empty = check skipped
+  -source-version string
+    	direct mode: source software version (default "unknown")
+  -source-web-url string
+    	direct mode: LOCAL/internal source web endpoint for the stopped check (e.g. http://127.0.0.1:3000/api/meta or http://web:3000/api/meta; never the public domain behind a CDN); - disables (default "http://127.0.0.1:3000/api/meta")
+  -sslmode string
+    	direct mode: libpq sslmode added to --source-dsn when it has none (disable, require, verify-full, ...)
+  -stream
+    	site bundle.json: stream it into an on-disk spool and import in chunks (memory does not grow with the bundle) (default true)
+  -work-dir string
+    	direct mode: private directory for fetch state, spool and copied media (reuse it to resume and for --final-sync)

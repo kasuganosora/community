@@ -15,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 
+	// Must stay imported: answers --help before config/db init() runs.
+	_ "github.com/kasuganosora/community/cmd/community-transfer/internal/helpgate"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/datatransfer"
 	"github.com/kasuganosora/community/db"
