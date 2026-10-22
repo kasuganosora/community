@@ -49,7 +49,7 @@ func TestRecommendationHiddenAuthorKeepsDeletedSourceAndScope(t *testing.T) {
 			require.NoError(t, conn.Model(duplicate).UpdateColumn("acct", "  author@REMOTE.test  ").Error)
 			row := RecommendationFeedback{Scope: tc.scope, OwnerID: tc.owner, Action: tc.action, TargetKind: "account", TargetKey: strconv.FormatUint(target.Id, 10)}
 			if tc.expired {
-				expired := time.Now().Add(-time.Minute)
+				expired := time.Now().UTC().Add(-time.Minute) // sqlexec test DB stores wall time and reads it back as UTC
 				row.ExpiresAt = &expired
 			}
 			require.NoError(t, conn.Create(&row).Error)

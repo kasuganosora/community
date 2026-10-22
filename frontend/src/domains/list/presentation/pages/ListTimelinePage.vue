@@ -331,7 +331,8 @@ onMounted(load)
       <form v-if="tags.length < MAX_LIST_TAGS" class="tag-add" @submit.prevent="addTag()">
         <label for="list-tag-input" class="sr-only">{{ $t('list.ListTimelinePage.s16') }}</label>
         <input id="list-tag-input" v-model="tagQuery" class="manage-input" type="text" inputmode="text" enterkeyhint="done"
-          autocomplete="off" autocapitalize="off" :placeholder="$t('list.ListTimelinePage.s17')" maxlength="100" />
+          autocomplete="off" autocapitalize="off" :placeholder="$t('list.ListTimelinePage.s17')" maxlength="100"
+/>
         <button type="submit" class="btn btn--secondary btn--sm manage-row-btn" :disabled="busy || !tagQuery.trim()">{{ $t('list.ListTimelinePage.s16') }}</button>
       </form>
       <ul v-if="visibleSuggestions.length" class="tag-suggestions" role="listbox" :aria-label="$t('list.ListTimelinePage.s18')">

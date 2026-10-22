@@ -72,7 +72,7 @@ export async function disableServiceWorker(): Promise<void> {
  * the server confirms a different build; otherwise keep the failure/reload
  * action on the affected page. Browsers can cache a failed module import.
  */
-export async function handleChunkLoadError(_event?: Event): Promise<void> {
+export async function handleChunkLoadError(): Promise<void> {
   // Let Vite reject the import so route/dialog error handling can render.
   // Suppressing it would allow modules to render with missing stylesheets.
   if (navigator.onLine === false) return

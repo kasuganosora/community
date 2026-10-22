@@ -116,6 +116,13 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /** True when a verify_credentials failure may succeed on retry. */
+  function isTransientVerifyFailure(e: unknown): boolean {
+    const status = (e as { response?: { status?: number } } | null)?.response?.status
+    if (typeof status !== 'number') return true // no response: network error / timeout
+    return status === 408 || status === 429 || status >= 500
+  }
+
   async function fetchCurrentUser({ throwOnError = false } = {}): Promise<boolean> {
     const myVersion = ++fetchUserVersion
     if (USE_MOCK) {
@@ -135,13 +142,25 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (e) {
       console.error('Failed to verify credentials:', e)
       if (myVersion !== fetchUserVersion) return false
-      // A timeout, offline connection or 5xx says nothing about the token's
-      // validity. Keep the session (and any loaded profile) so it can recover.
-      if ((e as { response?: { status?: number } })?.response?.status !== 401) {
+      // No response (offline/timeout), 408, 429 or 5xx says nothing about the
+      // token's validity. Keep the session (and any loaded profile) so the
+      // caller can offer a retry.
+      if (isTransientVerifyFailure(e)) {
         if (throwOnError) throw e
         return false
       }
+      // Any other 4xx (401, 403, 422, ...) means the server rejected this
+      // session; suspended/disabled accounts get 401 from AuthMiddleware.
+      // Sign out locally — the token is unusable, so no logout API call.
+      const rejected = token.value
       currentUser.value = null
+      if (rejected) {
+        invalidateSessionData()
+        accountRegistry.markNeedsRelogin(rejected)
+        refreshAccounts()
+        token.value = null
+        tokenService.clear()
+      }
       return false
     }
   }

@@ -60,6 +60,12 @@ export function stallRetryAdapter(base: AxiosAdapter, stallMs?: number): AxiosAd
         )
       }
       timer = setTimeout(() => {
+        // Offline: deliberately no stall retry. A fresh request would fail
+        // immediately, and the first attempt is still in flight — it either
+        // completes once connectivity returns or fails with its own timeout
+        // (the original budget), surfacing the normal offline/timeout error
+        // and retry UI. We do not re-arm on the `online` event to avoid a
+        // second concurrent request racing the still-pending first one.
         if (settled || navigator.onLine === false) return
         const remaining = budget > 0 ? budget - (Date.now() - started) : budget
         if (budget > 0 && remaining <= 0) return

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const initialize = vi.hoisted(() => vi.fn())
 vi.mock('@/domains/auth/presentation/stores/authStore', () => ({ useAuthStore: () => ({ initialize }) }))
 vi.mock('@/shared/composables/useAccountHover', () => ({ accountHover: null }))
+import { t } from '@/shared/i18n'
 import App from '../App.vue'
 
 describe('startup on slow networks', () => {
@@ -27,7 +28,7 @@ describe('startup on slow networks', () => {
     initialize.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
     const wrapper = mount(App, options)
     await vi.advanceTimersByTimeAsync(6000)
-    expect(wrapper.get('[role="status"]').text()).toContain('网络较慢')
+    expect(wrapper.get('[role="status"]').text()).toContain(t('shared.App.s4'))
     finish(true)
     await flushPromises()
     expect(wrapper.get('main').text()).toBe('Loaded')

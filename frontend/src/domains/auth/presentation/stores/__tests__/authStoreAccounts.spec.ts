@@ -73,6 +73,8 @@ describe('auth store multi-account', () => {
     Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }),
     Object.assign(new Error('offline'), { code: 'ERR_NETWORK' }),
     Object.assign(new Error('service unavailable'), { response: { status: 503 } }),
+    Object.assign(new Error('request timeout'), { response: { status: 408 } }),
+    Object.assign(new Error('too many requests'), { response: { status: 429 } }),
   ])('keeps the token when initialization fails transiently and can retry', async failure => {
     const s = useAuthStore()
     api.verifyCredentials.mockRejectedValueOnce(failure).mockResolvedValueOnce(alice)
@@ -97,6 +99,25 @@ describe('auth store multi-account', () => {
     const s = useAuthStore()
     api.verifyCredentials.mockRejectedValueOnce({ response: { status: 401 } })
     expect(await s.initialize()).toBe(false)
+    expect(s.currentUser).toBeNull()
+    expect(s.token).toBeNull()
+    expect(localStorage.getItem('auth_token')).toBeNull()
+  })
+  it.each([403, 422, 400])('treats a %i from verify_credentials as an invalid session and signs out', async status => {
+    const s = useAuthStore()
+    api.verifyCredentials.mockRejectedValueOnce(Object.assign(new Error('rejected'), { response: { status } }))
+    expect(await s.initialize()).toBe(false)
+    expect(s.currentUser).toBeNull()
+    expect(s.token).toBeNull()
+    expect(s.isAuthenticated).toBe(false)
+    expect(localStorage.getItem('auth_token')).toBeNull()
+    expect(getAccount('1')?.needsRelogin).toBe(true)
+  })
+
+  it('signs out a loaded session when revalidation gets a 403', async () => {
+    const s = await signedInAsAlice()
+    api.verifyCredentials.mockRejectedValueOnce({ response: { status: 403 } })
+    expect(await s.fetchCurrentUser()).toBe(false)
     expect(s.currentUser).toBeNull()
     expect(s.token).toBeNull()
     expect(localStorage.getItem('auth_token')).toBeNull()

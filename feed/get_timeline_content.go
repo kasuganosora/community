@@ -49,13 +49,9 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 	databaseOnly, _ := params.Other["database_only"].(bool)
 	databaseOnly = databaseOnly || ForceDatabaseReads() || activationErr != nil
 	fallbackAcquired := false
-	var fallbackCancel context.CancelFunc
 	defer func() {
 		if fallbackAcquired {
 			<-fallbackSlots
-		}
-		if fallbackCancel != nil {
-			fallbackCancel()
 		}
 	}()
 	output := make(models.Statuses, 0, limit)
@@ -135,7 +131,11 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 					sqlFallbacks.WithLabelValues("busy").Inc()
 					return nil, ErrFeedUnavailable
 				}
+				// Runs at most once per call (guarded by fallbackAcquired),
+				// so deferring inside the loop does not accumulate.
+				var fallbackCancel context.CancelFunc
 				ctx, fallbackCancel = context.WithTimeout(ctx, 5*time.Second)
+				defer fallbackCancel()
 				conn = conn.WithContext(ctx)
 			}
 			query, err := newFilterCondition(conn.Model(&models.Status{}))

@@ -198,8 +198,10 @@ onBeforeUnmount(() => { active = false; actionVersion++; document.removeEventLis
             <div ref="endSentinel" class="group-timeline__end" aria-hidden="true"></div>
             <button v-if="unseen" class="group-new-messages" type="button" @click="scrollBottom">{{ $t('group.GroupsPage.s66', [unseen]) }}</button>
           </template>
-          <div ref="composerDock" class="group-composer-dock"><p v-if="typingNames && canSend" class="group-typing" role="status">{{ $t('group.GroupsPage.s67', [typingNames]) }}</p>
-          <GroupComposer v-if="group.membership === 'join'" :key="group.id" :group="group" :reply="reply" :editing="editing" :members="members" @sent="receivedSent" @cancel-context="reply = null; editing = null" @dirty="dirty = $event" @locked="composerLocked = $event" /></div>
+          <div ref="composerDock" class="group-composer-dock">
+<p v-if="typingNames && canSend" class="group-typing" role="status">{{ $t('group.GroupsPage.s67', [typingNames]) }}</p>
+          <GroupComposer v-if="group.membership === 'join'" :key="group.id" :group="group" :reply="reply" :editing="editing" :members="members" @sent="receivedSent" @cancel-context="reply = null; editing = null" @dirty="dirty = $event" @locked="composerLocked = $event" />
+</div>
           <p v-if="actionBusy" class="groups-notice" role="status">{{ joinBusy ? joinStatus : status }}</p><p class="groups-announcer" role="status">{{ status || joinStatus }}</p>
         </template>
       </template>

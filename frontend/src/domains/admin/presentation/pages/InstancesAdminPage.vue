@@ -144,8 +144,10 @@ onBeforeUnmount(() => { clearTimeout(debounce); observer?.disconnect(); window.r
           <button class="admin-button" :aria-label="$t('admin.InstancesAdminPage.s14')" @click="selected = null">✕</button>
         </header>
         <p class="inst-badges"><span class="inst-badge" :class="`is-${selected.status || 'idle'}`">{{ STATUS_LABEL[selected.status || 'idle'] }}</span><span v-for="f in flags(selected)" :key="f" class="inst-badge is-moderated">{{ f }}</span></p>
-        <figure class="inst-chart"><figcaption>{{ $t('admin.InstancesAdminPage.s15', [sum(activity[selected.domain])]) }}</figcaption>
-          <QueueSparkline :height="56" :label="$t('admin.InstancesAdminPage.s16', [selected.domain])" :series="[{ values: activity[selected.domain] || [], tone: 'accent' }]" /></figure>
+        <figure class="inst-chart">
+<figcaption>{{ $t('admin.InstancesAdminPage.s15', [sum(activity[selected.domain])]) }}</figcaption>
+          <QueueSparkline :height="56" :label="$t('admin.InstancesAdminPage.s16', [selected.domain])" :series="[{ values: activity[selected.domain] || [], tone: 'accent' }]" />
+</figure>
         <dl class="inst-stats">
           <div><dt>{{ $t('admin.InstancesAdminPage.s17') }}</dt><dd>{{ selected.accounts }}</dd></div>
           <div><dt>{{ $t('admin.InstancesAdminPage.s18') }}</dt><dd>{{ selected.suspended_accounts }}</dd></div>

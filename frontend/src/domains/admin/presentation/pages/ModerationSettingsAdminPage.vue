@@ -109,20 +109,24 @@ onMounted(load)
       <section class="admin-card admin-form mod-basic" :aria-label="$t('admin.ModerationSettingsAdminPage.s5')">
         <AdminCheck variant="switch" :model-value="data.enable_registration" :label="$t('admin.ModerationSettingsAdminPage.s6')"
           :hint="data.auto_close_registration ? $t('admin.ModerationSettingsAdminPage.s7', [data.moderator_inactivity_limit_days]) : $t('admin.ModerationSettingsAdminPage.s8')"
-          :disabled="!!busy || locked.has('enable_registration')" @update:model-value="toggleRegistration" />
+          :disabled="!!busy || locked.has('enable_registration')" @update:model-value="toggleRegistration"
+/>
         <div class="mod-sub" data-testid="auto-close-registration">
           <AdminCheck variant="switch" :model-value="data.auto_close_registration" :label="$t('admin.ModerationSettingsAdminPage.s9')"
             :hint="(data.auto_close_registration ? $t('admin.ModerationSettingsAdminPage.s10', [data.moderator_inactivity_limit_days]) : $t('admin.ModerationSettingsAdminPage.s11')) + (data.moderators_last_active_at ? $t('admin.ModerationSettingsAdminPage.s12', [fmt(data.moderators_last_active_at)]) : $t('admin.ModerationSettingsAdminPage.s13'))"
-            :disabled="!!busy" @update:model-value="v => save({ auto_close_registration: v }, 'auto')" />
+            :disabled="!!busy" @update:model-value="v => save({ auto_close_registration: v }, 'auto')"
+/>
         </div>
         <p v-if="data.enable_registration" class="mod-warn">{{ $t('admin.ModerationSettingsAdminPage.s14') }}</p>
         <p v-if="data.registration_auto_closed_at && !data.enable_registration" class="mod-warn">{{ $t('admin.ModerationSettingsAdminPage.s15', [fmt(data.registration_auto_closed_at)]) }}</p>
         <AdminCheck variant="switch" :model-value="data.email_required_for_signup" :label="$t('admin.ModerationSettingsAdminPage.s16')"
-          :disabled="!!busy || locked.has('email_required_for_signup')" @update:model-value="v => save({ email_required_for_signup: v }, 'email')" />
+          :disabled="!!busy || locked.has('email_required_for_signup')" @update:model-value="v => save({ email_required_for_signup: v }, 'email')"
+/>
         <AdminField :label="$t('admin.ModerationSettingsAdminPage.s17')" :hint="$t('admin.ModerationSettingsAdminPage.s18')">
           <template #default="{ id, describedBy }">
             <select :id="id" :aria-describedby="describedBy" :value="data.ugc_visibility_for_visitor" :disabled="!!busy"
-              @change="save({ ugc_visibility_for_visitor: ($event.target as HTMLSelectElement).value as UgcVisibility }, 'ugc')">
+              @change="save({ ugc_visibility_for_visitor: ($event.target as HTMLSelectElement).value as UgcVisibility }, 'ugc')"
+>
               <option v-for="o in UGC_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
           </template>

@@ -87,7 +87,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if testDB.DB != nil {
 		session := testDB.DB.SessionWithOptions(&sqlexecapi.SessionOptions{CacheEnabled: false})
 		t.Cleanup(func() { _ = session.Close() })
-		testDB.GormDB, err = gorm.Open(sqlexecgorm.NewDialector(session), &gorm.Config{SkipDefaultTransaction: true})
+		testDB.GormDB, err = gorm.Open(sqlexecgorm.NewDialector(session), &gorm.Config{SkipDefaultTransaction: true, NowFunc: testutil.SQLExecNow})
 		require.NoError(t, err)
 	}
 

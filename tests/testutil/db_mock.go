@@ -6,6 +6,7 @@ import (
 	"maps"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/sqlexec/pkg/api"
@@ -85,7 +86,7 @@ func NewTestDB() (*TestDB, error) {
 
 	gormDB, err := gorm.Open(
 		sqlexecgorm.NewDialector(session),
-		&gorm.Config{SkipDefaultTransaction: true},
+		&gorm.Config{SkipDefaultTransaction: true, NowFunc: SQLExecNow},
 	)
 	if err != nil {
 		_ = session.Close()
@@ -157,7 +158,7 @@ func NewIsolatedTestDB(t interface {
 
 	gormDB, err := gorm.Open(
 		sqlexecgorm.NewDialector(session),
-		&gorm.Config{SkipDefaultTransaction: true},
+		&gorm.Config{SkipDefaultTransaction: true, NowFunc: SQLExecNow},
 	)
 	if err != nil {
 		_ = session.Close()
@@ -226,7 +227,7 @@ func newTestDBNoCleanup() (*TestDB, error) {
 
 	gormDB, err := gorm.Open(
 		sqlexecgorm.NewDialector(session),
-		&gorm.Config{SkipDefaultTransaction: true},
+		&gorm.Config{SkipDefaultTransaction: true, NowFunc: SQLExecNow},
 	)
 	if err != nil {
 		_ = session.Close()
@@ -408,3 +409,10 @@ func (t *TestDB) QueryAll(sql string, args ...any) ([]map[string]any, error) {
 
 	return result, nil
 }
+
+// SQLExecNow is the gorm NowFunc for the in-memory sqlexec test database.
+// That driver stores DATETIME values without a zone and scans them back as
+// UTC, so a Local timestamp written on a non-UTC host comes back shifted by
+// the host offset. Production MySQL uses loc=Local and round-trips correctly;
+// writing UTC here keeps the in-memory value equal to the stored one.
+func SQLExecNow() time.Time { return time.Now().UTC() }
