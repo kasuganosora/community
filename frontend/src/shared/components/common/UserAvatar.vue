@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { AvatarDecorationPlacement, MastodonAccount } from '@/shared/types/mastodon'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 import { avatarIdentity, identiconPattern } from '@/shared/utils/accountAvatar'
+import { isSlowConnection } from '@/shared/utils/network'
 
 const props = defineProps<{
   account: MastodonAccount
@@ -73,7 +74,7 @@ function avatarUrl(raw: string | undefined): string {
 const SIZE_BUCKETS = [48, 96, 192, 400]
 function withCacheSize(url: string): string {
   if (!url || !/^\/(proxy\/media|media)\//.test(url)) return url
-  const want = avatarSize.value * Math.min(Math.max(window.devicePixelRatio || 1, 1), 2)
+  const want = avatarSize.value * (isSlowConnection() ? 1 : Math.min(Math.max(window.devicePixelRatio || 1, 1), 2))
   const bucket = SIZE_BUCKETS.find(s => s >= want) ?? 400
   return `${url}${url.includes('?') ? '&' : '?'}size=${bucket}`
 }
@@ -87,7 +88,7 @@ const animatedUrl = computed(() => avatarUrl(props.account.avatar))
 const primaryUrl = computed(() => (!reducedMotion && (props.animated || hoverAnimated.value)) ? animatedUrl.value : stillUrl.value)
 let hoverToken = 0
 function hoverStart(event: PointerEvent) {
-  if (reducedMotion || props.animated || event.pointerType !== 'mouse' || animatedUrl.value === stillUrl.value) return
+  if (reducedMotion || isSlowConnection() || props.animated || event.pointerType !== 'mouse' || animatedUrl.value === stillUrl.value) return
   const token = ++hoverToken
   const url = animatedUrl.value
   // Swap only once the animated file is ready, so the still never blanks.
@@ -153,6 +154,7 @@ function imageFailed(event: Event) {
         :src="imageUrl"
         alt=""
         aria-hidden="true"
+        loading="lazy"
         decoding="async"
         @load="imageLoaded"
         @error="imageFailed"
@@ -171,6 +173,8 @@ function imageFailed(event: Event) {
       alt=""
       aria-hidden="true"
       draggable="false"
+      loading="lazy"
+      decoding="async"
       @error="decorationFailed(d.key)"
     />
   <span v-if="onlineStatus" class="avatar-online" :class="`avatar-online--${onlineStatus}`" role="img" :aria-label="$t(`user.onlineStatus.${onlineStatus}`)" :title="$t(`user.onlineStatus.${onlineStatus}`)" data-testid="online-indicator" />

@@ -3,7 +3,8 @@
     "App": {
       "s1": "Seite wird geöffnet",
       "s2": "Erneut versuchen",
-      "s3": "App konnte nicht gestartet werden: {0}"
+      "s3": "App konnte nicht gestartet werden: {0}",
+      "s4": "Die Verbindung ist langsam. Verbindung wird hergestellt…"
     },
     "client": {
       "s1": "Zeitüberschreitung beim Laden, tippen zum Wiederholen",

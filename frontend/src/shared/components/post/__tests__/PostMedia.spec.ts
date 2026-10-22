@@ -40,6 +40,8 @@ describe('original attachment access', () => {
     ] } })
     expect(wrapper.find('.media-file-links').exists()).toBe(false)
     expect(wrapper.find('video').exists()).toBe(true)
+    expect(wrapper.get('video').attributes('preload')).toBe('none')
+    expect(wrapper.get('audio').attributes('preload')).toBe('none')
     // A broken preview falls back to the original link.
     await wrapper.get('img').trigger('error')
     expect(wrapper.get('.media-file-links a').attributes('href')).toBe('https://remote.test/a.png')

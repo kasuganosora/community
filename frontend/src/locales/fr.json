@@ -3,7 +3,8 @@
     "App": {
       "s1": "Ouverture de la page",
       "s2": "Réessayer",
-      "s3": "Échec du démarrage de l’application : {0}"
+      "s3": "Échec du démarrage de l’application : {0}",
+      "s4": "La connexion est lente. Connexion en cours…"
     },
     "client": {
       "s1": "Délai de chargement dépassé, touchez pour réessayer",

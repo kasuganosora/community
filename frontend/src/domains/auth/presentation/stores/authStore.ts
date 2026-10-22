@@ -116,7 +116,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function fetchCurrentUser(): Promise<boolean> {
+  async function fetchCurrentUser({ throwOnError = false } = {}): Promise<boolean> {
     const myVersion = ++fetchUserVersion
     if (USE_MOCK) {
       const { mockCurrentUser } = await import('@/shared/api/mockData')
@@ -135,6 +135,12 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (e) {
       console.error('Failed to verify credentials:', e)
       if (myVersion !== fetchUserVersion) return false
+      // A timeout, offline connection or 5xx says nothing about the token's
+      // validity. Keep the session (and any loaded profile) so it can recover.
+      if ((e as { response?: { status?: number } })?.response?.status !== 401) {
+        if (throwOnError) throw e
+        return false
+      }
       currentUser.value = null
       return false
     }
@@ -232,8 +238,9 @@ export const useAuthStore = defineStore('auth', () => {
     if (!token.value) {
       return false
     }
-    const success = await fetchCurrentUser()
-    if (!success) {
+    const initialToken = token.value
+    const success = await fetchCurrentUser({ throwOnError: true })
+    if (!success && token.value === initialToken) {
       token.value = null
       tokenService.clear()
     }

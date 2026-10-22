@@ -1,12 +1,14 @@
 import axios from 'axios'
 import type { AxiosAdapter, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { ref } from 'vue'
+import { isSlowConnection } from '@/shared/utils/network'
 
 // Idempotent reads that sometimes stall in transit (proxy / mobile network)
 // while the server answers in milliseconds. If no response arrives within
-// STALL_MS, the first attempt is dropped and one fresh request is sent; only
-// if that also fails does the caller see the error.
+// STALL_MS, the first attempt is dropped and one fresh request is sent. Slow
+// connections get more time; a response already downloading is never restarted.
 export const STALL_MS = 8000
+export const SLOW_STALL_MS = 30000
 const RETRYABLE = [/^\/api\/v2\/search(\?|$)/, /^\/api\/v1\/timelines\//]
 
 /** Number of stalled requests currently being retried (drives the hint). */
@@ -16,32 +18,60 @@ export function isStallRetryable(config: Pick<InternalAxiosRequestConfig, 'metho
   return (config.method ?? 'get').toLowerCase() === 'get' && RETRYABLE.some(re => re.test(config.url ?? ''))
 }
 
-function linkedAbort(signal: InternalAxiosRequestConfig['signal']): AbortController {
-  const ctl = new AbortController()
-  const outer = signal as AbortSignal | undefined
-  if (outer?.aborted) ctl.abort()
-  else outer?.addEventListener?.('abort', () => ctl.abort(), { once: true })
-  return ctl
-}
-
-export function stallRetryAdapter(base: AxiosAdapter, stallMs = STALL_MS): AxiosAdapter {
+export function stallRetryAdapter(base: AxiosAdapter, stallMs?: number): AxiosAdapter {
   return (config) => {
-    const first = linkedAbort(config.signal)
-    let stalled = false
+    const outer = config.signal as AbortSignal | undefined
+    let current = new AbortController()
+    let retried = false
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const started = Date.now()
+    const budget = config.timeout ?? 0
     return new Promise<AxiosResponse>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        stalled = true
+      function finish(error?: unknown, response?: AxiosResponse) {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        outer?.removeEventListener?.('abort', cancel)
+        if (retried) stalledRequests.value = Math.max(0, stalledRequests.value - 1)
+        if (error) reject(error)
+        else resolve(response!)
+      }
+      function cancel() {
+        current.abort()
+        finish(new axios.CanceledError('canceled', config))
+      }
+      if (outer?.aborted) { cancel(); return }
+      outer?.addEventListener?.('abort', cancel, { once: true })
+
+      function attempt(timeout = config.timeout) {
+        const controller = current
+        const request = { ...config, timeout, signal: controller.signal, onDownloadProgress: (event: Parameters<NonNullable<typeof config.onDownloadProgress>>[0]) => {
+          // Restarting a partially received response wastes scarce bandwidth.
+          if (event.loaded > 0) clearTimeout(timer)
+          config.onDownloadProgress?.(event)
+        } }
+        Promise.resolve().then(() => {
+          if (settled) throw new axios.CanceledError('canceled', config)
+          return base(request)
+        }).then(
+          response => { if (controller === current) finish(undefined, response) },
+          error => { if (controller === current) finish(error) },
+        )
+      }
+      timer = setTimeout(() => {
+        if (settled || navigator.onLine === false) return
+        const remaining = budget > 0 ? budget - (Date.now() - started) : budget
+        if (budget > 0 && remaining <= 0) return
+        const first = current
+        current = new AbortController()
         first.abort()
+        retried = true
         stalledRequests.value++
-        const second = linkedAbort(config.signal)
-        base({ ...config, signal: second.signal })
-          .then(resolve, reject)
-          .finally(() => { stalledRequests.value = Math.max(0, stalledRequests.value - 1) })
-      }, stallMs)
-      base({ ...config, signal: first.signal }).then(
-        (res) => { if (!stalled) { clearTimeout(timer); resolve(res) } },
-        (err) => { if (!stalled) { clearTimeout(timer); reject(err) } },
-      )
+        // Keep the original request's timeout budget across both attempts.
+        attempt(remaining)
+      }, stallMs ?? (isSlowConnection() ? SLOW_STALL_MS : STALL_MS))
+      attempt()
     })
   }
 }

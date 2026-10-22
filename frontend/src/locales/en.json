@@ -3,7 +3,8 @@
     "App": {
       "s1": "Opening page",
       "s2": "Retry",
-      "s3": "App failed to start: {0}"
+      "s3": "App failed to start: {0}",
+      "s4": "The connection is slow. Still connecting…"
     },
     "client": {
       "s1": "Loading timed out, tap to retry",

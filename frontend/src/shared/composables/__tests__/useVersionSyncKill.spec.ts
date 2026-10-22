@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchServerBuild, handleChunkLoadError } from '../useVersionSync'
+import { currentBuild, fetchServerBuild, handleChunkLoadError } from '../useVersionSync'
 import { registerUnsavedWork } from '../useUnsavedWork'
 
 describe('useVersionSync kill switch and chunk errors', () => {
@@ -7,6 +7,7 @@ describe('useVersionSync kill switch and chunk errors', () => {
     vi.unstubAllGlobals()
     sessionStorage.clear()
     localStorage.clear()
+    document.body.innerHTML = ''
   })
 
   it('unregisters workers and clears community caches when the server disables the worker', async () => {
@@ -28,18 +29,39 @@ describe('useVersionSync kill switch and chunk errors', () => {
     expect(del).not.toHaveBeenCalledWith('other')
   })
 
-  it('persists drafts before reloading on a chunk load failure, once a minute', () => {
+  it('reloads a failed chunk only after confirming a new server build, once a minute', async () => {
     const reload = vi.fn()
     vi.stubGlobal('location', { ...window.location, reload })
-    const off = registerUnsavedWork('compose', { busy: () => true, snapshot: () => ({ text: 'hello' }) })
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ build: 'confirmed-new-build' }) })))
     const event = new Event('vite:preloadError', { cancelable: true })
-    handleChunkLoadError(event)
+    await handleChunkLoadError(event)
     expect(reload).toHaveBeenCalledTimes(1)
-    expect(event.defaultPrevented).toBe(true)
+    expect(event.defaultPrevented).toBe(false)
+    await handleChunkLoadError(new Event('vite:preloadError', { cancelable: true }))
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps drafts and attachments in memory during a confirmed deploy', async () => {
+    const reload = vi.fn()
+    vi.stubGlobal('location', { ...window.location, reload })
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ build: 'deploy-with-draft' }) })))
+    const off = registerUnsavedWork('compose', { busy: () => true, snapshot: () => ({ text: 'hello' }) })
+    await handleChunkLoadError(new Event('vite:preloadError', { cancelable: true }))
+    expect(reload).not.toHaveBeenCalled()
+    expect(document.getElementById('community-update-toast')).not.toBeNull()
     expect(JSON.stringify(Object.values({ ...localStorage }))).toContain('hello')
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })))
-    handleChunkLoadError(new Event('vite:preloadError', { cancelable: true }))
-    expect(reload).toHaveBeenCalledTimes(1)
     off()
+  })
+
+  it.each([currentBuild, null])('does not reload on a transient chunk failure (server build %s)', async build => {
+    const reload = vi.fn()
+    vi.stubGlobal('location', { ...window.location, reload })
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: !!build, json: async () => ({ build }) })))
+    const event = new Event('vite:preloadError', { cancelable: true })
+    await handleChunkLoadError(event)
+    expect(event.defaultPrevented).toBe(false)
+    expect(reload).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem('community:preload-reload')).toBeNull()
   })
 })

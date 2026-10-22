@@ -2,6 +2,7 @@ import axios from 'axios'
 import type { AxiosError } from 'axios'
 import type { ApiErrorData } from '@/shared/types/mastodon'
 import { applyStallRetry } from './stallRetry'
+import { isSlowConnection, networkInformation, type NetworkInformationLike } from '@/shared/utils/network'
 
 import { t } from '@/shared/i18n'
 import { translateApiError } from '@/shared/i18n/apiErrors'
@@ -14,14 +15,8 @@ export const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 // can take well over 15 s on such a connection.
 export const DEFAULT_TIMEOUT_MS = 15000
 export const SLOW_NETWORK_TIMEOUT_MS = 45000
-type NetworkInformationLike = { effectiveType?: string, saveData?: boolean, rtt?: number, downlink?: number }
-export function requestTimeout(conn: NetworkInformationLike | undefined = (globalThis.navigator as unknown as { connection?: NetworkInformationLike } | undefined)?.connection): number {
-  if (!conn) return DEFAULT_TIMEOUT_MS
-  const slow = conn.saveData === true
-    || ['slow-2g', '2g', '3g'].includes(conn.effectiveType ?? '')
-    || (typeof conn.rtt === 'number' && conn.rtt >= 400)
-    || (typeof conn.downlink === 'number' && conn.downlink > 0 && conn.downlink < 1)
-  return slow ? SLOW_NETWORK_TIMEOUT_MS : DEFAULT_TIMEOUT_MS
+export function requestTimeout(conn: NetworkInformationLike | undefined = networkInformation()): number {
+  return isSlowConnection(conn) ? SLOW_NETWORK_TIMEOUT_MS : DEFAULT_TIMEOUT_MS
 }
 
 const client = axios.create({

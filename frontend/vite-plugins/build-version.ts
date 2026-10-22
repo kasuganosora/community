@@ -27,7 +27,7 @@ export const buildId = `${buildSha || 'nogit'}-${Date.now().toString(36)}`
 
 /**
  * Emits /version.json ({ build }) and /sw.js, a service worker that
- * precaches this build's hashed JS/CSS (see vite-plugins/sw-template.js).
+ * caches visited assets on demand (see vite-plugins/sw-template.js).
  */
 export function buildVersion(): Plugin {
   return {
@@ -43,18 +43,12 @@ export function buildVersion(): Plugin {
           `${pre}${url}?v=${encodeURIComponent(buildId)}${post}`)
       },
     },
-    async generateBundle(_options, bundle) {
-      const precache = Object.keys(bundle)
-        .filter((f) => f.startsWith('assets/') && /\.(js|css)$/.test(f))
-        .sort()
-        .map((f) => `/${f}`)
+    async generateBundle() {
       const template = await readFile(path.resolve(import.meta.dirname, 'sw-template.js'), 'utf8')
       this.emitFile({
         type: 'asset',
         fileName: 'sw.js',
-        source: template
-          .replace('__BUILD_ID__', JSON.stringify(buildId))
-          .replace('__PRECACHE__', JSON.stringify(precache)),
+        source: template.replace('__BUILD_ID__', JSON.stringify(buildId)),
       })
       this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: buildId, sha: buildSha || null, built_at: builtAt }) + '\n' })
     },

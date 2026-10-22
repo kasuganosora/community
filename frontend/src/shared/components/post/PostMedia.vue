@@ -234,6 +234,7 @@ const gridClass = computed(() => {
         :src="sameOriginMediaUrl(vid.url)"
         :poster="sameOriginMediaUrl(vid.preview_url) || undefined"
         controls
+        preload="none"
         loop
         playsinline
         class="media-video"

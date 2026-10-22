@@ -22,20 +22,28 @@ export const currentBuild = typeof __BUILD_ID__ === 'string' ? __BUILD_ID__ : 'd
 let pendingBuild: string | null = null
 let lastInput = Date.now()
 let registration: ServiceWorkerRegistration | undefined
+let buildRequest: Promise<string | null> | null = null
 
-export async function fetchServerBuild(): Promise<string | null> {
+export function fetchServerBuild(): Promise<string | null> {
+  if (!buildRequest) buildRequest = readServerBuild().finally(() => { buildRequest = null })
+  return buildRequest
+}
+
+async function readServerBuild(): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10000)
   try {
     // A unique query on top of no-store: no browser, proxy or CDN copy can
     // answer it, whatever its cache rules.
     const bust = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-    const res = await fetch(`/version.json?t=${bust}`, { cache: 'no-store', credentials: 'omit' })
+    const res = await fetch(`/version.json?t=${bust}`, { cache: 'no-store', credentials: 'omit', signal: controller.signal })
     if (!res.ok) return null
     if (res.headers?.get?.('X-Community-Service-Worker') === 'off') void disableServiceWorker()
     const body = await res.json() as { build?: unknown }
     return typeof body.build === 'string' && body.build ? body.build : null
   } catch {
     return null
-  }
+  } finally { clearTimeout(timer) }
 }
 
 /**
@@ -60,19 +68,24 @@ export async function disableServiceWorker(): Promise<void> {
 }
 
 /**
- * A lazy chunk failed to load (vite:preloadError): the server most likely
- * runs a newer build. Keep drafts, then reload into the new shell, at most
- * once a minute so a broken deploy cannot loop.
+ * A chunk failure can also be a slow/offline connection. Only reload when
+ * the server confirms a different build; otherwise keep the failure/reload
+ * action on the affected page. Browsers can cache a failed module import.
  */
-export function handleChunkLoadError(event?: Event): void {
+export async function handleChunkLoadError(_event?: Event): Promise<void> {
+  // Let Vite reject the import so route/dialog error handling can render.
+  // Suppressing it would allow modules to render with missing stylesheets.
+  if (navigator.onLine === false) return
+  const build = await fetchServerBuild()
+  if (!build || build === currentBuild) return
   const key = 'community:preload-reload'
   const last = Number(sessionStorage.getItem(key) || 0)
   if (Date.now() - last < 60_000) {
-    void checkVersion()
     return
   }
   sessionStorage.setItem(key, String(Date.now()))
-  event?.preventDefault()
+  // Preserve attachments and open dialogs in memory until the user is ready.
+  if (hasUnsavedWork() || isEditing()) { await onNewBuild(build); return }
   persistUnsavedWork()
   window.location.reload()
 }

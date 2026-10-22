@@ -1,11 +1,26 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MastodonAccount } from '@/shared/types/mastodon'
 import UserAvatar from '../UserAvatar.vue'
 
 const account = { id: 'a', username: 'alice', display_name: 'Alice', avatar: '/avatar-a.png' } as MastodonAccount
 
 describe('fixed-size account avatars', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+  it('uses smaller avatars on slow connections and avoids animated hover downloads', async () => {
+    vi.stubGlobal('navigator', { connection: { effectiveType: '3g' } })
+    const probe = vi.fn()
+    vi.stubGlobal('Image', probe)
+    const dpr = window.devicePixelRatio
+    Object.defineProperty(window, 'devicePixelRatio', { value: 2, configurable: true })
+    const wrapper = mount(UserAvatar, { props: { account: { ...account, avatar: '/proxy/media/animated', avatar_static: '/proxy/media/still', avatar_decoration_url: '/api/v1/avatar_decorations/1/image' }, size: 40 } })
+    expect(wrapper.get('.user-avatar__image').attributes('src')).toBe('/proxy/media/still?size=48')
+    expect(wrapper.findAll('img').every(image => image.attributes('loading') === 'lazy')).toBe(true)
+    await wrapper.trigger('pointerenter', { pointerType: 'mouse' })
+    expect(probe).not.toHaveBeenCalled()
+    wrapper.unmount()
+    Object.defineProperty(window, 'devicePixelRatio', { value: dpr, configurable: true })
+  })
   it('asks the avatar cache for a size bucket matching the rendered size and pixel ratio', () => {
     const dpr = window.devicePixelRatio
     Object.defineProperty(window, 'devicePixelRatio', { value: 3, configurable: true })

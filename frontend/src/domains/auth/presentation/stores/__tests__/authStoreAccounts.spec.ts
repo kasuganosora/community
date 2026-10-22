@@ -68,4 +68,37 @@ describe('auth store multi-account', () => {
     expect(s.expireSession()).toBe(false)
     expect(localStorage.getItem('auth_token')).toBeNull()
   })
+
+  it.each([
+    Object.assign(new Error('timeout'), { code: 'ECONNABORTED' }),
+    Object.assign(new Error('offline'), { code: 'ERR_NETWORK' }),
+    Object.assign(new Error('service unavailable'), { response: { status: 503 } }),
+  ])('keeps the token when initialization fails transiently and can retry', async failure => {
+    const s = useAuthStore()
+    api.verifyCredentials.mockRejectedValueOnce(failure).mockResolvedValueOnce(alice)
+    await expect(s.initialize()).rejects.toBe(failure)
+    expect(localStorage.getItem('auth_token')).toBe('ta')
+    expect(s.isAuthenticated).toBe(true)
+    expect(getAccount('1')?.needsRelogin).toBe(false)
+    expect(await s.initialize()).toBe(true)
+    expect(s.currentUser?.id).toBe('1')
+    expect(api.logout).not.toHaveBeenCalled()
+  })
+
+  it('keeps the loaded profile on a transient revalidation failure', async () => {
+    const s = await signedInAsAlice()
+    api.verifyCredentials.mockRejectedValueOnce(new Error('timeout'))
+    expect(await s.fetchCurrentUser()).toBe(false)
+    expect(s.currentUser?.id).toBe('1')
+    expect(s.token).toBe('ta')
+  })
+
+  it('still clears an invalid session when initialization receives a 401', async () => {
+    const s = useAuthStore()
+    api.verifyCredentials.mockRejectedValueOnce({ response: { status: 401 } })
+    expect(await s.initialize()).toBe(false)
+    expect(s.currentUser).toBeNull()
+    expect(s.token).toBeNull()
+    expect(localStorage.getItem('auth_token')).toBeNull()
+  })
 })

@@ -1,6 +1,10 @@
 <script setup lang="ts">
+import { persistUnsavedWork } from '@/shared/composables/useUnsavedWork'
 defineProps<{ title: string; failed?: boolean }>()
-function reload() { window.location.reload() }
+function reload() {
+  persistUnsavedWork()
+  window.location.reload()
+}
 </script>
 
 <template>

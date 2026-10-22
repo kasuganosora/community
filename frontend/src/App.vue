@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import SlowNetworkHint from '@/shared/components/common/SlowNetworkHint.vue'
-import { defineAsyncComponent, onMounted, ref } from 'vue'
+import { defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import { accountHover } from '@/shared/composables/useAccountHover'
 const AccountHoverCard = defineAsyncComponent(() => import('@/shared/components/common/AccountHoverCard.vue'))
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
@@ -10,12 +10,17 @@ import { t } from '@/shared/i18n'
 const authStore = useAuthStore()
 const initializing = ref(true)
 const initError = ref<string | null>(null)
+const slowInit = ref(false)
+let initPending = false
+let slowTimer: ReturnType<typeof setTimeout> | undefined
 
-function retryInit() {
-  window.location.reload()
-}
-
-onMounted(async () => {
+async function retryInit() {
+  if (initPending) return
+  initPending = true
+  initializing.value = true
+  initError.value = null
+  slowInit.value = false
+  slowTimer = setTimeout(() => { slowInit.value = true }, 6000)
   try {
     await authStore.initialize()
   } catch (e) {
@@ -23,16 +28,21 @@ onMounted(async () => {
     const msg = e instanceof Error ? e.message : String(e)
     initError.value = t('shared.App.s3', [msg])
   } finally {
+    clearTimeout(slowTimer)
+    initPending = false
     initializing.value = false
   }
-})
+}
+onMounted(retryInit)
+onBeforeUnmount(() => { clearTimeout(slowTimer) })
 </script>
 
 
 <template>
   <div v-if="navigationPending" class="navigation-pending" role="status" :aria-label="$t('shared.App.s1')"><span /></div>
-  <div v-if="initializing" class="app-initializing">
+  <div v-if="initializing" class="app-initializing" role="status" :aria-label="$t('shared.App.s1')">
     <t-loading size="large" />
+    <p v-if="slowInit">{{ $t('shared.App.s4') }}</p>
   </div>
   <div v-else-if="initError" class="app-init-error">
     <p>{{ initError }}</p>
@@ -67,10 +77,15 @@ onMounted(async () => {
 
 .app-initializing {
   display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
   align-items: center;
   justify-content: center;
   min-height: 100dvh;
   background: var(--color-bg);
+  padding: var(--space-4);
+  color: var(--color-label-secondary);
+  text-align: center;
 }
 
 /* Plain button: the app shell must not pull TDesign into the first screen. */
