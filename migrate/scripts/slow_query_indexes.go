@@ -57,7 +57,7 @@ var slowQueryIndexes = []onlineIndex{
 	{name: "idx_tags_name_key_pattern", table: "tags",
 		pg: "(name_key text_pattern_ops)"},
 	{name: "idx_statuses_live_created_id", table: "statuses",
-		pg: "(created_at, id) WHERE deleted_at IS NULL",
+		pg:     "(created_at, id) WHERE deleted_at IS NULL",
 		sqlite: "(created_at, id) WHERE deleted_at IS NULL"},
 	{name: "idx_status_tags_tag_status", table: "status_tags",
 		pg: "(tag_id, status_id)", mysql: "(tag_id, status_id)", sqlite: "(tag_id, status_id)"},
