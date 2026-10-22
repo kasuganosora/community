@@ -26,6 +26,8 @@ import (
 
 func setupTrendDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	discovery.ResetAnonymousTagTrendCacheForTest()
+	t.Cleanup(discovery.ResetAnonymousTagTrendCacheForTest)
 	var driver gorm.Dialector = sqlite.Open(fmt.Sprintf("file:trend_%d?mode=memory&cache=shared", time.Now().UnixNano()))
 	if dsn := os.Getenv("DISCOVERY_TEST_MYSQL_DSN"); dsn != "" {
 		driver = mysql.Open(dsn)
@@ -362,4 +364,17 @@ func TestTagAssociationBudgetKeepsNewestPosts(t *testing.T) {
 		names = append(names, row.Name)
 	}
 	require.ElementsMatch(t, []string{"newest", "middle"}, names)
+}
+
+func TestAnonymousTagTrendsAreCachedBriefly(t *testing.T) {
+	conn := setupTrendDB(t)
+	now := time.Now().UTC()
+	first, _, err := discovery.AnonymousTagTrendsPartial(t.Context(), conn, "7d", "federated", now)
+	require.NoError(t, err)
+	require.NoError(t, conn.Migrator().DropTable(&models.Status{}))
+	cached, _, err := discovery.AnonymousTagTrendsPartial(t.Context(), conn, "7d", "federated", now.Add(10*time.Second))
+	require.NoError(t, err, "within the TTL the shared result is reused")
+	require.Equal(t, first, cached)
+	_, _, err = discovery.AnonymousTagTrendsPartial(t.Context(), conn, "7d", "federated", now.Add(time.Minute))
+	require.Error(t, err, "after the TTL the aggregation runs again")
 }

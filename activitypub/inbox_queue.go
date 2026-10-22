@@ -207,10 +207,11 @@ func (q *InboxQueue) processDue(index int) int {
 
 func processDueInboxJobs(ctx context.Context, workers, index int, now time.Time) int {
 	conn := db.GetDB().WithContext(ctx)
+	if dialect.IsPostgres(conn) {
+		return processDueInboxJobsPG(ctx, conn, workers, index, now)
+	}
 	var jobs []InboxJob
-	err := conn.Where("shard % ? = ?", workers, index).
-		Where("(state = ? AND next_attempt_at <= ?) OR (state = ? AND lease_until < ?)", inboxJobPending, now, inboxJobProcessing, now).
-		Order("id").Limit(inboxClaimBatch).Find(&jobs).Error
+	err := dueInboxJobs(conn, workers, index, now).Order("id").Limit(inboxClaimBatch).Find(&jobs).Error
 	if err != nil {
 		log.Warn("Inbox queue: listing jobs: %v", err)
 		return 0
@@ -225,6 +226,53 @@ func processDueInboxJobs(ctx context.Context, workers, index int, now time.Time)
 		if claim.Error != nil || claim.RowsAffected != 1 {
 			continue
 		}
+		n++
+		status, perr := applyInboxJob(ctx, job)
+		finishInboxJob(conn, job, status, perr, time.Now())
+	}
+	return n
+}
+
+func dueInboxJobs(conn *gorm.DB, workers, index int, now time.Time) *gorm.DB {
+	return conn.Model(&InboxJob{}).Where("shard % ? = ?", workers, index).
+		Where("(state = ? AND next_attempt_at <= ?) OR (state = ? AND lease_until < ?)", inboxJobPending, now, inboxJobProcessing, now)
+}
+
+// processDueInboxJobsPG claims the whole batch in one short transaction with
+// FOR UPDATE SKIP LOCKED: one commit (fsync) per batch instead of one per
+// job, and concurrent claimers skip rows another worker holds instead of
+// queueing on them. The batch shares one lease; a job is only applied while
+// that lease is still ours, so an expired lease (another worker may have
+// reclaimed the job) stops the batch and the rest are retried later.
+func processDueInboxJobsPG(ctx context.Context, conn *gorm.DB, workers, index int, now time.Time) int {
+	lease := now.Add(inboxLease)
+	var jobs []InboxJob
+	err := conn.Transaction(func(tx *gorm.DB) error {
+		dialect.AsyncCommit(tx)
+		if err := dueInboxJobs(tx, workers, index, now).Order("id").Limit(inboxClaimBatch).
+			Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).Find(&jobs).Error; err != nil {
+			return err
+		}
+		if len(jobs) == 0 {
+			return nil
+		}
+		ids := make([]uint64, len(jobs))
+		for i := range jobs {
+			ids[i] = uint64(jobs[i].ID)
+		}
+		return tx.Model(&InboxJob{}).Where("id IN ?", ids).
+			Updates(map[string]any{"state": inboxJobProcessing, "lease_until": lease}).Error
+	})
+	if err != nil {
+		log.Warn("Inbox queue: claiming jobs: %v", err)
+		return 0
+	}
+	n := 0
+	for i := range jobs {
+		if !time.Now().Before(lease) {
+			break
+		}
+		job := &jobs[i]
 		n++
 		status, perr := applyInboxJob(ctx, job)
 		finishInboxJob(conn, job, status, perr, time.Now())

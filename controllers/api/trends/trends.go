@@ -64,7 +64,14 @@ func ListTags(c *gin.Context) {
 		return
 	}
 	limit, offset := pagination(c)
-	rows, partial, err := discovery.AggregateTagTrendsPartial(c.Request.Context(), db.GetDB(), viewer(c), window, scope, time.Now().UTC(), nil)
+	var rows []discovery.TagTrend
+	var partial bool
+	var err error
+	if v := viewer(c); v == nil {
+		rows, partial, err = discovery.AnonymousTagTrendsPartial(c.Request.Context(), db.GetDB(), window, scope, time.Now().UTC())
+	} else {
+		rows, partial, err = discovery.AggregateTagTrendsPartial(c.Request.Context(), db.GetDB(), v, window, scope, time.Now().UTC(), nil)
+	}
 	if err != nil {
 		unavailable(c, err)
 		return
