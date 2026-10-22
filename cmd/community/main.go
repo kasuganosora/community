@@ -416,6 +416,8 @@ func startServer(app *gin.Engine, stopTransfers context.CancelFunc) {
 	serializer.PollViewed = activitypub.MaybeRepairRemotePoll
 	inboxQueue := activitypub.StartInboxQueue()
 	srv.RegisterPostShutdown(func() error { inboxQueue.Stop(); return nil })
+	retention := activitypub.StartRetentionWorker()
+	srv.RegisterPostShutdown(func() error { retention.Stop(); return nil })
 	announceRetry := activitypub.StartAnnounceRetryWorker()
 	srv.RegisterPostShutdown(func() error { announceRetry.Stop(); return nil })
 	pollClose := activitypub.StartPollCloseWorker()

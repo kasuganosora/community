@@ -67,6 +67,35 @@ var slowQueryIndexes = []onlineIndex{
 		pg: "(state, updated_at)", mysql: "(state, updated_at)", sqlite: "(state, updated_at)"},
 }
 
+// RetentionIndexesScript indexes the timestamp columns used by the
+// activitypub.RetentionWorker sweep, using the same online, idempotent
+// builds as SlowQueryIndexesScript:
+//   - idx_ap_processed_activities_created_at ON
+//     activitypub_processed_activities (created_at)
+//   - idx_ap_deliveries_status_updated ON activitypub_deliveries
+//     (status, updated_at)
+type RetentionIndexesScript struct{}
+
+var retentionIndexes = []onlineIndex{
+	{name: "idx_ap_processed_activities_created_at", table: "activitypub_processed_activities",
+		pg: "(created_at)", mysql: "(created_at)", sqlite: "(created_at)"},
+	{name: "idx_ap_deliveries_status_updated", table: "activitypub_deliveries",
+		pg: "(status, updated_at)", mysql: "(status, updated_at)", sqlite: "(status, updated_at)"},
+}
+
+func (RetentionIndexesScript) NonTransactional() bool { return true }
+
+func (RetentionIndexesScript) Up(db *gorm.DB) error {
+	for _, ix := range retentionIndexes {
+		if err := createOnlineIndex(db, ix); err != nil {
+			return fmt.Errorf("%s: %w", ix.name, err)
+		}
+	}
+	return nil
+}
+
+func (RetentionIndexesScript) Down(*gorm.DB) error { return nil }
+
 func (SlowQueryIndexesScript) NonTransactional() bool { return true }
 
 func (SlowQueryIndexesScript) Up(db *gorm.DB) error {

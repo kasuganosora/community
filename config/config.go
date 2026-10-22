@@ -72,6 +72,12 @@ type Config struct {
 	WebAuthnRPDisplayName string `env:"WEBAUTHN_RP_DISPLAY_NAME"`
 	WebAuthnRPOrigins     string `env:"WEBAUTHN_RP_ORIGINS"` // comma separated, e.g. https://maid.lat
 
+	// Retention (days) of federation bookkeeping rows swept by
+	// activitypub.RetentionWorker; 0 disables the sweep for that table.
+	// Only log-type tables are swept, never local user content.
+	APProcessedActivityRetentionDays string `default:"90" env:"AP_PROCESSED_ACTIVITY_RETENTION_DAYS"` // inbox dedup records
+	APDeliveryRetentionDays          string `default:"30" env:"AP_DELIVERY_RETENTION_DAYS"`           // delivered outbound deliveries only
+
 	// 其他配置
 	Other map[string]string `env:"-"` // 不在上面的配置中的配置项
 }
