@@ -93,7 +93,7 @@ func (timeline *HomeTimeline) RebuildContext(ctx context.Context) (err error) {
 
 	statuses := make(models.Statuses, 0)
 
-	err = homeCandidates(db.GetDB().WithContext(ctx), timeline.Account.Id).Preload("ToAccounts").Order("statuses.id desc").Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
+	err = homeCandidates(db.GetDB().WithContext(ctx), timeline.Account.Id).Preload("ToAccounts").Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
 	if err != nil {
 		return err
 	}

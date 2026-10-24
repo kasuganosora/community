@@ -98,14 +98,14 @@ func (s *FeedService) AddToTimelineItem(timeline Timeline, status *models.Status
 
 		var isNewReblog int64
 		// 如果原始状态或其转发不在时间线的前 REBLOG_FALLOFF 个状态中，则将新的转发添加到 reblog_key 有序集合中，同时将转发状态添加到 timeline_key 有序集合中，返回
-		isNewReblog, err = s.redis.ZAddNX(sharedCtx, reblogKey, redis.Z{Score: float64(status.Id), Member: reblogIdStr}).Result()
+		isNewReblog, err = s.redis.ZAddNX(sharedCtx, reblogKey, redis.Z{Score: TimelineScore(status), Member: reblogIdStr}).Result()
 		if err != nil {
 			return err
 		}
 
 		// 新的转发状态
 		if isNewReblog > 0 {
-			err = s.redis.ZAdd(sharedCtx, timelineKey, redis.Z{Score: float64(status.Id), Member: statusIdStr}).Err()
+			err = s.redis.ZAdd(sharedCtx, timelineKey, redis.Z{Score: TimelineScore(status), Member: statusIdStr}).Err()
 			if err != nil {
 				return err
 			}
@@ -134,7 +134,7 @@ func (s *FeedService) AddToTimelineItem(timeline Timeline, status *models.Status
 	}
 
 	// 如果不是转发的，直接插入 timeline_key 有序集合中
-	err = s.redis.ZAdd(sharedCtx, timelineKey, redis.Z{Score: float64(status.Id), Member: statusIdStr}).Err()
+	err = s.redis.ZAdd(sharedCtx, timelineKey, redis.Z{Score: TimelineScore(status), Member: statusIdStr}).Err()
 
 	return err
 }
@@ -189,9 +189,10 @@ func (s *FeedService) RemoveTimelineItem(timeline Timeline, status *models.Statu
 
 		if minReblogId > 0 {
 			minReblogIdStr := strconv.FormatUint(minReblogId, 10)
+			score := ScoreForStatusID(minReblogId)
 			_, err = s.redis.Pipelined(sharedCtx, func(pipe redis.Pipeliner) error {
-				pipe.ZAdd(sharedCtx, timelineKey, redis.Z{Score: float64(minReblogId), Member: minReblogIdStr})
-				pipe.ZAdd(sharedCtx, reblogKey, redis.Z{Score: float64(minReblogId), Member: reblogIdStr})
+				pipe.ZAdd(sharedCtx, timelineKey, redis.Z{Score: score, Member: minReblogIdStr})
+				pipe.ZAdd(sharedCtx, reblogKey, redis.Z{Score: score, Member: reblogIdStr})
 
 				return nil
 			})
@@ -366,7 +367,7 @@ func (s *FeedService) BatchAddToTimelineItems(timelines []Timeline, status *mode
 	}
 
 	// 使用 Pipeline 批量操作（适用于非 reblog 或不需要聚合的情况）
-	nowScore := float64(status.Id)
+	nowScore := TimelineScore(status)
 	now := float64(time.Now().Unix())
 	statusIdStr := strconv.FormatUint(status.Id, 10)
 

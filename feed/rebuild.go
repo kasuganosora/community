@@ -51,51 +51,81 @@ func coalesceRebuildContext(ctx context.Context, key string, rebuild func() erro
 	return call.err
 }
 
+type timelineRank struct {
+	id    uint64
+	score float64
+}
+
+// newer reports whether a should be shown above b. Publication time wins;
+// id only breaks ties, matching StatusTimelineOrder.
+func (a timelineRank) newer(b timelineRank) bool {
+	if a.score != b.score {
+		return a.score > b.score
+	}
+	return a.id > b.id
+}
+
 type timelineSnapshot struct {
-	items      []uint64
-	reblogs    map[uint64]uint64
+	items      []timelineRank
+	reblogs    map[uint64]timelineRank
 	duplicates map[uint64][]uint64
 }
 
 // Reproduce AddToTimelineItem+TrimTimeline's reblog falloff in memory. Rebuilds
 // have at most MAX_ITEMS entries; no per-post Redis round trips are necessary.
+// Items are newest publication time first, not highest serial id.
 func buildTimelineSnapshot(statuses models.Statuses, aggregate bool) timelineSnapshot {
-	snapshot := timelineSnapshot{items: []uint64{}, reblogs: map[uint64]uint64{}, duplicates: map[uint64][]uint64{}}
-	insert := func(id uint64) {
-		i := sort.Search(len(snapshot.items), func(i int) bool { return snapshot.items[i] <= id })
-		if i < len(snapshot.items) && snapshot.items[i] == id {
+	snapshot := timelineSnapshot{items: []timelineRank{}, reblogs: map[uint64]timelineRank{}, duplicates: map[uint64][]uint64{}}
+	ordered := make(models.Statuses, 0, len(statuses))
+	for _, status := range statuses {
+		if status != nil {
+			ordered = append(ordered, status)
+		}
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return (timelineRank{id: ordered[i].Id, score: TimelineScore(ordered[i])}).newer(timelineRank{id: ordered[j].Id, score: TimelineScore(ordered[j])})
+	})
+	insert := func(item timelineRank) {
+		i := sort.Search(len(snapshot.items), func(i int) bool { return !snapshot.items[i].newer(item) })
+		if i < len(snapshot.items) && snapshot.items[i].id == item.id {
 			return
 		}
-		snapshot.items = append(snapshot.items, 0)
+		snapshot.items = append(snapshot.items, timelineRank{})
 		copy(snapshot.items[i+1:], snapshot.items[i:])
-		snapshot.items[i] = id
+		snapshot.items[i] = item
 	}
-	for _, status := range statuses {
-		if status == nil {
-			continue
-		}
+	for _, status := range ordered {
+		item := timelineRank{id: status.Id, score: TimelineScore(status)}
 		if aggregate && status.ReblogId != nil && *status.ReblogId > 0 {
 			original := *status.ReblogId
-			rank := sort.Search(len(snapshot.items), func(i int) bool { return snapshot.items[i] <= original })
-			if rank < len(snapshot.items) && snapshot.items[rank] == original && rank < REBLOG_FALLOFF {
+			position := -1
+			for i, existing := range snapshot.items {
+				if existing.id == original {
+					position = i
+					break
+				}
+			}
+			if position >= 0 && position < REBLOG_FALLOFF {
 				continue
 			}
 			if _, exists := snapshot.reblogs[original]; !exists {
-				snapshot.reblogs[original] = status.Id
-				insert(status.Id)
+				snapshot.reblogs[original] = item
+				insert(item)
 			} else {
 				snapshot.duplicates[original] = append(snapshot.duplicates[original], status.Id)
 			}
-		} else if snapshot.reblogs[status.Id] == 0 {
-			insert(status.Id)
+		} else if _, represented := snapshot.reblogs[status.Id]; !represented {
+			insert(item)
 		}
 		if len(snapshot.items) > MAX_ITEMS {
 			snapshot.items = snapshot.items[:MAX_ITEMS]
 		}
 		if len(snapshot.items) > REBLOG_FALLOFF {
-			threshold := snapshot.items[REBLOG_FALLOFF]
-			for original, score := range snapshot.reblogs {
-				if score <= threshold {
+			boundary := snapshot.items[REBLOG_FALLOFF]
+			for original, rep := range snapshot.reblogs {
+				// At or below the falloff row: same comparison as score <= boundary
+				// when scores were serial ids.
+				if !rep.newer(boundary) {
 					delete(snapshot.reblogs, original)
 					delete(snapshot.duplicates, original)
 				}
@@ -113,13 +143,13 @@ local snapshot=cjson.decode(ARGV[4])
 for _,original in ipairs(redis.call('ZRANGE',k..':reblogs',0,-1)) do redis.call('DEL',k..':reblogs:'..original) end
 redis.call('DEL',k,k..':reblogs',k..':empty')
 for original,score in pairs(snapshot.reblogs) do redis.call('ZADD',k..':reblogs',score,original) end
-for _,id in ipairs(snapshot.items) do redis.call('ZADD',k,id,id) end
+for _,item in ipairs(snapshot.items) do redis.call('ZADD',k,item.score,item.id) end
 for original,ids in pairs(snapshot.duplicates) do
  for _,id in ipairs(ids) do redis.call('SADD',k..':reblogs:'..original,id) end
  redis.call('EXPIRE',k..':reblogs:'..original,604800)
 end
 local now=redis.call('TIME')
-redis.call('HSET',m,'ready',1,'checked_at',now[1],'count',#snapshot.items)
+redis.call('HSET',m,'ready',1,'checked_at',now[1],'count',#snapshot.items,'rank','ca1')
 redis.call('DEL',k..':rebuild')
 redis.call('EXPIRE',k,604800)
 redis.call('EXPIRE',k..':reblogs',604800)
@@ -134,13 +164,17 @@ func PublishRebuild(ctx context.Context, timeline Timeline, lease RebuildLease, 
 func (s *FeedService) PublishRebuild(ctx context.Context, timeline Timeline, lease RebuildLease, statuses models.Statuses, aggregate bool) error {
 	defer releaseRebuildSlot(lease)
 	snapshot := buildTimelineSnapshot(statuses, aggregate)
-	items := make([]string, len(snapshot.items))
-	for i, id := range snapshot.items {
-		items[i] = strconv.FormatUint(id, 10)
+	items := make([]struct {
+		ID    string `json:"id"`
+		Score string `json:"score"`
+	}, len(snapshot.items))
+	for i, item := range snapshot.items {
+		items[i].ID = strconv.FormatUint(item.id, 10)
+		items[i].Score = strconv.FormatFloat(item.score, 'f', -1, 64)
 	}
 	reblogs := map[string]string{}
-	for origin, id := range snapshot.reblogs {
-		reblogs[strconv.FormatUint(origin, 10)] = strconv.FormatUint(id, 10)
+	for origin, rep := range snapshot.reblogs {
+		reblogs[strconv.FormatUint(origin, 10)] = strconv.FormatFloat(rep.score, 'f', -1, 64)
 	}
 	duplicates := map[string][]string{}
 	for origin, ids := range snapshot.duplicates {
@@ -151,7 +185,7 @@ func (s *FeedService) PublishRebuild(ctx context.Context, timeline Timeline, lea
 		duplicates[strconv.FormatUint(origin, 10)] = members
 	}
 	data, err := json.Marshal(struct {
-		Items      []string            `json:"items"`
+		Items      any                 `json:"items"`
 		Reblogs    map[string]string   `json:"reblogs"`
 		Duplicates map[string][]string `json:"duplicates"`
 	}{items, reblogs, duplicates})

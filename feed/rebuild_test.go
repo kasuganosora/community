@@ -120,6 +120,72 @@ func TestTimelineSnapshotPreservesConcurrentPush(t *testing.T) {
 	require.NotContains(t, members, "100", "rejected stale SQL snapshot must not publish any rows")
 
 }
+func TestPublishRebuildOrdersByPublicationTime(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer client.Close()
+	service := NewFeedService(NewRedisClient(client))
+	timeline := &TestMockTimeline{KeyFormat: "pub:%s", TimelineId: "all"}
+	pizza := time.Date(2026, 10, 23, 11, 31, 0, 0, time.UTC)
+	youon := time.Date(2026, 10, 24, 0, 55, 0, 0, time.UTC)
+	newest := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	// Inserted newest-id first, the way a late federated ingest used to win.
+	statuses := models.Statuses{
+		{Id: 22481, CreatedAt: &pizza},
+		{Id: 22464, CreatedAt: &youon},
+		{Id: 100, CreatedAt: &newest},
+	}
+	require.NoError(t, rebuildFixture(service, timeline, statuses, true))
+	ctx := context.Background()
+	key := TimelineKey(timeline)
+	members, err := client.ZRevRange(ctx, key, 0, -1).Result()
+	require.NoError(t, err)
+	require.Equal(t, []string{"100", "22464", "22481"}, members)
+	require.Equal(t, TimelineRankCreatedAt, client.HGet(ctx, key+":meta", "rank").Val())
+	for _, status := range statuses {
+		score, err := client.ZScore(ctx, key, strconv.FormatUint(status.Id, 10)).Result()
+		require.NoError(t, err)
+		require.Equal(t, TimelineScore(status), score)
+	}
+
+	same := time.Date(2026, 10, 24, 6, 0, 0, 0, time.UTC)
+	tied := &TestMockTimeline{KeyFormat: "tie:%s", TimelineId: "1"}
+	require.NoError(t, rebuildFixture(service, tied, models.Statuses{
+		{Id: 10, CreatedAt: &same},
+		{Id: 20, CreatedAt: &same},
+	}, false))
+	tiedMembers, err := client.ZRevRange(ctx, TimelineKey(tied), 0, -1).Result()
+	require.NoError(t, err)
+	require.Equal(t, []string{"20", "10"}, tiedMembers, "equal publication times keep the higher id first")
+
+	legacy := &TestMockTimeline{KeyFormat: "legacy:%s", TimelineId: "1"}
+	require.NoError(t, rebuildFixture(service, legacy, models.Statuses{{Id: 1}, {Id: 3}, {Id: 2}}, false))
+	legacyMembers, err := client.ZRevRange(ctx, TimelineKey(legacy), 0, -1).Result()
+	require.NoError(t, err)
+	require.Equal(t, []string{"3", "2", "1"}, legacyMembers, "rows without created_at stay on the id score")
+}
+
+func TestProjectionUsesPublicationScore(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	defer client.Close()
+	service := NewFeedService(NewRedisClient(client))
+	timeline := &TestMockTimeline{KeyFormat: "push:%s", TimelineId: "1"}
+	ctx := context.Background()
+	lease, err := service.BeginRebuild(ctx, timeline)
+	require.NoError(t, err)
+	defer releaseRebuildSlot(lease)
+	at := time.Date(2026, 10, 24, 0, 55, 0, 0, time.UTC)
+	require.NoError(t, service.ApplyProjection(ctx, timeline, Projection{
+		Epoch: lease.Epoch, BatchID: 1, LeaseGeneration: 1, LeaseToken: "token",
+		RemainingLease: time.Second, StatusID: 22464, ObjectVersion: 1,
+		Score: float64(at.UnixMicro()),
+	}))
+	score, err := client.ZScore(ctx, TimelineKey(timeline), "22464").Result()
+	require.NoError(t, err)
+	require.Equal(t, float64(at.UnixMicro()), score)
+}
+
 func TestTimelineSnapshotKeepsDecimalMemberIDs(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})

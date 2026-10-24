@@ -113,7 +113,7 @@ func (timeline *PublicTimeline) RebuildContext(ctx context.Context) (err error) 
 	statuses := make(models.Statuses, 0)
 
 	err = timeline.candidates(db.GetDB().WithContext(ctx).Model(&models.Status{})).
-		Order("statuses.id desc").Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
+		Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
 	if err != nil {
 		return
 	}
