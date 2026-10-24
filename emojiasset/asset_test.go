@@ -162,13 +162,22 @@ func TestServeOnlyGeneratedImagesAndDeleteOnlyLocalAssets(t *testing.T) {
 	router := gin.New()
 	router.GET("/emoji-assets/:file", Serve)
 	for _, raw := range []string{a.URL, a.StaticURL} {
+		assetPath := strings.TrimPrefix(raw, "https://emoji.example")
 		w := httptest.NewRecorder()
-		router.ServeHTTP(w, httptest.NewRequest("GET", strings.TrimPrefix(raw, "https://emoji.example"), nil))
+		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, assetPath, nil))
 		require.Equal(t, 200, w.Code)
 		require.Equal(t, "image/png", w.Header().Get("Content-Type"))
 		require.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
+		require.Equal(t, "public, max-age=31536000, immutable", w.Header().Get("Cache-Control"))
+		require.NotEmpty(t, w.Header().Get("ETag"))
 		_, err := png.Decode(bytes.NewReader(w.Body.Bytes()))
 		require.NoError(t, err)
+		cached := httptest.NewRecorder()
+		conditional := httptest.NewRequest(http.MethodGet, assetPath, nil)
+		conditional.Header.Set("If-None-Match", w.Header().Get("ETag"))
+		router.ServeHTTP(cached, conditional)
+		require.Equal(t, http.StatusNotModified, cached.Code)
+		require.Empty(t, cached.Body.Bytes())
 	}
 	for _, name := range []string{"secret.txt", "../../secret", "foo.svg", "a-static.png"} {
 		w := httptest.NewRecorder()

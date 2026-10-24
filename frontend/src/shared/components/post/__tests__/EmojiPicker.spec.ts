@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import EmojiPicker from '../EmojiPicker.vue'
 import { useEmojiStore } from '@/domains/emoji/presentation/stores/emojiStore'
+import { EMOJI_CATALOGUE_STORAGE_KEY } from '@/domains/emoji/domain/emojiCatalogue'
 import client from '@/shared/api/client'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 const base: MastodonEmoji = { shortcode: 'wave', url: 'https://images.test/wave.png', static_url: '', visible_in_picker: true, aliases: ['hello', '你好'], category: '问候' }
@@ -69,5 +70,37 @@ describe('emoji picker catalogue loading', () => {
     expect(wrapper.text()).toContain('暂时无法加载')
     expect(wrapper.text()).toContain('表情加载失败')
     wrapper.unmount()
+  })
+
+  it('paints a warm catalogue immediately and does not replace it when the revision matches', async () => {
+    const secret = { ...base, shortcode: 'secret', aliases: ['悄悄话'], is_sensitive: true }
+    const hidden = { ...base, shortcode: 'hidden', visible_in_picker: false, aliases: [] }
+    localStorage.setItem(EMOJI_CATALOGUE_STORAGE_KEY, JSON.stringify({
+      v: 1,
+      revision: 'W/"4.4.4.4"',
+      emojis: [base, secret, hidden],
+    }))
+    let release!: (value: unknown) => void
+    const get = vi.spyOn(client, 'get').mockImplementation(() => new Promise(resolve => { release = resolve }))
+    const pinia = createPinia()
+    const wrapper = mount(EmojiPicker, { global: { plugins: [pinia] } })
+    expect(wrapper.text()).not.toContain('正在加载表情')
+    expect(wrapper.findAll('.emoji-picker__grid button')).toHaveLength(2)
+    expect(wrapper.findAll('img')).toHaveLength(1)
+    await wrapper.get('input[type=checkbox]').setValue(true)
+    expect(wrapper.findAll('img')).toHaveLength(2)
+    await wrapper.get('input[type=search]').setValue('悄悄话')
+    expect(wrapper.findAll('.emoji-picker__grid button')).toHaveLength(1)
+    release({ status: 304, data: [], headers: { etag: 'W/"4.4.4.4"' } })
+    await flushPromises()
+    expect(get).toHaveBeenCalledWith('/api/v1/custom_emojis', expect.objectContaining({
+      headers: expect.objectContaining({ 'If-None-Match': 'W/"4.4.4.4"' }),
+    }))
+    wrapper.unmount()
+    const again = mount(EmojiPicker, { global: { plugins: [pinia] } })
+    expect(again.text()).not.toContain('正在加载表情')
+    expect(again.findAll('.emoji-picker__grid button')).toHaveLength(2)
+    await flushPromises()
+    again.unmount()
   })
 })

@@ -319,6 +319,9 @@ func Serve(c *gin.Context) {
 		return
 	}
 	kind := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}[path.Ext(name)]
+	// The filename is a UUID minted once per upload, so this URL's bytes never
+	// change. A year plus immutable is the long-term image cache; ServeContent
+	// adds an ETag for revalidators that ignore immutable.
 	ServeObject(c, "emojis/"+name, name, kind, "public, max-age=31536000, immutable")
 }
 
@@ -339,6 +342,11 @@ func ServeObject(c *gin.Context, key, name, contentType, cacheControl string) {
 	c.Header("X-Content-Type-Options", "nosniff")
 	if cacheControl != "" {
 		c.Header("Cache-Control", cacheControl)
+	}
+	// Non-seekable backends never reach ServeContent, which is what would
+	// otherwise mint the validator. The name is the content identity.
+	if name != "" {
+		c.Header("ETag", `"`+name+`"`)
 	}
 	if rs, ok := rc.(io.ReadSeeker); ok {
 		http.ServeContent(c.Writer, c.Request, name, info.ModTime, rs)

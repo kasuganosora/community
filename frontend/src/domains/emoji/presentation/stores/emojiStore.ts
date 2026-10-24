@@ -1,35 +1,49 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import client from '@/shared/api/client'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
-
 import { t } from '@/shared/i18n'
+import { readCachedEmojiCatalogue, writeCachedEmojiCatalogue } from '../../domain/emojiCatalogue'
+import { loadCustomEmojiCatalogue } from '../emojiCatalogueClient'
+
 export const useEmojiStore = defineStore('custom-emojis', () => {
-  const emojis = ref<MastodonEmoji[]>([])
+  const cached = readCachedEmojiCatalogue()
+  const emojis = ref<MastodonEmoji[]>(cached?.emojis ?? [])
   const loading = ref(false)
   const error = ref<string | null>(null)
-  let loaded = false
+  let revision: string | null = cached?.revision ?? null
   let pending: Promise<void> | null = null
   let generation = 0
+  // One successful check per store is enough for reaction rows. The picker
+  // passes force so each open revalidates; If-None-Match still skips the body.
+  let checked = false
   function load(force = false): Promise<void> {
     // A refresh must not join an in-flight request: that request may never
     // settle, and its finally would otherwise clear a newer attempt.
     if (pending && !force) return pending
-    if (loaded && !force) return Promise.resolve()
+    if (checked && !force) return Promise.resolve()
     const mine = ++generation
-    loading.value = true
-    error.value = null
+    // A warm catalogue paints immediately. The conditional request runs
+    // behind it and only replaces the list when the server revision changes.
+    const hadCatalogue = emojis.value.length > 0 || revision !== null
+    if (!hadCatalogue) {
+      loading.value = true
+      error.value = null
+    }
+    const sent = revision
     const run = Promise.resolve()
-      .then(() => client.get<MastodonEmoji[]>('/api/v1/custom_emojis'))
-      .then(({ data }) => {
+      .then(() => loadCustomEmojiCatalogue(sent))
+      .then((result) => {
         if (mine !== generation) return
-        if (!Array.isArray(data)) throw new Error('invalid emoji catalogue')
-        emojis.value = data
-        loaded = true
+        checked = true
+        error.value = null
+        if (result.unchanged) return
+        emojis.value = result.emojis
+        revision = result.revision
+        writeCachedEmojiCatalogue({ revision: result.revision, emojis: result.emojis })
       })
       .catch(() => {
         if (mine !== generation) return
-        error.value = t('emoji.emojiStore.s1')
+        if (!hadCatalogue) error.value = t('emoji.emojiStore.s1')
       })
       .finally(() => {
         if (mine !== generation) return
