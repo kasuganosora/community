@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/mediaproxy"
@@ -114,6 +115,35 @@ func TestSerializeAdminAccount_NilTimes(t *testing.T) {
 	assert.Nil(t, result["created_at"])
 	assert.Nil(t, result["last_status_at"])
 	assert.Nil(t, result["last_activity_at"])
+	assert.Nil(t, result["last_sign_in_at"])
+	assert.Nil(t, result["current_sign_in_at"])
+	assert.Nil(t, result["last_sign_in_ip"])
+	assert.Nil(t, result["current_sign_in_ip"])
+}
+
+func TestSerializeAdminAccount_SignIn(t *testing.T) {
+	posted := parseTimeRFC3339(t, "2026-10-01T13:00:45Z")
+	current := parseTimeRFC3339(t, "2026-10-02T01:02:03Z")
+	previous := parseTimeRFC3339(t, "2026-09-01T00:00:00Z")
+	account := &models.Account{
+		Id:           1605,
+		Username:     "ler",
+		DisplayName:  "ler",
+		LastStatusAt: &posted,
+		User: &models.User{
+			CurrentSignInAt: &current,
+			LastSignInAt:    &previous,
+			CurrentSignInIP: "203.0.113.10",
+			LastSignInIP:    "198.51.100.4",
+		},
+	}
+
+	result := serializeAdminAccount(account)
+	assert.Equal(t, "2026-10-01T13:00:45Z", result["last_status_at"])
+	assert.Equal(t, "2026-10-02T01:02:03Z", result["current_sign_in_at"])
+	assert.Equal(t, "2026-09-01T00:00:00Z", result["last_sign_in_at"])
+	assert.Equal(t, "203.0.113.10", result["current_sign_in_ip"])
+	assert.Equal(t, "198.51.100.4", result["last_sign_in_ip"])
 }
 
 func TestSerializeAdminAccount_AvatarAndDecorations(t *testing.T) {
@@ -667,6 +697,106 @@ func TestAdminAccountPendingPaginationUsesActualUserState(t *testing.T) {
 	require.Len(t, rows, 1)
 	require.Equal(t, uitoa(pending.Id), rows[0]["id"])
 	require.EqualValues(t, models.UserStatusUnapproved, rows[0]["user_status"])
+}
+
+func TestGetAccount_IncludesSignInAndPostTimes(t *testing.T) {
+	env := newAdminAccountTestEnv(t)
+	account := createLocalAccount(t, env, "ler")
+	posted := time.Date(2026, 10, 1, 13, 0, 45, 0, time.UTC)
+	signedIn := time.Date(2026, 10, 2, 1, 2, 3, 0, time.UTC)
+	require.NoError(t, env.gdb.Model(account).UpdateColumn("last_status_at", posted).Error)
+	require.NoError(t, env.gdb.Model(&models.User{}).Where("id = ?", account.UserId).UpdateColumns(map[string]any{
+		"current_sign_in_at": signedIn,
+		"current_sign_in_ip": "203.0.113.10",
+	}).Error)
+
+	c, w := newGetContext(t, gin.Params{{Key: "id", Value: uitoa(account.Id)}}, "")
+	GetAccount(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "2026-10-01T13:00:45Z", resp["last_status_at"])
+	assert.Equal(t, "2026-10-02T01:02:03Z", resp["current_sign_in_at"])
+	assert.Nil(t, resp["last_sign_in_at"])
+	assert.Equal(t, "203.0.113.10", resp["current_sign_in_ip"])
+	assert.Nil(t, resp["last_sign_in_ip"])
+}
+
+func TestListAccounts_IncludesActivityColumnsAndHidesDeletion(t *testing.T) {
+	env := newAdminAccountTestEnv(t)
+	visible := createLocalAccount(t, env, "visible")
+	hidden := createLocalAccount(t, env, "hidden")
+	posted := time.Date(2026, 10, 1, 13, 0, 45, 0, time.UTC)
+	require.NoError(t, env.gdb.Model(visible).UpdateColumn("last_status_at", posted).Error)
+	require.NoError(t, env.gdb.Model(hidden).UpdateColumn("deletion_requested_at", time.Now()).Error)
+
+	c, w := newGetContext(t, nil, "")
+	ListAccounts(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var resp []map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp, 1)
+	assert.Equal(t, "visible", resp[0]["username"])
+	assert.Equal(t, "2026-10-01T13:00:45Z", resp[0]["last_status_at"])
+	assert.Nil(t, resp[0]["current_sign_in_at"])
+	assert.Nil(t, resp[0]["current_sign_in_ip"])
+}
+
+func TestDeleteAccount_SchedulesErasureAndLeavesTheList(t *testing.T) {
+	env := newAdminAccountTestEnv(t)
+	require.NoError(t, env.gdb.AutoMigrate(&models.AccountDeletion{}))
+	actor := createLocalAccount(t, env, "mod")
+	target := createLocalAccount(t, env, "ler")
+
+	c, w := newDeleteContext(t, gin.Params{{Key: "id", Value: uitoa(target.Id)}})
+	DeleteAccount(c)
+	assert.Equal(t, 401, w.Code)
+
+	c, w = newDeleteContext(t, gin.Params{{Key: "id", Value: uitoa(target.Id)}})
+	c.Set("user", &models.User{Id: target.UserId, IsAdmin: true})
+	DeleteAccount(c)
+	assert.Equal(t, 422, w.Code)
+
+	domain := "remote.example"
+	require.NoError(t, env.gdb.Model(target).UpdateColumn("domain", domain).Error)
+	c, w = newDeleteContext(t, gin.Params{{Key: "id", Value: uitoa(target.Id)}})
+	c.Set("user", &models.User{Id: actor.UserId, IsAdmin: true})
+	DeleteAccount(c)
+	assert.Equal(t, 422, w.Code)
+	require.NoError(t, env.gdb.Model(target).Update("domain", gorm.Expr("NULL")).Error)
+
+	require.NoError(t, env.gdb.Model(&models.User{}).Where("id = ?", target.UserId).UpdateColumn("is_admin", true).Error)
+	c, w = newDeleteContext(t, gin.Params{{Key: "id", Value: uitoa(target.Id)}})
+	c.Set("user", &models.User{Id: actor.UserId, IsAdmin: true})
+	DeleteAccount(c)
+	assert.Equal(t, 422, w.Code, w.Body.String())
+	require.NoError(t, env.gdb.Model(&models.User{}).Where("id = ?", target.UserId).UpdateColumn("is_admin", false).Error)
+
+	c, w = newDeleteContext(t, gin.Params{{Key: "id", Value: uitoa(target.Id)}})
+	c.Set("user", &models.User{Id: actor.UserId, IsAdmin: true})
+	DeleteAccount(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var saved models.Account
+	require.NoError(t, env.gdb.First(&saved, target.Id).Error)
+	require.NotNil(t, saved.DeletionRequestedAt)
+	require.True(t, saved.IsBan)
+	var job models.AccountDeletion
+	require.NoError(t, env.gdb.First(&job, "account_id = ?", target.Id).Error)
+	assert.Equal(t, "pending", job.State)
+	assert.Equal(t, target.UserId, job.UserID)
+
+	c, w = newDeleteContext(t, gin.Params{{Key: "id", Value: uitoa(target.Id)}})
+	c.Set("user", &models.User{Id: actor.UserId, IsAdmin: true})
+	DeleteAccount(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+
+	c, w = newGetContext(t, nil, "")
+	ListAccounts(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var resp []map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp, 1)
+	assert.Equal(t, "mod", resp[0]["username"])
 }
 
 // Execute account filtering against real SQL: the old SQLExec fixture silently

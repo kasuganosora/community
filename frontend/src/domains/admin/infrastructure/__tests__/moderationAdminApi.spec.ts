@@ -29,4 +29,9 @@ describe('moderation API contracts', () => {
       ['/api/v1/admin/reports/9/resolve'],
     ])
   })
+  it('deletes an account through the admin account endpoint', async () => {
+    const remove = vi.spyOn(client, 'delete').mockResolvedValue({})
+    await api.deleteAccount('1605')
+    expect(remove).toHaveBeenCalledWith('/api/v1/admin/accounts/1605')
+  })
 })

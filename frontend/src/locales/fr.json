@@ -636,6 +636,14 @@
       "twoFactorOff": "Désactivée",
       "twoFactorReset": "Réinitialiser la double authentification",
       "twoFactorResetConfirm": "Désactiver la double authentification de {'@'}{0} et supprimer ses codes de secours ? Vérifiez d’abord l’identité de la personne.",
+      "lastPosted": "Dernière publication",
+      "lastLogin": "Dernière connexion",
+      "lastPostedColumn": "Dernière publication",
+      "lastLoginColumn": "Dernière connexion",
+      "lastIP": "Dernière IP utilisée",
+      "viewAccount": "Voir le compte",
+      "deleteAccount": "Supprimer le compte",
+      "deleteConfirm": "Supprimer {'@'}{0}{1} ? La connexion, les publications et le profil seront effacés sans retour possible.",
       "close": "Fermer"
     },
     "AnnouncementsAdminPage": {

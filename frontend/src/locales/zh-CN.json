@@ -636,6 +636,14 @@
       "twoFactorOff": "未启用",
       "twoFactorReset": "重置两步验证",
       "twoFactorResetConfirm": "确定要关闭 {'@'}{0} 的两步验证并删除其备用码吗？请先核实用户身份。",
+      "lastPosted": "最后一次发帖时间",
+      "lastLogin": "最后一次登录时间",
+      "lastPostedColumn": "最后发帖时间",
+      "lastLoginColumn": "最后登录时间",
+      "lastIP": "最后使用 IP",
+      "viewAccount": "查看账户",
+      "deleteAccount": "删除账户",
+      "deleteConfirm": "确定要删除 {'@'}{0}{1} 吗？此操作会清除登录、帖子和资料，且无法撤销。",
       "close": "关闭"
     },
     "AnnouncementsAdminPage": {

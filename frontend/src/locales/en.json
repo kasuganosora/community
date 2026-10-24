@@ -636,6 +636,14 @@
       "twoFactorOff": "Off",
       "twoFactorReset": "Reset two-factor",
       "twoFactorResetConfirm": "Turn off two-factor authentication for {'@'}{0} and delete their backup codes? Verify the person’s identity first.",
+      "lastPosted": "Last posted time",
+      "lastLogin": "Last sign-in time",
+      "lastPostedColumn": "Last post time",
+      "lastLoginColumn": "Last sign-in time",
+      "lastIP": "Last used IP",
+      "viewAccount": "View account",
+      "deleteAccount": "Delete account",
+      "deleteConfirm": "Delete {'@'}{0}{1}? This erases their sign-in, posts, and profile and cannot be undone.",
       "close": "Close"
     },
     "AnnouncementsAdminPage": {

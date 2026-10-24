@@ -12,6 +12,11 @@ export interface AdminAccount {
   role?: string
   locked: boolean
   created_at?: string
+  last_status_at?: string | null
+  last_sign_in_at?: string | null
+  current_sign_in_at?: string | null
+  last_sign_in_ip?: string | null
+  current_sign_in_ip?: string | null
   avatar?: string
   avatar_static?: string
   avatar_default?: string
@@ -74,6 +79,9 @@ export const moderationAdminApi = {
     const url = `${base}/accounts/${encodeURIComponent(id)}`
     if (action === 'disable' || action === 'suspend') await client.post(`${url}/action`, { type: action })
     else await client.post(`${url}/${action}`)
+  },
+  async deleteAccount(id: string) {
+    await client.delete(`${base}/accounts/${encodeURIComponent(id)}`)
   },
   async reports(params: ReportFilters) {
     return (await client.get<AdminReport[]>(`${base}/reports/`, { params: nonempty(params) })).data

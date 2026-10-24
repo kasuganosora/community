@@ -37,6 +37,20 @@ func deletionDB(t *testing.T) (*gorm.DB, *models.Account) {
 	return conn, a
 }
 
+func TestRequestAdminDeletionRejectsSelfRemoteAndLastAdmin(t *testing.T) {
+	conn, a := deletionDB(t)
+	require.ErrorIs(t, RequestAdminDeletion(context.Background(), conn, a.Id, a.UserId), ErrOwnAccount)
+	domain := "remote.example"
+	require.NoError(t, conn.Model(a).UpdateColumn("domain", domain).Error)
+	require.ErrorIs(t, RequestAdminDeletion(context.Background(), conn, a.Id, 2), ErrRemoteAccount)
+	require.NoError(t, conn.Model(a).Update("domain", gorm.Expr("NULL")).Error)
+	require.NoError(t, conn.Model(&models.User{}).Where("id = ?", a.UserId).UpdateColumn("is_admin", true).Error)
+	require.ErrorIs(t, RequestAdminDeletion(context.Background(), conn, a.Id, 2), ErrLastAdministrator)
+	var saved models.Account
+	require.NoError(t, conn.First(&saved, a.Id).Error)
+	require.Nil(t, saved.DeletionRequestedAt)
+}
+
 func TestDeletionImmediatelyRevokesCredentialsAndRetriesFailedMedia(t *testing.T) {
 	conn, a := deletionDB(t)
 	ctx := context.Background()

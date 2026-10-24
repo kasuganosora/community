@@ -636,6 +636,14 @@
       "twoFactorOff": "Aus",
       "twoFactorReset": "Zwei-Faktor zurücksetzen",
       "twoFactorResetConfirm": "Zwei-Faktor-Authentifizierung für {'@'}{0} deaktivieren und Backup-Codes löschen? Prüfe vorher die Identität der Person.",
+      "lastPosted": "Letzter Beitrag",
+      "lastLogin": "Letzte Anmeldung",
+      "lastPostedColumn": "Letzter Beitrag",
+      "lastLoginColumn": "Letzte Anmeldung",
+      "lastIP": "Zuletzt genutzte IP",
+      "viewAccount": "Konto ansehen",
+      "deleteAccount": "Konto löschen",
+      "deleteConfirm": "{'@'}{0}{1} löschen? Anmeldung, Beiträge und Profil werden gelöscht und können nicht wiederhergestellt werden.",
       "close": "Schließen"
     },
     "AnnouncementsAdminPage": {

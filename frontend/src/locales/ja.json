@@ -636,6 +636,14 @@
       "twoFactorOff": "無効",
       "twoFactorReset": "2 段階認証をリセット",
       "twoFactorResetConfirm": "{'@'}{0} の 2 段階認証を無効にし、バックアップコードを削除しますか？本人確認を済ませてから実行してください。",
+      "lastPosted": "最終投稿日時",
+      "lastLogin": "最終ログイン日時",
+      "lastPostedColumn": "最終投稿",
+      "lastLoginColumn": "最終ログイン",
+      "lastIP": "最終使用 IP",
+      "viewAccount": "アカウントを表示",
+      "deleteAccount": "アカウントを削除",
+      "deleteConfirm": "{'@'}{0}{1} を削除しますか？ログイン、投稿、プロフィールが消去され、元に戻せません。",
       "close": "閉じる"
     },
     "AnnouncementsAdminPage": {
