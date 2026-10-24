@@ -85,7 +85,7 @@ onMounted(() => { feed.refresh(); void loadFollow() })
         {{ following ? $t('timeline.TagTimelinePage.s2') : $t('timeline.TagTimelinePage.s3') }}
       </button>
     </div>
-    <NewPostsPill :show="newer.length > 0" @click="reloadHead" />
+    <NewPostsPill :show="newer.length > 0" :reveal="reloadHead" />
     <TimelineFeed
       :statuses="statuses"
       :scope-key="streamTarget"

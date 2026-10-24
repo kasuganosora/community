@@ -70,7 +70,8 @@
       "s22": "Impossible de lire l’image"
     },
     "NewPostsPill": {
-      "s1": "Nouveaux posts — touchez pour voir"
+      "s1": "Nouveaux posts — touchez pour voir",
+      "s2": "Chargement…"
     },
     "NotFoundPage": {
       "s1": "Cette page n’existe pas.",
