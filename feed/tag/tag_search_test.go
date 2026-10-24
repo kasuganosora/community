@@ -386,7 +386,7 @@ func setupRedismockRedis(t *testing.T) (*redis.Client, *miniredis.Miniredis) {
 func seedTimelineCache(t *testing.T, server *miniredis.Miniredis, key string, ids []string) {
 	t.Helper()
 	key = "feed:v3:{" + strings.TrimPrefix(key, "feed:") + "}:items"
-	server.HSet(key+":meta", "epoch", "test", "generation", "0", "ready", "1", "count", strconv.Itoa(len(ids)))
+	server.HSet(key+":meta", "epoch", "test", "generation", "0", "ready", "1", "rank", feed.TimelineRankCreatedAt, "count", strconv.Itoa(len(ids)))
 	server.HSet(key+":versions", "_epoch", "test")
 	for _, id := range ids {
 		score, err := strconv.ParseFloat(id, 64)

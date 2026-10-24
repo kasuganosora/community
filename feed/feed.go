@@ -47,6 +47,17 @@ func SetDefaultService(service *FeedService) {
 	defaultServiceOverride = true
 }
 
+// SwapDefaultService installs service as the process-wide feed service.
+// The returned function restores the previous service and whether it was an override.
+func SwapDefaultService(service *FeedService) func() {
+	previous, overridden := defaultService, defaultServiceOverride
+	SetDefaultService(service)
+	return func() {
+		defaultService = previous
+		defaultServiceOverride = overridden
+	}
+}
+
 // defaultDBService 是默认的 DBService 实例.
 var defaultDBService *DBService
 var defaultDBServiceOnce sync.Once

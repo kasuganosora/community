@@ -94,7 +94,7 @@ func (timeline *MentionTimeline) RebuildContext(ctx context.Context) error {
 
 	statuses := make(models.Statuses, 0)
 	if err := mentionCandidates(db.GetDB().WithContext(ctx), timeline.Account.Id).
-		Order("statuses.id DESC").Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error; err != nil {
+		Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error; err != nil {
 		return err
 	}
 	return feed.PublishRebuild(ctx, timeline, lease, statuses, timeline.AggregateReblogs())

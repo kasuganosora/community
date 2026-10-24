@@ -36,6 +36,8 @@ func TestFilteredRebuildExcludesIneligibleCandidatesBeforeLimit(t *testing.T) {
 	} {
 		require.NoError(t, conn.Exec(sql).Error)
 	}
+	// Publication time is absent, so rank falls back to the serial id.
+	require.NoError(t, conn.Exec("ALTER TABLE statuses ADD COLUMN created_at DATETIME").Error)
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	t.Cleanup(func() { _ = client.Close(); feed.SetDefaultService(feed.NewFeedService(feed.NewMockRedisClient())) })

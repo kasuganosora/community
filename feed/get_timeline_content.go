@@ -78,8 +78,7 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		fromDatabase := databaseOnly
 		if !databaseOnly {
 			readIDs := func() ([]uint64, error) {
-				min, max := params.GetRedisRangeMinMax()
-				value, err := getDefaultService().eval(cacheCtx, readCandidatesScript, []string{key}, min, max, candidateLimit)
+				value, err := getDefaultService().eval(cacheCtx, readCandidatesScript, []string{key})
 				if err != nil {
 					return nil, err
 				}
@@ -94,13 +93,14 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 				return utils.StringNumberArrayConvertUint64(raw), nil
 			}
 			var cacheErr error
-			ids, cacheErr = readIDs()
+			var window []uint64
+			window, cacheErr = readIDs()
 			switch {
 			case errors.Is(cacheErr, ErrNeedsRebuild):
 				cacheReads.WithLabelValues("incomplete").Inc()
 			case cacheErr != nil:
 				cacheReads.WithLabelValues("error").Inc()
-			case len(ids) == 0:
+			case len(window) == 0:
 				cacheReads.WithLabelValues("empty").Inc()
 			default:
 				cacheReads.WithLabelValues("ready").Inc()
@@ -113,12 +113,25 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 					return ErrNeedsRebuild
 				})
 				if cacheErr == nil {
-					ids, cacheErr = readIDs()
+					window, cacheErr = readIDs()
 				}
 			}
-			if cacheErr != nil || len(ids) == 0 {
+			if cacheErr != nil || len(window) == 0 {
 				databaseOnly = true
 				fromDatabase = true
+			} else {
+				// The cache is the newest window. Order and cursors use
+				// publication time, so a high serial id does not decide the page.
+				pageIDs, err := selectTimelinePage(conn, window, params, newFilterCondition, candidateLimit)
+				if err != nil {
+					return nil, err
+				}
+				if len(pageIDs) == 0 {
+					databaseOnly = true
+					fromDatabase = true
+				} else {
+					ids = pageIDs
+				}
 			}
 		}
 		if fromDatabase {
@@ -138,20 +151,9 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 				defer fallbackCancel()
 				conn = conn.WithContext(ctx)
 			}
-			query, err := newFilterCondition(conn.Model(&models.Status{}))
+			var err error
+			ids, err = selectTimelinePage(conn, nil, params, newFilterCondition, candidateLimit)
 			if err != nil {
-				return nil, err
-			}
-			if params.MaxId > 0 {
-				query = query.Where("statuses.id < ?", params.MaxId)
-			}
-			if params.MinId > 0 {
-				query = query.Where("statuses.id > ?", params.MinId)
-			}
-			if params.SinceId > 0 {
-				query = query.Where("statuses.id > ?", params.SinceId)
-			}
-			if err := timelineMuteFilter(query, params.Viewer).Order("statuses.id desc").Limit(candidateLimit).Pluck("statuses.id", &ids).Error; err != nil {
 				return nil, err
 			}
 			if len(ids) == 0 {
@@ -168,7 +170,7 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 			if err != nil {
 				return nil, err
 			}
-			err = timelineMuteFilter(headers, params.Viewer).Select("statuses.id", "statuses.reblog_id").Where("statuses.id IN ?", ids).Order("statuses.id DESC").Find(&statuses).Error
+			err = timelineMuteFilter(headers, params.Viewer).Select("statuses.id", "statuses.reblog_id").Where("statuses.id IN ?", ids).Order(StatusTimelineOrder).Find(&statuses).Error
 			if err == nil {
 				statuses, err = loadTimelineStatuses(conn, statuses)
 			}
@@ -184,6 +186,7 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		if err != nil {
 			return nil, err
 		}
+		statuses = orderStatusesByIDs(statuses, ids)
 		if afterFilter != nil {
 			statuses = afterFilter(statuses)
 		}
@@ -200,12 +203,13 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 				output = append(output, status)
 			}
 		}
-		// IDs are descending in both stores. Advancing by the last candidate rather
-		// than last visible result guarantees progress through inaccessible entries.
-		params.MaxId = ids[len(ids)-1]
-		if params.MaxId == 0 {
+		// Candidates are newest publication time first. The last id is the oldest
+		// row of this batch; the next batch is strictly older than that status.
+		next := ids[len(ids)-1]
+		if next == 0 || next == params.MaxId {
 			break
 		}
+		params.MaxId = next
 	}
 	if len(output) == 0 {
 		return output, nil
@@ -338,7 +342,7 @@ func loadTimelineCandidates(conn *gorm.DB, ids []uint64, filter FilterCondition,
 	if legacyFilter {
 		query = query.Preload("ToAccounts").Preload("Attachments")
 	}
-	err := query.Preload("Reblog").Where("statuses.id IN ?", ids).Order("statuses.id DESC").Find(&statuses).Error
+	err := query.Preload("Reblog").Where("statuses.id IN ?", ids).Order(StatusTimelineOrder).Find(&statuses).Error
 	return statuses, err
 }
 
@@ -348,9 +352,32 @@ var ErrFeedUnavailable = errors.New("feed database fallback is at capacity")
 
 const readCandidatesScript = `
 local k=KEYS[1];local m=k..':meta'
-if redis.call('HGET',m,'ready')~='1' or redis.call('HEXISTS',m,'epoch')==0 or redis.call('HEXISTS',m,'generation')==0 or redis.call('HGET',k..':versions','_epoch')~=redis.call('HGET',m,'epoch') then return {} end
+if redis.call('HGET',m,'ready')~='1' or redis.call('HGET',m,'rank')~='ca1' or redis.call('HEXISTS',m,'epoch')==0 or redis.call('HEXISTS',m,'generation')==0 or redis.call('HGET',k..':versions','_epoch')~=redis.call('HGET',m,'epoch') then return {} end
 if tonumber(redis.call('HGET',m,'count') or '0')>0 and redis.call('EXISTS',k)==0 then return {} end
 local result={'ready'}
-for _,id in ipairs(redis.call('ZREVRANGEBYSCORE',k,ARGV[2],ARGV[1],'LIMIT',0,ARGV[3])) do table.insert(result,id) end
+for _,id in ipairs(redis.call('ZREVRANGE',k,0,-1)) do table.insert(result,id) end
 return result
 `
+
+// selectTimelinePage returns status ids newest-by-publication-time first.
+// cacheIDs, when set, restricts the page to the Redis window. Cursors are
+// status ids resolved to (created_at, id), not numeric id bounds.
+func selectTimelinePage(conn *gorm.DB, cacheIDs []uint64, params *ListParam, filter FilterCondition, limit int) ([]uint64, error) {
+	query, err := filter(conn.Model(&models.Status{}))
+	if err != nil {
+		return nil, err
+	}
+	if len(cacheIDs) > 0 {
+		query = query.Where("statuses.id IN ?", cacheIDs)
+	}
+	cursors, err := loadStatusCursors(conn, cursorIDs(params)...)
+	if err != nil {
+		return nil, err
+	}
+	query = applyTimelineCursors(query, params, cursors)
+	ids := []uint64{}
+	if err := timelineMuteFilter(query, params.Viewer).Order(StatusTimelineOrder).Limit(limit).Pluck("statuses.id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
+}

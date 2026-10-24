@@ -136,7 +136,7 @@ func (timeline *TagTimeline) RebuildContext(ctx context.Context) (err error) {
 	if timeline.OnlyMedia {
 		query = query.Where("(SELECT 1 FROM media_attachments WHERE media_attachments.status_id = statuses.id LIMIT 1) IS NOT NULL")
 	}
-	err = query.Order("statuses.id desc").Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
+	err = query.Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
 	if err != nil {
 		return err
 	}

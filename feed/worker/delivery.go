@@ -242,6 +242,9 @@ func (w *Worker) deliver(ctx context.Context, event *models.FeedEvent, batch *mo
 		if status != nil && status.ReblogId != nil {
 			p.ReblogID = *status.ReblogId
 		}
+		if status != nil {
+			p.Score = feed.TimelineScore(status)
+		}
 		if policy, ok := target.timeline.(interface{ AggregateReblogs() bool }); ok {
 			p.Aggregate = policy.AggregateReblogs()
 		} else if target.kind == "home" {

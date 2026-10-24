@@ -49,8 +49,12 @@ type Projection struct {
 	// callers must subtract transport time before calling. Never reset to 30s.
 	RemainingLease                    time.Duration
 	StatusID, ObjectVersion, ReblogID uint64
-	Remove, Aggregate                 bool
-	Invalidate                        bool
+	// Score is the timeline rank. Status projections pass publication time
+	// (TimelineScore). Zero keeps the status id, which is correct for
+	// notifications and id-only fixtures.
+	Score             float64
+	Remove, Aggregate bool
+	Invalidate        bool
 }
 
 func randomFeedToken() (string, error) {
@@ -192,7 +196,7 @@ else
  if ARGV[9]~='0' and ARGV[10]=='1' then
   -- SQL rebuild preserves aggregation and its falloff rather than guessing it.
   redis.call('HSET',m,'ready',0)
- else redis.call('ZADD',k,ARGV[6],ARGV[6]) end
+ else redis.call('ZADD',k,ARGV[12],ARGV[6]) end
  redis.call('ZREMRANGEBYRANK',k,0,-513)
 end
 redis.call('EXPIRE',k,604800)
@@ -216,7 +220,7 @@ func (s *FeedService) ApplyProjection(ctx context.Context, t Timeline, p Project
 	if p.Aggregate {
 		aggregate = 1
 	}
-	result, err := s.eval(ctx, projectionScript, []string{TimelineKey(t)}, p.Epoch, p.BatchID, p.LeaseGeneration, p.LeaseToken, p.RemainingLease.Milliseconds(), p.StatusID, p.ObjectVersion, remove, p.ReblogID, aggregate, invalidate)
+	result, err := s.eval(ctx, projectionScript, []string{TimelineKey(t)}, p.Epoch, p.BatchID, p.LeaseGeneration, p.LeaseToken, p.RemainingLease.Milliseconds(), p.StatusID, p.ObjectVersion, remove, p.ReblogID, aggregate, invalidate, p.rankScore())
 	if err != nil {
 		return err
 	}
@@ -287,7 +291,7 @@ func (s *FeedService) BatchApplyProjections(ctx context.Context, targets []Proje
 			if remaining.Milliseconds() <= 0 {
 				return nil, ErrStaleProjection
 			}
-			return []interface{}{p.Epoch, p.BatchID, p.LeaseGeneration, p.LeaseToken, remaining.Milliseconds(), p.StatusID, p.ObjectVersion, remove, p.ReblogID, aggregate, invalidate}, nil
+			return []interface{}{p.Epoch, p.BatchID, p.LeaseGeneration, p.LeaseToken, remaining.Milliseconds(), p.StatusID, p.ObjectVersion, remove, p.ReblogID, aggregate, invalidate, p.rankScore()}, nil
 		}}
 	}
 	commands, pipelineErr := s.pipelineScript(limited, projectionScript, projectionScriptSHA, calls)
