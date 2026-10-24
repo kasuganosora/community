@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
 import type { AvatarDecorationPlacement, MastodonAccount } from '@/shared/types/mastodon'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
 import { avatarIdentity, identiconPattern } from '@/shared/utils/accountAvatar'
 import { isSlowConnection } from '@/shared/utils/network'
+import { isAvatarLoaded, markAvatarLoaded, onAvatarLoaded } from './avatarLoadCache'
 
 const props = defineProps<{
   account: MastodonAccount
@@ -93,7 +94,10 @@ function hoverStart(event: PointerEvent) {
   const url = animatedUrl.value
   // Swap only once the animated file is ready, so the still never blanks.
   const probe = new Image()
-  probe.onload = () => { if (token === hoverToken) hoverAnimated.value = true }
+  probe.onload = () => {
+    markAvatarLoaded(url)
+    if (token === hoverToken) hoverAnimated.value = true
+  }
   probe.src = url
 }
 function hoverEnd() { hoverToken++; hoverAnimated.value = false }
@@ -107,9 +111,13 @@ const imageUrl = computed(() => [primaryUrl.value, animatedUrl.value, defaultUrl
 const pattern = computed(() => identiconPattern(avatarIdentity(props.account), defaultUrl.value || primaryUrl.value))
 // Loading state: a shimmer in the avatar's own shape until the image has
 // decoded, then a short fade. Images the browser already has (complete on
-// mount) skip both, so cached avatars never flash.
-const loadedUrl = ref('')
-const instant = ref(false)
+// mount) skip both. A src another row already decoded is remembered too, so
+// the next UserAvatar for that account does not wait on its own load event.
+const loadedUrl = ref(isAvatarLoaded(imageUrl.value) ? imageUrl.value : '')
+const instant = ref(loadedUrl.value !== '')
+// Eager only when this src was already decoded before the <img> was created.
+// Flipping lazy→eager after this instance's own load restarts nothing useful.
+const eager = ref(loadedUrl.value !== '')
 const imageEl = ref<HTMLImageElement | null>(null)
 const loading = computed(() => !!imageUrl.value && loadedUrl.value !== imageUrl.value)
 function checkComplete() {
@@ -117,12 +125,32 @@ function checkComplete() {
   if (img && img.complete && img.naturalWidth > 0 && img.getAttribute('src') === imageUrl.value) {
     instant.value = true
     loadedUrl.value = imageUrl.value
+    markAvatarLoaded(imageUrl.value)
   }
 }
-watch(imageUrl, () => { instant.value = false; void nextTick(checkComplete) }, { immediate: true, flush: 'post' })
+watch(imageUrl, (url) => {
+  const known = !!url && isAvatarLoaded(url)
+  eager.value = known
+  if (known) {
+    loadedUrl.value = url
+    instant.value = true
+    return
+  }
+  instant.value = false
+  void nextTick(checkComplete)
+}, { immediate: true, flush: 'sync' })
+onScopeDispose(onAvatarLoaded((src) => {
+  // This row already applied the src itself (and may still be fading it in).
+  if (!src || src !== imageUrl.value || loadedUrl.value === src) return
+  instant.value = true
+  loadedUrl.value = src
+}))
 function imageLoaded(event: Event) {
   const src = (event.target as HTMLImageElement).getAttribute('src')
-  if (src && src === imageUrl.value) loadedUrl.value = src
+  if (src && src === imageUrl.value) {
+    loadedUrl.value = src
+    markAvatarLoaded(src)
+  }
 }
 function imageFailed(event: Event) {
   // A queued error for the previous URL must not hide a replacement avatar.
@@ -154,7 +182,7 @@ function imageFailed(event: Event) {
         :src="imageUrl"
         alt=""
         aria-hidden="true"
-        loading="lazy"
+        :loading="eager ? 'eager' : 'lazy'"
         decoding="async"
         @load="imageLoaded"
         @error="imageFailed"
