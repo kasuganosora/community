@@ -270,7 +270,7 @@ onMounted(load)
       <router-link to="/lists" class="btn btn--secondary btn--sm">{{ $t('list.ListTimelinePage.s5') }}</router-link>
     </div>
 
-    <NewPostsPill :show="newer.length > 0" @click="reloadHead" />
+    <NewPostsPill :show="newer.length > 0" :reveal="reloadHead" />
     <TimelineFeed
       v-if="list && !listError"
       :statuses="statuses"

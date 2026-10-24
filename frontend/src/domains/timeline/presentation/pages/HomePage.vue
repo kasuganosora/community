@@ -96,7 +96,10 @@ function onTabChange(value: TabType) {
   activeTab.value = value
   void openTimeline()
 }
-function revealNewer() { window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); timelineStore.revealNewer(chronologicalType.value) }
+function revealNewer() {
+  window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+  return timelineStore.revealNewer(chronologicalType.value)
+}
 async function reloadHead() {
   if (isDiscovery.value) { discovery.clear(); await openTimeline() }
   else await fetchChronological()
@@ -148,7 +151,7 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
       {{ $t('timeline.HomePage.s3') }}
       <button type="button" @click="onTabChange('global')">{{ $t('timeline.HomePage.s4') }}</button>
     </div>
-    <NewPostsPill :show="!isDiscovery && chronologicalTimeline.newer.length > 0" top="6.5rem" @click="revealNewer" />
+    <NewPostsPill :show="!isDiscovery && chronologicalTimeline.newer.length > 0" top="6.5rem" :reveal="revealNewer" />
     <TimelineFeed
       :statuses="statuses" :scope-key="isDiscovery ? `discovery:${sessionEpoch}:${discovery.generation.value}` : chronologicalType"
       :has-previous="!isDiscovery && chronologicalTimeline.hasPrevious"

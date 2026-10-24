@@ -70,7 +70,8 @@
       "s22": "Can’t read image"
     },
     "NewPostsPill": {
-      "s1": "New posts — tap to view"
+      "s1": "New posts — tap to view",
+      "s2": "Loading…"
     },
     "NotFoundPage": {
       "s1": "This page doesn’t exist.",

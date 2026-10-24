@@ -140,7 +140,7 @@ function retryFeed() {
     />
     <ExploreGroups v-if="activeTab === 'groups'" />
     <template v-else>
-    <NewPostsPill :show="newer.length > 0" @click="reloadHead" />
+    <NewPostsPill :show="newer.length > 0" :reveal="reloadHead" />
     <TimelineFeed
       :statuses="statuses"
       :scope-key="streamTarget"

@@ -70,7 +70,8 @@
       "s22": "Bild kann nicht gelesen werden"
     },
     "NewPostsPill": {
-      "s1": "Neue Beiträge – tippen zum Anzeigen"
+      "s1": "Neue Beiträge – tippen zum Anzeigen",
+      "s2": "Wird geladen…"
     },
     "NotFoundPage": {
       "s1": "Diese Seite existiert nicht.",
