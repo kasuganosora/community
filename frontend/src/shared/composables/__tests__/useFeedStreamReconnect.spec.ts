@@ -89,6 +89,25 @@ describe('feed stream reconnect', () => {
     expect(streamTransport.sseUntil).toBeGreaterThan(Date.now())
   })
 
+  it('does not reread a public timeline on every fast reconnect', async () => {
+    const callback = setup('stream=public')
+    await flushPromises()
+    last().hint('subscribed', 'r1')
+    await vi.advanceTimersByTimeAsync(250)
+    expect(callback).toHaveBeenCalledTimes(1)
+    const opened = FakeSocket.all.length
+    for (let i = 0; i < 4; i++) {
+      const before = FakeSocket.all.length
+      last().drop()
+      await vi.advanceTimersByTimeAsync(2_000)
+      if (FakeSocket.all.length === before) break
+      last().hint('subscribed', `again${i}`)
+      await vi.advanceTimersByTimeAsync(250)
+    }
+    expect(callback).toHaveBeenCalledTimes(1)
+    expect(FakeSocket.all.length).toBeGreaterThan(opened)
+  })
+
   it('reconnects a stalled socket and reconnects at once when coming back online', async () => {
     setup(); await flushPromises()
     last().hint('subscribed', 's')

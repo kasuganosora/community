@@ -8,12 +8,13 @@ let push: ReadableStreamDefaultController<Uint8Array>
 const mounted: ReturnType<typeof mount>[] = []
 const fetcher = vi.fn()
 const encode = (value: string) => new TextEncoder().encode(value)
-function setup(callback = vi.fn().mockResolvedValue(true)) {
-  const target = ref('stream=user')
+function setup(callback = vi.fn().mockResolvedValue(true), query = 'stream=user') {
+  const target = ref(query)
   const wrapper = mount(defineComponent({ setup() { useFeedStream(target, callback); return () => null } }))
   mounted.push(wrapper)
   return { callback, target }
 }
+const hint = (epoch: string, revision: string) => encode(`event: feed.changed\ndata: {"epoch":"${epoch}","revision":"${revision}"}\n\n`)
 beforeEach(() => {
   vi.useFakeTimers(); vi.stubGlobal('fetch', fetcher)
   streamTransport.sseUntil = Number.POSITIVE_INFINITY // these cases cover the SSE transport
@@ -63,5 +64,75 @@ describe('feed invalidation stream', () => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: false })
     document.dispatchEvent(new Event('visibilitychange')); await flushPromises(); await vi.advanceTimersByTimeAsync(250)
     expect(callback).toHaveBeenCalledTimes(1)
+  })
+
+  it('coalesces a public firehose into one head read per quiet window, then the 60s fallback', async () => {
+    const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=public')
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    expect(callback).toHaveBeenCalledTimes(1)
+    for (let i = 0; i < 40; i++) push.enqueue(hint('public', `p${i}`))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(5_000)
+    expect(callback).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(callback).toHaveBeenCalledTimes(2) // one trailing read for hints that arrived during the window
+    callback.mockClear()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(callback).toHaveBeenCalledTimes(1) // disconnected-style safety poll still runs
+  })
+
+  it('does not open another public read while one is in flight, and does not chain one per hint', async () => {
+    let release!: () => void
+    const callback = vi.fn(() => new Promise<void>(resolve => { release = resolve }))
+    setup(callback, 'stream=public:local')
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    expect(callback).toHaveBeenCalledTimes(1)
+    for (let i = 0; i < 20; i++) push.enqueue(hint('public', `live${i}`))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(2_000)
+    expect(callback).toHaveBeenCalledTimes(1)
+    release()
+    await flushPromises(); await vi.advanceTimersByTimeAsync(1_000)
+    expect(callback).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(14_000)
+    expect(callback).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores a visibility flicker instead of reconnecting and rereading the public timeline', async () => {
+    const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=public')
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    const streams = fetcher.mock.calls.length
+    callback.mockClear()
+    for (let i = 0; i < 6; i++) {
+      Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+      document.dispatchEvent(new Event('visibilitychange'))
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+      document.dispatchEvent(new Event('visibilitychange'))
+      await flushPromises(); await vi.advanceTimersByTimeAsync(300)
+    }
+    expect(callback).not.toHaveBeenCalled()
+    expect(fetcher.mock.calls.length).toBe(streams)
+  })
+
+  it('rechecks a public timeline after the page was actually hidden', async () => {
+    const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=public')
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    callback.mockClear()
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.advanceTimersByTimeAsync(1_000)
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    expect(callback).toHaveBeenCalledTimes(1)
+  })
+
+  it('still revalidates a home stream when a later hint arrives', async () => {
+    const { callback } = setup()
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250); callback.mockClear()
+    push.enqueue(hint('a', '1'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    expect(callback).toHaveBeenCalledTimes(1)
+    push.enqueue(hint('a', '2'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    expect(callback).toHaveBeenCalledTimes(2)
   })
 })
