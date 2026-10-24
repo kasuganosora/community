@@ -14,7 +14,7 @@
   <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/kasuganosora/community">
   <img alt="ActivityPub" src="https://img.shields.io/badge/ActivityPub-federated-8a2be2">
   <img alt="Matrix" src="https://img.shields.io/badge/Matrix-homeserver-0dbd8b">
-  <a href="https://c.hime.at"><img alt="Demo" src="https://img.shields.io/badge/demo-c.hime.at-1e90ff"></a>
+  <a href="https://maid.lat"><img alt="Demo" src="https://img.shields.io/badge/demo-maid.lat-1e90ff"></a>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 
 Community est un serveur social auto-hébergé, écrit en Go et Vue. Fils d'actualité, abonnements, réponses, sondages, médias et messages privés : tout y est, et vous pouvez échanger avec les gens sur Mastodon, Misskey et le reste du fédivers. Les salons de discussion viennent d'un serveur Matrix intégré au même programme : rien de plus à faire tourner.
 
-Démo en ligne : **https://c.hime.at** (serveur de test, merci de ne pas l'utiliser pour de vrai).
+Démo en ligne : **https://maid.lat**.
 
 ## Pourquoi Community ?
 
