@@ -204,6 +204,19 @@ describe('feed invalidation stream', () => {
     ])
   })
 
+  it('does not turn a notification into a home timeline status', async () => {
+    const seen: FeedStreamStatus[] = []
+    const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=user', status => { seen.push(status) })
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250); callback.mockClear()
+    push.enqueue(encode('event: notification\ndata: {"id":"7","type":"mention","status":{"id":"100","content":"old post"}}\n\n'))
+    push.enqueue(encode('event: update\ndata: {"id":"9","type":"favourite","status":{"id":"100","content":"old post"}}\n\n'))
+    push.enqueue(encode('event: update\ndata: {"id":"8","type":"update","status":{"id":"55","content":"edited long ago"}}\n\n'))
+    push.enqueue(encode('event: update\ndata: {"id":"21","content":"a real new post"}\n\n'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(5_000)
+    expect(callback).not.toHaveBeenCalled()
+    expect(seen).toEqual([{ event: 'update', id: '21' }])
+  })
+
   it('still revalidates a notification stream when a later hint arrives', async () => {
     const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=notification')
     await flushPromises(); await vi.advanceTimersByTimeAsync(250); callback.mockClear()

@@ -124,6 +124,49 @@ func TestFeedHintKeepsStatusIDAndDropsBody(t *testing.T) {
 	}
 }
 
+func TestFeedNotificationPayloadIsNotAHomeStatus(t *testing.T) {
+	client := setupRedisForTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	timeline := &home.HomeTimeline{Account: &models.Account{Id: 42}}
+	channel := feed.GetRedisChannelName(timeline)
+	notices, stop, err := subscribeFeedHint(ctx, channel)
+	require.NoError(t, err)
+	defer stop()
+
+	publishes := []string{
+		`{"type":"notification","payload":{"id":"9","type":"favourite","status":{"id":"100","content":"old post"}}}`,
+		`{"type":"update","payload":{"id":"9","type":"favourite","status":{"id":"100","content":"old post"}}}`,
+		`{"type":"update","payload":{"id":"8","type":"update","status":{"id":"55","content":"edited long ago"}}}`,
+	}
+	for _, body := range publishes {
+		require.NoError(t, client.Publish(ctx, channel, body).Err())
+		select {
+		case notice := <-notices:
+			require.Empty(t, notice.Event)
+			require.Empty(t, notice.ID)
+			require.Equal(t, "legacy", notice.Hint.Epoch)
+			encoded, err := json.Marshal(notice)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), "old post")
+			require.NotContains(t, string(encoded), "edited long ago")
+			require.NotContains(t, string(encoded), "100")
+			require.NotContains(t, string(encoded), "55")
+		case <-ctx.Done():
+			t.Fatal("missing hint")
+		}
+	}
+
+	require.NoError(t, client.Publish(ctx, channel, `{"type":"update","payload":{"id":19687,"content":"secret body"}}`).Err())
+	select {
+	case notice := <-notices:
+		require.Equal(t, "update", notice.Event)
+		require.Equal(t, "19687", notice.ID)
+	case <-ctx.Done():
+		t.Fatal("missing status id")
+	}
+}
+
 func TestFeedStreamingForwardsStatusIDWithoutBody(t *testing.T) {
 	conn, _, viewer := streamPrivacyDB(t)
 	auth := feedAuthFixture(t, conn, viewer)

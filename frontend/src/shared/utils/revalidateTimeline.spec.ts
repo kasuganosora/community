@@ -61,6 +61,23 @@ it('does not evict valid old tail cards when delayed inserts fill more than the 
   expect(fetcher).toHaveBeenCalledTimes(4) // head + one bounded verification per sparse old ID
 })
 
+it('does not queue a head row that is already on screen inside a reply, boost, or quote', async () => {
+  const { refreshTimelineHead } = await import('./revalidateTimeline')
+  const current = [{ id: '2', reply: { id: '1' } }, { id: '4', reblog: { id: '3' } }, { id: '6', quote: { id: '5' } }]
+  const fetcher = vi.fn().mockResolvedValue([{ id: '1' }, { id: '3' }, { id: '5' }, { id: '2' }, { id: '7' }])
+  const result = await refreshTimelineHead(current, fetcher, () => true, ['2', '4', '6'])
+  expect(result?.newer).toEqual([{ id: '7' }])
+  expect(result?.statuses.map(status => status.id)).toEqual(['2', '4', '6'])
+})
+
+it('does not treat an already-visible parent as a new row when reconciling the window', async () => {
+  const current = [{ id: '20', reply: { id: '13' } }, { id: '19' }]
+  const fetcher = vi.fn().mockResolvedValueOnce([{ id: '13' }, { id: '20' }, { id: '19' }]).mockResolvedValueOnce([{ id: '20' }, { id: '19' }])
+  const result = await revalidateTimeline(current, fetcher, () => true, ['20', '19'])
+  expect(result?.statuses.map(status => status.id)).toEqual(['20', '19'])
+  expect(result?.newer).toEqual([])
+})
+
 it('refreshes the head in one request and keeps the loaded tail', async () => {
   const { refreshTimelineHead } = await import('./revalidateTimeline')
   const fetcher = vi.fn().mockResolvedValue([{ id: '30', content: 'fresh' }, { id: '20', content: 'edited' }])

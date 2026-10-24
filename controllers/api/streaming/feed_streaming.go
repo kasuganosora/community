@@ -218,7 +218,7 @@ func runFeedTopic(key string, topic *feedTopic) {
 				continue
 			}
 			notice.Hint = hint
-		} else if wire.Type == "update" || wire.Type == "delete" || wire.Type == "status.update" {
+		} else if (wire.Type == "update" || wire.Type == "delete" || wire.Type == "status.update") && !notificationBody(wire.Payload) {
 			id, ok := feedStatusID(wire.Payload)
 			if !ok {
 				continue
@@ -227,7 +227,7 @@ func runFeedTopic(key string, topic *feedTopic) {
 			notice.ID = id
 		} else {
 			switch wire.Type {
-			case "filters_changed", "notification", "conversation", "announcement":
+			case "filters_changed", "notification", "conversation", "announcement", "update", "delete", "status.update":
 			default:
 				continue
 			}
@@ -460,6 +460,28 @@ func deliverNotice(dst chan feedNotice, notice feedNotice) {
 	select {
 	case dst <- notice:
 	default:
+	}
+}
+
+// notificationBody is a Mastodon notification: its own id plus the status it
+// is about. Status-edit notifications use type "update", which is also a
+// timeline event name, so the nested status must not be read as a home post.
+func notificationBody(raw json.RawMessage) bool {
+	if len(raw) == 0 || raw[0] != '{' {
+		return false
+	}
+	var payload struct {
+		Type   string          `json:"type"`
+		Status json.RawMessage `json:"status"`
+	}
+	if json.Unmarshal(raw, &payload) != nil || payload.Type == "" || len(payload.Status) == 0 || payload.Status[0] != '{' {
+		return false
+	}
+	switch payload.Type {
+	case "mention", "reblog", "favourite", "follow", "follow_request", "poll", "update", "emoji_reaction", "admin.report", "add_list", "remove_list":
+		return true
+	default:
+		return false
 	}
 }
 

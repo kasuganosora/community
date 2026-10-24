@@ -1,4 +1,4 @@
-import { refreshTimelineHead, revalidateTimeline } from '@/shared/utils/revalidateTimeline'
+import { refreshTimelineHead, representedStatusIDs, revalidateTimeline } from '@/shared/utils/revalidateTimeline'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { createNewerPrefetch, newerPrefetchKey } from '@/shared/utils/newerPrefetch'
 import { ref, watch, getCurrentScope, onScopeDispose, type Ref } from 'vue'
@@ -215,7 +215,7 @@ export function usePaginatedList<T extends { id: string }>(
     if (result && my === version) {
       if (!knownHead) knownHead = result.statuses.slice(0, pageSize).map(row => row.id)
       items.value = result.statuses
-      const shown = new Set(result.statuses.map(row => row.id))
+      const shown = representedStatusIDs(result.statuses)
       const seen = new Set<string>()
       const merged: { id: string }[] = []
       for (const item of [...result.newer, ...newer.value]) {
@@ -248,7 +248,7 @@ export function usePaginatedList<T extends { id: string }>(
       return
     }
     if (status.event !== 'update') return
-    if (items.value.some(row => row.id === id) || newer.value.some(row => row.id === id) || knownHead?.includes(id)) return
+    if (representedStatusIDs(items.value).has(id) || newer.value.some(row => row.id === id) || knownHead?.includes(id)) return
     if (newer.value.length >= pageSize) return
     streamedNewer = true
     newer.value = [...newer.value, { id }]

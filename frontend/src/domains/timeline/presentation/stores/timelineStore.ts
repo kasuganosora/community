@@ -1,5 +1,5 @@
 import { sessionEpoch } from '@/shared/api/sessionScope'
-import { refreshTimelineHead, revalidateTimeline } from '@/shared/utils/revalidateTimeline'
+import { refreshTimelineHead, representedStatusIDs, revalidateTimeline } from '@/shared/utils/revalidateTimeline'
 import { mergeById } from '@/shared/utils/pagination'
 import { createNewerPrefetch, newerPrefetchKey } from '@/shared/utils/newerPrefetch'
 import { ref, computed, watch } from 'vue'
@@ -349,7 +349,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   }
 
   function mergePill(type: ManagedTimelineType, incoming: { id: string }[], visible: { id: string }[]) {
-    const shown = new Set(visible.map(status => status.id))
+    const shown = representedStatusIDs(visible)
     const seen = new Set<string>()
     const merged: { id: string }[] = []
     for (const item of [...incoming, ...getTimeline(type).newer]) {
@@ -417,19 +417,21 @@ export const useTimelineStore = defineStore('timeline', () => {
     const id = status.id
     if (!/^\d+$/.test(id)) return
     const timeline = getTimeline(type)
-    const visible = (row: { id: string, reblog?: { id?: string } | null }) => row.id === id || row.reblog?.id === id
+    // Delete and in-place edits match the card or the boost it wraps.
+    // A reply parent or quote that is only previewed inside another card stays put.
+    const displayed = (row: { id: string, reblog?: { id?: string } | null }) => row.id === id || row.reblog?.id === id
     if (status.event === 'delete') {
-      timeline.statuses = timeline.statuses.filter(row => !visible(row))
+      timeline.statuses = timeline.statuses.filter(row => !displayed(row))
       streamedNewer = true
       timeline.newer = timeline.newer.filter(row => row.id !== id)
       streamedNewer = false
       return
     }
     if (status.event === 'status.update') {
-      if (timeline.statuses.some(visible)) refreshEdited(type, id)
+      if (timeline.statuses.some(displayed)) refreshEdited(type, id)
       return
     }
-    if (timeline.statuses.some(row => row.id === id) || timeline.newer.some(row => row.id === id) || knownHead[type]?.includes(id)) return
+    if (representedStatusIDs(timeline.statuses).has(id) || timeline.newer.some(row => row.id === id) || knownHead[type]?.includes(id)) return
     if (timeline.newer.length >= TIMELINE_PAGE_SIZE) return
     streamedNewer = true
     timeline.newer = [...timeline.newer, { id }]

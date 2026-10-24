@@ -74,11 +74,20 @@ export function isTimelineFeed(query: string): boolean {
 
 const STATUS_EVENTS = new Set<FeedStatusEvent>(['update', 'delete', 'status.update'])
 
+/** A notification has its own id plus the status it points at. A timeline frame does not. */
+function isNotificationDocument(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object' || !('status' in payload)) return false
+  const status = (payload as { status?: unknown }).status
+  return !!status && typeof status === 'object'
+}
+
 /** The only field a timeline frame may carry. Anything else is ignored. */
 export function feedStatusID(event: string, raw: string): FeedStreamStatus | null {
   if (!STATUS_EVENTS.has(event as FeedStatusEvent)) return null
   try {
     const payload = JSON.parse(raw) as unknown
+    // Notifications nest the status they are about. That id is not a home row.
+    if (isNotificationDocument(payload)) return null
     const value = typeof payload === 'string' || typeof payload === 'number'
       ? payload
       : payload && typeof payload === 'object' && 'id' in payload
