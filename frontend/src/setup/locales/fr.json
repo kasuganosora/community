@@ -166,6 +166,7 @@
     "skipped": "Ignoré"
   },
   "stages": {
+    "source_probe": "Vérifier la base source",
     "config": "Écrire la configuration",
     "schema": "Créer le schéma de la base",
     "misskey_meta": "Importer les réglages de l’instance",

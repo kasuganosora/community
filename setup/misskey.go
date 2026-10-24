@@ -36,6 +36,7 @@ import (
 
 func misskeyStages() map[string]stageFunc {
 	s := commonStages()
+	s["source_probe"] = stageSourceProbe
 	s["misskey_meta"] = stageMisskeyMeta
 	s["misskey_media"] = stageMisskeyMedia
 	s["misskey_export"] = stageMisskeyExport
@@ -134,6 +135,9 @@ func openMisskey(m MisskeyParams, password string) (*gorm.DB, error) {
 
 // MisskeyInspection summarizes a source database for the wizard.
 type MisskeyInspection struct {
+	// Counts are PostgreSQL planner estimates (pg_class.reltuples plus
+	// pg_stats null fractions), not exact scans. Empty when the server
+	// cannot read those catalogs.
 	Counts map[string]int64 `json:"counts"`
 	// IDMethod is guessed from the user ID format (Misskey's config.id).
 	IDMethod string `json:"id_method"`
@@ -215,34 +219,39 @@ func originOf(raw, requiredPrefix string) string {
 }
 
 func inspectMisskey(conn *gorm.DB) (*MisskeyInspection, *Error) {
+	conn, done := probeSession(conn)
+	defer done()
 	if !conn.Migrator().HasTable("user") || !conn.Migrator().HasTable("note") || !conn.Migrator().HasTable("user_profile") {
 		return nil, fail("misskey_not_misskey")
 	}
 	res := &MisskeyInspection{Counts: map[string]int64{}}
-	count := func(key, sql string) {
-		var n int64
-		if conn.Raw(sql).Scan(&n).Error == nil {
-			res.Counts[key] = n
-		}
-	}
-	count("local_users", `SELECT count(*) FROM "user" WHERE host IS NULL`)
-	count("remote_users", `SELECT count(*) FROM "user" WHERE host IS NOT NULL`)
-	count("notes", `SELECT count(*) FROM note`)
-	count("files", `SELECT count(*) FROM drive_file`)
-	count("emojis", `SELECT count(*) FROM emoji WHERE host IS NULL`)
-	count("follows", `SELECT count(*) FROM following`)
+	// Relation estimates only. Exact row counts of note and drive_file are
+	// left to the export stage, which already walks the source in pages.
+	rows, frac, ok := estimateRelation(conn, `"user"`, "host")
+	setEstimate(res.Counts, "local_users", "remote_users", rows, frac, ok)
+	rows, _, ok = estimateRelation(conn, "note", "")
+	setEstimate(res.Counts, "notes", "", rows, nil, ok)
+	rows, _, ok = estimateRelation(conn, "drive_file", "")
+	setEstimate(res.Counts, "files", "", rows, nil, ok)
+	rows, frac, ok = estimateRelation(conn, "emoji", "host")
+	setEstimate(res.Counts, "emojis", "", rows, frac, ok)
+	rows, _, ok = estimateRelation(conn, "following", "")
+	setEstimate(res.Counts, "follows", "", rows, nil, ok)
 	if conn.Migrator().HasTable("user_security_key") {
-		count("passkeys", `SELECT count(*) FROM user_security_key`)
+		rows, _, ok = estimateRelation(conn, "user_security_key", "")
+		setEstimate(res.Counts, "passkeys", "", rows, nil, ok)
 	}
 	var ids []string
 	conn.Raw(`SELECT id FROM "user" ORDER BY id LIMIT 50`).Scan(&ids)
 	res.IDMethod = guessIDMethod(ids)
 
-	// Origins of locally stored files (<url>/files/<key>) and local emoji.
-	var urls []string
-	conn.Raw(`SELECT url FROM drive_file WHERE "storedInternal" = true AND "userHost" IS NULL AND url <> '' LIMIT 200`).Scan(&urls)
+	// Recent primary-key rows plus local emoji. A filtered scan of drive_file
+	// is not bounded on a large instance when most files live in object storage.
+	var samples []misskeyFileSample
+	conn.Raw(`SELECT url AS url, "storedInternal" AS stored_internal, "userHost" AS user_host FROM drive_file ORDER BY id DESC LIMIT 50`).Scan(&samples)
 	var emojiURLs []string
-	conn.Raw(`SELECT "originalUrl" FROM emoji WHERE host IS NULL AND "originalUrl" <> '' LIMIT 200`).Scan(&emojiURLs)
+	conn.Raw(`SELECT "originalUrl" FROM emoji WHERE host IS NULL AND "originalUrl" <> '' LIMIT 50`).Scan(&emojiURLs)
+	urls := misskeyLocalFileURLs(samples)
 	votes := map[string]int{}
 	for _, u := range append(urls, emojiURLs...) {
 		if o := originOf(u, "/files/"); o != "" {

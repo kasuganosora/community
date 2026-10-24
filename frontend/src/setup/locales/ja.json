@@ -166,6 +166,7 @@
     "skipped": "スキップ"
   },
   "stages": {
+    "source_probe": "移行元データベースを確認",
     "config": "設定を書き込む",
     "schema": "データベーススキーマを作成",
     "misskey_meta": "インスタンス設定をインポート",

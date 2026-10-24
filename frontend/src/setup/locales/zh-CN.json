@@ -166,6 +166,7 @@
     "skipped": "已跳过"
   },
   "stages": {
+    "source_probe": "检查源数据库",
     "config": "写入配置",
     "schema": "创建数据库结构",
     "misskey_meta": "导入实例设置",

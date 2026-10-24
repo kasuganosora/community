@@ -286,10 +286,10 @@ type runner struct {
 
 func stageNames(mode string) []string {
 	if mode == "mastodon" {
-		return []string{"config", "schema", "mastodon_media", "mastodon_export", "mastodon_preflight", "mastodon_import", "admin", "finalize"}
+		return []string{"source_probe", "config", "schema", "mastodon_media", "mastodon_export", "mastodon_preflight", "mastodon_import", "admin", "finalize"}
 	}
 	if mode == "misskey" {
-		return []string{"config", "schema", "misskey_meta", "misskey_media", "misskey_export", "misskey_preflight", "misskey_import", "passkeys", "admin", "finalize"}
+		return []string{"source_probe", "config", "schema", "misskey_meta", "misskey_media", "misskey_export", "misskey_preflight", "misskey_import", "passkeys", "admin", "finalize"}
 	}
 	return []string{"config", "schema", "admin", "finalize"}
 }

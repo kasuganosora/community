@@ -450,9 +450,11 @@ func (s *Server) start(secrets *jobSecrets) {
 	}()
 }
 
-// prepareInstall validates the whole request (including live connection
-// checks) before anything is written.
-func prepareInstall(ctx context.Context, req *InstallRequest) (*Job, *jobSecrets, error) {
+// prepareInstall validates the request and the target database before
+// anything is written. Migration sources are not inspected here: a full
+// source probe blocks the request on large databases, and the source_probe
+// stage repeats the light check before configuration is written.
+func prepareInstall(_ context.Context, req *InstallRequest) (*Job, *jobSecrets, error) {
 	if !validLocale(req.Locale) {
 		req.Locale = "en"
 	}
@@ -495,35 +497,14 @@ func prepareInstall(ctx context.Context, req *InstallRequest) (*Job, *jobSecrets
 				return nil, nil, fail("misskey_files_missing")
 			}
 		}
-		src, err := openMisskey(*m, m.Password)
-		if err != nil {
-			return nil, nil, err
-		}
-		info, ierr := inspectMisskey(src)
-		objectSecret := m.ObjectStorage.SecretKey
-		if objectSecret == "" {
-			objectSecret = misskeyObjectSecret(src)
-		}
-		closeDB(src)
-		if ierr != nil {
-			return nil, nil, ierr
-		}
-		if m.IDMethod == "" {
-			m.IDMethod = info.IDMethod
-		}
 		if m.IDMethod == "" {
 			return nil, nil, fail("invalid_id_method")
 		}
-		b, derr := sourceBaseURL(req.Domain, info.DetectedBaseURL, info.BaseURLCandidates)
+		b, derr := normalizeBaseURL(req.Domain)
 		if derr != nil {
 			return nil, nil, derr
 		}
 		baseURL = b
-		if m.MediaSource == "s3" && m.MediaMode == "copy" {
-			if err := checkObjectStorage(ctx, m.ObjectStorage, objectSecret); err != nil {
-				return nil, nil, err
-			}
-		}
 		secrets.MisskeyPassword = m.Password
 		secrets.S3SecretKey = m.ObjectStorage.SecretKey
 		secrets.MisskeyRedisPassword = m.StopCheck.RedisPassword
@@ -543,25 +524,11 @@ func prepareInstall(ctx context.Context, req *InstallRequest) (*Job, *jobSecrets
 				return nil, nil, fail("mastodon_files_missing")
 			}
 		}
-		src, err := openMastodon(*m, m.Password)
-		if err != nil {
-			return nil, nil, err
-		}
-		info, ierr := inspectMastodon(src)
-		closeDB(src)
-		if ierr != nil {
-			return nil, nil, ierr
-		}
-		b, derr := sourceBaseURL(req.Domain, info.DetectedBaseURL, info.BaseURLCandidates)
+		b, derr := normalizeBaseURL(req.Domain)
 		if derr != nil {
 			return nil, nil, derr
 		}
 		baseURL = b
-		if m.MediaSource == "s3" && m.MediaMode == "copy" {
-			if err := checkObjectStorage(ctx, m.ObjectStorage, m.ObjectStorage.SecretKey); err != nil {
-				return nil, nil, err
-			}
-		}
 		secrets.MisskeyPassword = m.Password
 		secrets.S3SecretKey = m.ObjectStorage.SecretKey
 		m.Password = ""
