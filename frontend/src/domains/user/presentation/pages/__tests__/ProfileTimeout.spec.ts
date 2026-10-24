@@ -8,9 +8,32 @@ import type { MastodonAccount } from '@/shared/types/mastodon'
 
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { username: 'kanna' } }) }))
 
-const kanna = {
-  id: '1538', username: 'kanna', acct: 'kanna', display_name: 'Kanna', statuses_count: 3, emojis: [],
-} as MastodonAccount
+const kanna: MastodonAccount = {
+  id: '1538',
+  username: 'kanna',
+  acct: 'kanna',
+  display_name: 'Kanna',
+  locked: false,
+  bot: false,
+  discoverable: false,
+  indexable: false,
+  group: false,
+  created_at: '2024-01-01T00:00:00.000Z',
+  note: '',
+  url: '',
+  uri: '',
+  avatar: '',
+  avatar_static: '',
+  header: '',
+  header_static: '',
+  followers_count: 0,
+  following_count: 0,
+  statuses_count: 3,
+  last_status_at: null,
+  hide_collections: false,
+  emojis: [],
+  fields: [],
+}
 
 function timeoutError() {
   return Object.assign(new Error('加载超时，点重试'), { code: 'ECONNABORTED' })
