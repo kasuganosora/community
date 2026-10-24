@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"github.com/kasuganosora/community/runtimeconfig"
 	"github.com/kasuganosora/community/systemsettings"
 )
 
@@ -69,7 +70,12 @@ func convertEnvValue(field SettingsField, raw string) (any, error) {
 	return raw, nil
 }
 
-// ApplyEnvImport saves the valid items in one transaction.
+// ApplyEnvImport saves the valid items in one transaction. After the write
+// commits, email and object storage are applied with the same in-process
+// hooks an admin save uses, so this process does not keep the boot-time
+// clients. A failed write leaves the running clients unchanged. Captcha is
+// not an import-env field (it has its own admin endpoint, which reloads the
+// captcha service); search still waits for the next start.
 func ApplyEnvImport(items []EnvImportItem) error {
 	values := map[string]any{}
 	for _, item := range items {
@@ -80,7 +86,29 @@ func ApplyEnvImport(items []EnvImportItem) error {
 	if len(values) == 0 {
 		return nil
 	}
-	return systemsettings.SaveChanges(values)
+	if err := systemsettings.SaveChanges(values); err != nil {
+		return err
+	}
+	applyImportedRuntime(values)
+	return nil
+}
+
+func applyImportedRuntime(values map[string]any) {
+	if settingsOverlap(values, emailSettingsFields()) {
+		runtimeconfig.ApplyEmail()
+	}
+	if settingsOverlap(values, storageSettingsFields()) {
+		runtimeconfig.ApplyStorage()
+	}
+}
+
+func settingsOverlap(values map[string]any, fields []SettingsField) bool {
+	for _, field := range fields {
+		if _, ok := values[field.Key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // ShadowedByProcessEnv returns the variable names of admin-editable settings
