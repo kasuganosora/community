@@ -35,6 +35,7 @@ afterEach(() => {
   wrapper?.unmount()
   wrapper = undefined
   disposePinia(pinia)
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
@@ -50,7 +51,7 @@ it('prefetches the home head when the new-posts pill appears, without inserting 
   expect(pill.text()).toContain('有新帖子，点击查看')
   expect(pill.text()).not.toContain('加载中')
   expect(get).toHaveBeenCalledTimes(2)
-  expect(get).toHaveBeenLastCalledWith('/api/v1/timelines/home', { params: { limit: 20 } })
+  expect(get).toHaveBeenLastCalledWith('/api/v1/timelines/home', expect.objectContaining({ params: { limit: 20 }, timeout: 20_000, signal: expect.any(AbortSignal) }))
   expect(useTimelineStore().homeStatuses.map(status => status.id)).toEqual(['100'])
   expect(useTimelineStore().homeTimeline.newer.map(status => status.id)).toEqual(['101'])
 })
@@ -166,6 +167,49 @@ it('loads on click when the prefetch failed, and re-enables the pill if that loa
   expect(useTimelineStore().homeTimeline.newer.map(status => status.id)).toEqual(['101'])
 })
 
+it('leaves the public new-posts pill idle when the head request stays pending', async () => {
+  vi.useFakeTimers()
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  useTimelineStore().homeTab = 'global'
+  const get = vi.spyOn(client, 'get').mockResolvedValue({ data: rows(200, 1) })
+  wrapper = mount(HomePage, options)
+  await flushPromises()
+  get.mockImplementation(() => new Promise(() => {}))
+  useTimelineStore().applyStreamed('public', { event: 'update', id: '201' })
+  await flushPromises()
+  const pill = wrapper.get('[data-testid="new-posts-pill"]')
+  expect(pill.text()).toContain('有新帖子，点击查看')
+  await pill.trigger('click')
+  expect(pill.text()).toContain('加载中…')
+  await vi.advanceTimersByTimeAsync(20_000)
+  await flushPromises()
+  const again = wrapper.get('[data-testid="new-posts-pill"]')
+  expect(again.text()).not.toContain('加载中')
+  expect(again.attributes('disabled')).toBeUndefined()
+  expect(again.text()).toContain('有新帖子，点击查看')
+  const feed = wrapper.findComponent({ name: 'TimelineFeed' })
+  expect(feed.props('loading')).toBe(false)
+  expect(feed.props('error')).toBe('加载超时，点重试')
+  expect(useTimelineStore().publicStatuses.map(status => status.id)).toEqual(['200'])
+  vi.useRealTimers()
+})
+
+it('clears the public timeline loading state when the first page never returns', async () => {
+  vi.useFakeTimers()
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  useTimelineStore().homeTab = 'global'
+  vi.spyOn(client, 'get').mockImplementation(() => new Promise(() => {}))
+  wrapper = mount(HomePage, options)
+  await flushPromises()
+  expect(wrapper.findComponent({ name: 'TimelineFeed' }).props('loading')).toBe(true)
+  await vi.advanceTimersByTimeAsync(20_000)
+  await flushPromises()
+  const feed = wrapper.findComponent({ name: 'TimelineFeed' })
+  expect(feed.props('loading')).toBe(false)
+  expect(feed.props('error')).toBe('加载超时，点重试')
+  vi.useRealTimers()
+})
+
 it('prefetches the public timeline when the global tab pill appears', async () => {
   useTimelineStore().homeTab = 'global'
   const get = vi.spyOn(client, 'get').mockResolvedValue({ data: rows(200, 1) })
@@ -174,7 +218,7 @@ it('prefetches the public timeline when the global tab pill appears', async () =
   useTimelineStore().publicTimeline.newer.push({ id: '201' })
   await nextTick()
   expect(get).toHaveBeenCalledTimes(2)
-  expect(get).toHaveBeenLastCalledWith('/api/v1/timelines/public', { params: { limit: 20 } })
+  expect(get).toHaveBeenLastCalledWith('/api/v1/timelines/public', expect.objectContaining({ params: { limit: 20 }, timeout: 20_000, signal: expect.any(AbortSignal) }))
   expect(useTimelineStore().publicStatuses.map(status => status.id)).toEqual(['200'])
   expect(wrapper.get('[data-testid="new-posts-pill"]').text()).toContain('有新帖子，点击查看')
 })
