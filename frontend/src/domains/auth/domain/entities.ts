@@ -19,7 +19,7 @@ export interface LoginResponse {
   token: string
 }
 
-/** Password accepted, but the account needs a TOTP or backup code. */
+/** Password accepted, but the account needs a TOTP code, backup code, or security PIN. */
 export interface TwoFactorChallenge {
   twoFactorRequired: true
   challenge: string

@@ -6,7 +6,7 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { twoFactorApi, type TwoFactorStatus } from '../../infrastructure/twoFactorApi'
 import { t } from '@/shared/i18n'
 
-type Mode = 'idle' | 'password' | 'scan' | 'codes' | 'regenerate' | 'disable'
+type Mode = 'idle' | 'password' | 'scan' | 'codes' | 'regenerate' | 'disable' | 'pin' | 'pin-remove'
 
 const authStore = useAuthStore()
 const status = ref<TwoFactorStatus | null>(null)
@@ -16,6 +16,9 @@ const busy = ref(false)
 const error = ref('')
 const password = ref('')
 const code = ref('')
+const pin = ref('')
+const pinConfirm = ref('')
+const pinPattern = /^[A-Za-z0-9]{6,32}$/
 const secret = ref('')
 const qrSvg = ref('')
 const backupCodes = ref<string[]>([])
@@ -24,6 +27,8 @@ const codeField = ref<HTMLInputElement | null>(null)
 function resetForm() {
   password.value = ''
   code.value = ''
+  pin.value = ''
+  pinConfirm.value = ''
   error.value = ''
 }
 const scope = useSettingsScope(() => {
@@ -41,6 +46,9 @@ function messageOf(e: unknown) {
     case 'two_factor_required': return t('settings.TwoFactor.codeRequired')
     case 'two_factor_locked': return t('settings.TwoFactor.locked')
     case 'two_factor_setup_expired': return t('settings.TwoFactor.setupExpired')
+    case 'invalid_security_pin': return t('settings.TwoFactor.pinInvalid')
+    case 'security_pin_not_set': return t('settings.TwoFactor.pinStatusOff')
+    case 'two_factor_not_enabled': return t('settings.TwoFactor.statusOff')
   }
   return e instanceof Error ? e.message : t('settings.TwoFactor.failed')
 }
@@ -150,6 +158,54 @@ async function disable() {
   }
 }
 
+function pinProblem() {
+  if (!pinPattern.test(pin.value.trim())) return t('settings.TwoFactor.pinInvalid')
+  if (pin.value.trim() !== pinConfirm.value.trim()) return t('settings.TwoFactor.pinMismatch')
+  return ''
+}
+
+async function savePin() {
+  const problem = pinProblem()
+  if (busy.value || !password.value || !code.value.trim() || problem) {
+    if (problem) error.value = problem
+    return
+  }
+  const current = scope()
+  busy.value = true
+  error.value = ''
+  try {
+    await twoFactorApi.setSecurityPin(password.value, code.value.trim(), pin.value.trim())
+    if (!current()) return
+    resetForm()
+    mode.value = 'idle'
+    MessagePlugin.success(t('settings.TwoFactor.pinSaved'))
+    await refresh()
+  } catch (e) {
+    if (current()) error.value = messageOf(e)
+  } finally {
+    if (current()) busy.value = false
+  }
+}
+
+async function removePin() {
+  if (busy.value || !password.value || !code.value.trim()) return
+  const current = scope()
+  busy.value = true
+  error.value = ''
+  try {
+    await twoFactorApi.removeSecurityPin(password.value, code.value.trim())
+    if (!current()) return
+    resetForm()
+    mode.value = 'idle'
+    MessagePlugin.success(t('settings.TwoFactor.pinRemoved'))
+    await refresh()
+  } catch (e) {
+    if (current()) error.value = messageOf(e)
+  } finally {
+    if (current()) busy.value = false
+  }
+}
+
 async function copyCodes() {
   try {
     await navigator.clipboard.writeText(backupCodes.value.join('\n'))
@@ -239,6 +295,54 @@ onMounted(() => { refresh().catch(() => {}) })
         </div>
       </form>
 
+      <!-- security PIN: password + current factor + new PIN. Does not turn 2FA off. -->
+      <form v-else-if="mode === 'pin'" class="settings-form" data-testid="security-pin-form" @submit.prevent="savePin">
+        <input type="text" class="sr-only" autocomplete="username" :value="authStore.currentUser?.username" tabindex="-1" aria-hidden="true" readonly />
+        <p class="hint">{{ $t('settings.TwoFactor.pinSaveHint') }}</p>
+        <p class="hint">{{ $t('settings.TwoFactor.pinRules') }}</p>
+        <div class="settings-field">
+          <label for="tf-pin-password" class="settings-field__label">{{ $t('settings.TwoFactor.password') }}</label>
+          <input id="tf-pin-password" v-model="password" class="settings-input" type="password" autocomplete="current-password" required />
+        </div>
+        <div class="settings-field">
+          <label for="tf-pin-code" class="settings-field__label">{{ $t('settings.TwoFactor.codeOrBackup') }}</label>
+          <input id="tf-pin-code" v-model="code" class="settings-input" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required />
+        </div>
+        <div class="settings-field">
+          <label for="tf-pin-new" class="settings-field__label">{{ $t('settings.TwoFactor.pinNew') }}</label>
+          <input id="tf-pin-new" v-model="pin" class="settings-input" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" maxlength="32" required />
+        </div>
+        <div class="settings-field">
+          <label for="tf-pin-confirm" class="settings-field__label">{{ $t('settings.TwoFactor.pinConfirm') }}</label>
+          <input id="tf-pin-confirm" v-model="pinConfirm" class="settings-input" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" maxlength="32" required />
+        </div>
+        <p v-if="error" class="settings-error" role="alert">{{ error }}</p>
+        <div class="settings-actions two-factor__row">
+          <button type="button" class="btn btn--sm" @click="start('idle')">{{ $t('settings.TwoFactor.cancel') }}</button>
+          <button type="submit" class="btn btn--primary btn--sm" :disabled="busy || !password || !code.trim() || !pin.trim() || !pinConfirm.trim()">
+            {{ status.security_pin_set ? $t('settings.TwoFactor.pinChange') : $t('settings.TwoFactor.pinSet') }}
+          </button>
+        </div>
+      </form>
+
+      <form v-else-if="mode === 'pin-remove'" class="settings-form" data-testid="security-pin-remove-form" @submit.prevent="removePin">
+        <input type="text" class="sr-only" autocomplete="username" :value="authStore.currentUser?.username" tabindex="-1" aria-hidden="true" readonly />
+        <p class="hint">{{ $t('settings.TwoFactor.pinRemoveHint') }}</p>
+        <div class="settings-field">
+          <label for="tf-pin-remove-password" class="settings-field__label">{{ $t('settings.TwoFactor.password') }}</label>
+          <input id="tf-pin-remove-password" v-model="password" class="settings-input" type="password" autocomplete="current-password" required />
+        </div>
+        <div class="settings-field">
+          <label for="tf-pin-remove-code" class="settings-field__label">{{ $t('settings.TwoFactor.codeOrBackup') }}</label>
+          <input id="tf-pin-remove-code" v-model="code" class="settings-input" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="32" required />
+        </div>
+        <p v-if="error" class="settings-error" role="alert">{{ error }}</p>
+        <div class="settings-actions two-factor__row">
+          <button type="button" class="btn btn--sm" @click="start('idle')">{{ $t('settings.TwoFactor.cancel') }}</button>
+          <button type="submit" class="btn btn--sm two-factor__danger" :disabled="busy || !password || !code.trim()">{{ $t('settings.TwoFactor.pinRemove') }}</button>
+        </div>
+      </form>
+
       <!-- regenerate / disable: password + code -->
       <form v-else-if="mode === 'regenerate' || mode === 'disable'" class="settings-form" @submit.prevent="mode === 'disable' ? disable() : regenerate()">
         <input type="text" class="sr-only" autocomplete="username" :value="authStore.currentUser?.username" tabindex="-1" aria-hidden="true" readonly />
@@ -266,6 +370,18 @@ onMounted(() => { refresh().catch(() => {}) })
           <button type="button" class="btn btn--sm" @click="start('regenerate')">{{ $t('settings.TwoFactor.regenerate') }}</button>
           <button type="button" class="btn btn--sm two-factor__danger" @click="start('disable')">{{ $t('settings.TwoFactor.disable') }}</button>
         </template>
+      </div>
+      <div v-if="status.enabled && mode === 'idle'" class="two-factor__pin" data-testid="security-pin">
+        <p class="settings-field__label">{{ $t('settings.TwoFactor.pinTitle') }}</p>
+        <p class="hint">{{ status.security_pin_set ? $t('settings.TwoFactor.pinStatusOn') : $t('settings.TwoFactor.pinStatusOff') }}</p>
+        <p class="hint">{{ $t('settings.TwoFactor.pinIntro') }}</p>
+        <div class="settings-actions two-factor__row">
+          <button v-if="!status.security_pin_set" type="button" class="btn btn--sm" data-testid="security-pin-set" @click="start('pin')">{{ $t('settings.TwoFactor.pinSet') }}</button>
+          <template v-else>
+            <button type="button" class="btn btn--sm" data-testid="security-pin-change" @click="start('pin')">{{ $t('settings.TwoFactor.pinChange') }}</button>
+            <button type="button" class="btn btn--sm two-factor__danger" data-testid="security-pin-remove" @click="start('pin-remove')">{{ $t('settings.TwoFactor.pinRemove') }}</button>
+          </template>
+        </div>
       </div>
       <p class="hint">{{ $t('settings.TwoFactor.passkeyNote') }}</p>
     </template>

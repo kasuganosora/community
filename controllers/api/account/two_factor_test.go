@@ -137,8 +137,83 @@ func TestTwoFactorSetupLoginAndDisable(t *testing.T) {
 
 func TestTwoFactorEndpointsRequireWebSession(t *testing.T) {
 	e := newTwoFactorEnv(t)
-	for _, h := range []gin.HandlerFunc{TwoFactorStatus, TwoFactorSetup, TwoFactorConfirm, TwoFactorDisable, TwoFactorRegenerateBackupCodes} {
+	for _, h := range []gin.HandlerFunc{TwoFactorStatus, TwoFactorSetup, TwoFactorConfirm, TwoFactorDisable, TwoFactorRegenerateBackupCodes, TwoFactorSetSecurityPIN, TwoFactorRemoveSecurityPIN} {
 		code, _ := e.call(h, map[string]any{}, false)
 		require.Equal(t, 401, code)
 	}
+}
+
+func TestSecurityPINSetChangeRemoveAndLogin(t *testing.T) {
+	e := newTwoFactorEnv(t)
+	_, body := e.call(TwoFactorSetup, map[string]any{"password": "correct-password"}, true)
+	secret := body["secret"].(string)
+	totp, _ := twofactor.Generate(secret, time.Now())
+	_, body = e.call(TwoFactorConfirm, map[string]any{"code": totp}, true)
+	backups := body["backup_codes"].([]any)
+
+	code, body := e.call(TwoFactorStatus, nil, true)
+	require.Equal(t, 200, code, body)
+	require.Equal(t, false, body["security_pin_set"])
+
+	code, body = e.call(TwoFactorSetSecurityPIN, map[string]any{"password": "wrong", "code": backups[0], "pin": "cafe42"}, true)
+	require.Equal(t, 422, code, body)
+	code, body = e.call(TwoFactorSetSecurityPIN, map[string]any{"password": "correct-password", "pin": "cafe42"}, true)
+	require.Equal(t, 403, code, body)
+	code, body = e.call(TwoFactorSetSecurityPIN, map[string]any{"password": "correct-password", "code": backups[0], "pin": "nope"}, true)
+	require.Equal(t, 422, code, body)
+	require.Equal(t, "invalid_security_pin", body["error"])
+
+	// format is rejected before the backup code is consumed
+	code, body = e.call(Login, map[string]any{"username": "qa", "password": "correct-password", "otp_attempt": backups[0]}, false)
+	require.Equal(t, 200, code, body)
+
+	code, body = e.call(TwoFactorSetSecurityPIN, map[string]any{"password": "correct-password", "code": backups[1], "pin": "cafe42"}, true)
+	require.Equal(t, 200, code, body)
+	require.Equal(t, true, body["security_pin_set"])
+
+	code, body = e.call(TwoFactorStatus, nil, true)
+	require.Equal(t, 200, code, body)
+	require.Equal(t, true, body["enabled"])
+	require.Equal(t, true, body["security_pin_set"])
+
+	var stored models.UserTwoFactor
+	require.NoError(t, e.conn.First(&stored, "user_id = ?", e.u.Id).Error)
+	require.NotContains(t, stored.PinHash, "cafe42")
+	require.NotEmpty(t, stored.Secret)
+
+	code, body = e.call(Login, map[string]any{"username": "qa", "password": "correct-password"}, false)
+	require.Equal(t, 401, code, body)
+	challenge := body["challenge"].(string)
+	code, body = e.call(LoginTwoFactor, map[string]any{"challenge": challenge, "code": "cafe42"}, false)
+	require.Equal(t, 200, code, body)
+	require.NotEmpty(t, body["token"])
+
+	// Mastodon clients keep sending otp_attempt; a PIN is accepted on that same field.
+	code, body = e.call(Login, map[string]any{"username": "qa", "password": "correct-password", "otp_attempt": "cafe42"}, false)
+	require.Equal(t, 200, code, body)
+	code, body = e.call(Login, map[string]any{"username": "qa", "password": "correct-password", "otp_attempt": backups[2]}, false)
+	require.Equal(t, 200, code, body)
+
+	code, body = e.call(TwoFactorSetSecurityPIN, map[string]any{"password": "correct-password", "code": "cafe42", "pin": "pin9001"}, true)
+	require.Equal(t, 200, code, body)
+	code, body = e.call(Login, map[string]any{"username": "qa", "password": "correct-password", "otp_attempt": "cafe42"}, false)
+	require.Equal(t, 401, code, body)
+	require.Equal(t, "invalid_two_factor_code", body["error"])
+	code, body = e.call(Login, map[string]any{"username": "qa", "password": "correct-password", "otp_attempt": "pin9001"}, false)
+	require.Equal(t, 200, code, body)
+
+	code, body = e.call(TwoFactorRemoveSecurityPIN, map[string]any{"password": "correct-password", "code": "pin9001"}, true)
+	require.Equal(t, 200, code, body)
+	require.Equal(t, false, body["security_pin_set"])
+	code, body = e.call(TwoFactorStatus, nil, true)
+	require.Equal(t, true, body["enabled"])
+	require.Equal(t, false, body["security_pin_set"])
+	code, body = e.call(Login, map[string]any{"username": "qa", "password": "correct-password"}, false)
+	require.Equal(t, 401, code)
+	code, _ = e.call(LoginTwoFactor, map[string]any{"challenge": body["challenge"], "code": "pin9001"}, false)
+	require.Equal(t, 401, code)
+
+	code, body = e.call(TwoFactorRemoveSecurityPIN, map[string]any{"password": "correct-password", "code": backups[3]}, true)
+	require.Equal(t, 422, code, body)
+	require.Equal(t, "security_pin_not_set", body["error"])
 }

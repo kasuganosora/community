@@ -56,6 +56,7 @@ func TestRedactSensitiveStatements(t *testing.T) {
 		"UPDATE `user_two_factors` SET `pending_secret`='syt_SUPERSECRET_abc123',`updated_at`='2026-10-18' WHERE `user_id` = 1",
 		"INSERT INTO `user_two_factors` (`user_id`,`salt`,`secret`,`enabled_at`) VALUES (1,'s','syt_SUPERSECRET_abc123',NULL)",
 		"INSERT INTO `user_backup_codes` (`user_id`,`code_hash`,`used_at`) VALUES (1,'syt_SUPERSECRET_abc123',NULL)",
+		"UPDATE `user_two_factors` SET `pin_hash`='syt_SUPERSECRET_abc123' WHERE `user_id` = 1",
 	}
 	for _, in := range cases {
 		out := RedactSensitive(in)

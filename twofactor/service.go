@@ -35,6 +35,13 @@ var (
 	ErrInvalidCode    = errors.New("invalid two-factor code")
 	ErrLocked         = errors.New("too many invalid two-factor codes, try again later")
 	ErrBadChallenge   = errors.New("invalid or expired two-factor challenge")
+	ErrInvalidPIN     = errors.New("security PIN must be 6–32 letters or digits")
+	ErrPINNotSet      = errors.New("security PIN is not set")
+)
+
+const (
+	SecurityPINMinLen = 6
+	SecurityPINMaxLen = 32
 )
 
 // now is replaceable in tests.
@@ -263,9 +270,10 @@ func Disable(db *gorm.DB, userID uint64) error {
 // AdminReset is Disable for operators; it does not require any code.
 func AdminReset(db *gorm.DB, userID uint64) error { return Disable(db, userID) }
 
-// Verify checks a TOTP code (6 digits) or a backup code. It enforces
-// replay protection, single use for backup codes and lockout after
-// MaxFailures consecutive failures.
+// Verify checks a TOTP code (6 digits), the optional security PIN, or a
+// backup code. It enforces replay protection, single use for backup codes
+// and lockout after MaxFailures consecutive failures. PIN guesses use that
+// same counter. A successful PIN does not disable TOTP.
 func Verify(db *gorm.DB, userID uint64, code string) error {
 	row, err := Load(db, userID)
 	if err != nil {
@@ -282,7 +290,11 @@ func Verify(db *gorm.DB, userID uint64, code string) error {
 	}
 
 	trimmed := strings.ReplaceAll(strings.TrimSpace(code), " ", "")
-	if isDigits(trimmed) && len(trimmed) == Digits {
+	// Six digits are TOTP. A security PIN of the same length is tried only
+	// after TOTP misses, so a numeric PIN still works and a matching TOTP
+	// code keeps its replay protection. Backup codes are not six digits.
+	digitCode := isDigits(trimmed) && len(trimmed) == Digits
+	if digitCode {
 		secret, derr := models.DecryptSecretValue(row.Secret, row.Salt)
 		if derr != nil {
 			return derr
@@ -300,14 +312,138 @@ func Verify(db *gorm.DB, userID uint64, code string) error {
 				return nil
 			}
 		}
-	} else if ok, uerr := useBackupCode(db, userID, trimmed); uerr != nil {
+	}
+
+	if ok, uerr := useSecurityPIN(row, trimmed); uerr != nil {
 		return uerr
 	} else if ok {
-		return db.Model(&models.UserTwoFactor{}).Where("user_id = ?", userID).
-			Updates(map[string]any{"failed_attempts": 0, "locked_until": nil}).Error
+		return clearFailures(db, userID)
+	}
+
+	if !digitCode {
+		if ok, uerr := useBackupCode(db, userID, trimmed); uerr != nil {
+			return uerr
+		} else if ok {
+			return clearFailures(db, userID)
+		}
 	}
 
 	return recordFailure(db, row, t)
+}
+
+func clearFailures(db *gorm.DB, userID uint64) error {
+	return db.Model(&models.UserTwoFactor{}).Where("user_id = ?", userID).
+		Updates(map[string]any{"failed_attempts": 0, "locked_until": nil}).Error
+}
+
+// SecurityPINSet reports whether a bcrypt PIN hash is stored. The hash is
+// never a successful login by itself: TOTP must still be enabled.
+func SecurityPINSet(row *models.UserTwoFactor) bool {
+	return row != nil && row.PinHash != ""
+}
+
+// NormalizeSecurityPIN trims surrounding space and accepts 6–32 ASCII
+// letters or digits. Matching is case-sensitive. Internal spaces and
+// symbols are rejected so the value stays inside bcrypt's 72-byte limit.
+func NormalizeSecurityPIN(pin string) (string, error) {
+	pin = strings.TrimSpace(pin)
+	if len(pin) < SecurityPINMinLen || len(pin) > SecurityPINMaxLen {
+		return "", ErrInvalidPIN
+	}
+
+	for _, r := range pin {
+		if (r < '0' || r > '9') && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') {
+			return "", ErrInvalidPIN
+		}
+	}
+
+	return pin, nil
+}
+
+var (
+	dummyPINOnce sync.Once
+	dummyPINHash string
+)
+
+// dummyPIN is compared when no PIN is set so a PIN-shaped guess does not
+// return faster than a wrong PIN.
+func dummyPIN() string {
+	dummyPINOnce.Do(func() {
+		h, err := bcrypt.GenerateFromPassword([]byte("security-pin-unset-placeholder"), bcryptCost)
+		if err != nil {
+			dummyPINHash = "$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvali"
+			return
+		}
+		dummyPINHash = string(h)
+	})
+
+	return dummyPINHash
+}
+
+// useSecurityPIN reports whether code matches the stored PIN. The PIN is
+// reusable. A value that is not PIN-shaped is not a failure by itself.
+func useSecurityPIN(row *models.UserTwoFactor, code string) (bool, error) {
+	pin, err := NormalizeSecurityPIN(code)
+	if err != nil {
+		return false, nil
+	}
+
+	hash := row.PinHash
+	if hash == "" {
+		hash = dummyPIN()
+	}
+
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(pin)) != nil || row.PinHash == "" {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// SetSecurityPIN stores a bcrypt hash of pin. TOTP stays enabled.
+func SetSecurityPIN(db *gorm.DB, userID uint64, pin string) error {
+	normalized, err := NormalizeSecurityPIN(pin)
+	if err != nil {
+		return err
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(normalized), bcryptCost)
+	if err != nil {
+		return err
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		row, err := Load(tx.Clauses(clause.Locking{Strength: "UPDATE"}), userID)
+		if err != nil {
+			return err
+		}
+
+		if !row.Enabled() {
+			return ErrNotEnabled
+		}
+
+		return tx.Model(&models.UserTwoFactor{}).Where("user_id = ?", userID).Update("pin_hash", string(hash)).Error
+	})
+}
+
+// RemoveSecurityPIN clears the hash. TOTP and backup codes stay in place.
+func RemoveSecurityPIN(db *gorm.DB, userID uint64) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		row, err := Load(tx.Clauses(clause.Locking{Strength: "UPDATE"}), userID)
+		if err != nil {
+			return err
+		}
+
+		if !row.Enabled() {
+			return ErrNotEnabled
+		}
+
+		if row.PinHash == "" {
+			return ErrPINNotSet
+		}
+
+		return tx.Model(&models.UserTwoFactor{}).Where("user_id = ?", userID).Update("pin_hash", "").Error
+	})
 }
 
 func isDigits(s string) bool {

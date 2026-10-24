@@ -20,8 +20,11 @@ type UserTwoFactor struct {
 	LastUsedStep     int64      `gorm:"not null;default:0" json:"-"`
 	FailedAttempts   int        `gorm:"not null;default:0" json:"-"`
 	LockedUntil      *time.Time `json:"-"`
-	CreatedAt        time.Time  `json:"-"`
-	UpdatedAt        time.Time  `json:"-"`
+	// PinHash is a bcrypt hash of the optional security PIN. Empty means unset.
+	// The PIN is an additional second factor; it never replaces TOTP.
+	PinHash   string    `gorm:"type:varchar(255);not null;default:''" json:"-"`
+	CreatedAt time.Time `json:"-"`
+	UpdatedAt time.Time `json:"-"`
 }
 
 func (UserTwoFactor) TableName() string { return "user_two_factors" }

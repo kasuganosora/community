@@ -306,6 +306,8 @@ func SetRouter(app gin.IRouter) {
 	twoFactor.POST("/confirm", account.TwoFactorConfirm)
 	twoFactor.POST("/backup_codes", account.TwoFactorRegenerateBackupCodes)
 	twoFactor.POST("/disable", account.TwoFactorDisable)
+	twoFactor.POST("/security_pin", account.TwoFactorSetSecurityPIN)
+	twoFactor.POST("/security_pin/remove", account.TwoFactorRemoveSecurityPIN)
 	// Logout revokes the caller's own token, so any valid token (web or OAuth) may use it.
 	authGroupV1.GET("/accounts/logout", account.Logout)
 	authGroupV1.POST("/accounts/logout", account.Logout)
