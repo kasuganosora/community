@@ -94,6 +94,37 @@ describe('account administration', () => {
     expect(wrapper.get('[role="alert"]').text()).toContain('不能拒绝自己的账号')
     expect(wrapper.get('[aria-label="账号详情"]').text()).toContain('@pending_user')
   })
+  it('opens an on-screen detail dialog for the account whose Details button was clicked', async () => {
+    const ler: AdminAccount = {
+      ...account,
+      id: '1605',
+      username: 'ler',
+      display_name: 'ler',
+      user_status: 0,
+      locked: false,
+      account: { ...mastodon, id: '1605', username: 'ler', acct: 'ler', display_name: 'ler', locked: false },
+    }
+    vi.mocked(api.accounts).mockResolvedValue({ items: [account, ler], total: 2 })
+    vi.mocked(api.account).mockImplementation(async (id: string) => (id === '1605' ? ler : account))
+    await mountPage()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    const details = wrapper.findAll('button').filter(b => b.text() === '详情')
+    expect(details).toHaveLength(2)
+    const clicked = details[1]
+    expect(clicked).toBeTruthy()
+    await clicked!.trigger('click')
+    await flushPromises()
+    expect(api.account).toHaveBeenCalledWith('1605')
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.attributes('aria-modal')).toBe('true')
+    expect(dialog.classes()).toContain('account-drawer')
+    expect(dialog.element.parentElement?.classList.contains('account-drawer-backdrop')).toBe(true)
+    expect(dialog.text()).toContain('@ler')
+    expect(dialog.text()).toContain('1605')
+    expect(dialog.text()).toContain('封禁账号')
+    await wrapper.get('[aria-label="关闭"]').trigger('click')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
   it('renders each row avatar from the nested account so decorations can show', async () => {
     await mountPage()
     const avatar = wrapper.get('.accounts-table__avatar')

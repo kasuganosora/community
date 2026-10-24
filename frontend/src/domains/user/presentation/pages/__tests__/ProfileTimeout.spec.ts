@@ -10,7 +10,7 @@ vi.mock('vue-router', () => ({ useRoute: () => ({ params: { username: 'kanna' } 
 
 const kanna = {
   id: '1538', username: 'kanna', acct: 'kanna', display_name: 'Kanna', statuses_count: 3, emojis: [],
-} as MastodonAccount
+} as unknown as MastodonAccount
 
 function timeoutError() {
   return Object.assign(new Error('加载超时，点重试'), { code: 'ECONNABORTED' })

@@ -635,7 +635,8 @@
       "twoFactorOn": "已啟用",
       "twoFactorOff": "未啟用",
       "twoFactorReset": "重設兩步驟驗證",
-      "twoFactorResetConfirm": "確定要關閉 {'@'}{0} 的兩步驟驗證並刪除其備用碼嗎？請先核實使用者身分。"
+      "twoFactorResetConfirm": "確定要關閉 {'@'}{0} 的兩步驟驗證並刪除其備用碼嗎？請先核實使用者身分。",
+      "close": "關閉"
     },
     "AnnouncementsAdminPage": {
       "s1": "公告管理",

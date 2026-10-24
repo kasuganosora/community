@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import RichText from '@/shared/components/common/RichText.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
-import { onMounted, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { MastodonAccount } from '@/shared/types/mastodon'
 import { moderationAdminApi as api, type AdminAccount, type AccountAction } from '../../infrastructure/moderationAdminApi'
@@ -23,7 +23,10 @@ const limit = 40
 const loading = ref(false)
 const busy = ref(false)
 const detailLoading = ref(false)
+const detailPanel = ref<HTMLElement | null>(null)
 const error = ref('')
+const detailOpen = computed(() => detailLoading.value || selected.value !== null)
+let detailOpener: HTMLElement | null = null
 let listRequest = 0
 let detailRequest = 0
 const names: Record<AccountAction, string> = { disable: t('admin.AccountsAdminPage.s40'), enable: t('admin.AccountsAdminPage.s39'), suspend: t('admin.AccountsAdminPage.s42'), unsuspend: t('admin.AccountsAdminPage.s41'), approve: t('admin.AccountsAdminPage.s37'), reject: t('admin.AccountsAdminPage.s38') }
@@ -102,11 +105,23 @@ async function resetTwoFactor() {
   } catch (e) { error.value = message(e) }
   finally { busy.value = false }
 }
-async function detail(id: string) {
-  const version = ++detailRequest
+function closeDetail() {
+  detailRequest++
   selected.value = null
   twoFactor.value = null
+  detailLoading.value = false
+}
+function onDetailKey(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || !detailOpen.value || busy.value) return
+  e.preventDefault()
+  closeDetail()
+}
+async function detail(id: string, event?: Event) {
+  if (event?.currentTarget instanceof HTMLElement) detailOpener = event.currentTarget
+  const version = ++detailRequest
   detailLoading.value = true
+  selected.value = null
+  twoFactor.value = null
   error.value = ''
   try {
     const value = await api.account(id)
@@ -115,6 +130,12 @@ async function detail(id: string) {
   catch (e) { if (version === detailRequest) error.value = message(e) }
   finally { if (version === detailRequest) detailLoading.value = false }
 }
+watch(detailOpen, async (open) => {
+  document.body.style.overflow = open ? 'hidden' : ''
+  await nextTick()
+  if (open) detailPanel.value?.focus({ preventScroll: true })
+  else detailOpener?.focus({ preventScroll: true })
+})
 async function act(action: AccountAction) {
   const account = selected.value
   if (!account || busy.value || !window.confirm(t('admin.AccountsAdminPage.s45', [account.username, account.domain ? `@${account.domain}` : '', names[action]]))) return
@@ -122,14 +143,14 @@ async function act(action: AccountAction) {
   error.value = ''
   try {
     await api.accountAction(account.id, action)
-    await detail(account.id)
+    if (detailOpen.value) await detail(account.id)
     await load()
   } catch (e) { error.value = message(e) }
   finally { busy.value = false }
 }
 async function page(delta: number) { offset.value = Math.max(0, offset.value + delta * limit); await load() }
-onMounted(() => load())
-onBeforeUnmount(() => { listRequest++; detailRequest++ })
+onMounted(() => { load(); window.addEventListener('keydown', onDetailKey) })
+onBeforeUnmount(() => { listRequest++; detailRequest++; document.body.style.overflow = ''; window.removeEventListener('keydown', onDetailKey) })
 </script>
 <template>
   <section class="admin-page">
@@ -144,7 +165,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
       <label class="admin-field">{{ $t('admin.AccountsAdminPage.s10') }}<select v-model="filters.status"><option value="">{{ $t('admin.AccountsAdminPage.s7') }}</option><option value="active">{{ $t('admin.AccountsAdminPage.s11') }}</option><option value="pending">{{ $t('admin.AccountsAdminPage.s12') }}</option><option value="disabled">{{ $t('admin.AccountsAdminPage.s13') }}</option><option value="suspended">{{ $t('admin.AccountsAdminPage.s14') }}</option></select></label>
       <button class="admin-button admin-button--primary" :disabled="loading || busy">{{ $t('admin.AccountsAdminPage.s15') }}</button>
     </form>
-    <p v-if="error" class="admin-error" role="alert">{{ error }}</p>
+    <p v-if="error && !detailOpen" class="admin-error" role="alert">{{ error }}</p>
     <p v-if="loading" class="admin-empty" role="status">{{ $t('admin.AccountsAdminPage.s16') }}</p>
     <div class="admin-table-wrap admin-card accounts-table-wrap" role="region" :aria-label="$t('admin.AccountsAdminPage.s17')" tabindex="0">
       <table class="admin-table accounts-table">
@@ -163,7 +184,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
             <td>{{ a.domain || $t('admin.AccountsAdminPage.s8') }}</td>
             <td><span class="admin-badge">{{ state(a) }}</span></td>
             <td>{{ a.role === 'admin' ? $t('admin.AccountsAdminPage.s21') : a.role === 'user' ? $t('admin.AccountsAdminPage.s22') : '—' }}</td>
-            <td><button class="admin-button" :disabled="loading || busy" @click="detail(a.id)">{{ $t('admin.AccountsAdminPage.s23') }}</button></td>
+            <td><button type="button" class="admin-button" :disabled="loading || busy" @click="detail(a.id, $event)">{{ $t('admin.AccountsAdminPage.s23') }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -174,25 +195,63 @@ onBeforeUnmount(() => { listRequest++; detailRequest++ })
       <span>{{ $t('admin.AccountsAdminPage.s28', [Math.floor(offset / limit) + 1, total !== null ? $t('admin.AccountsAdminPage.s27', [total]) : '']) }}</span>
       <button class="admin-button" :disabled="loading || busy || (total !== null ? offset + limit >= total : items.length < limit)" @click="page(1)">{{ $t('admin.AccountsAdminPage.s29') }}</button>
     </nav>
-    <p v-if="detailLoading" class="admin-empty" role="status">{{ $t('admin.AccountsAdminPage.s30') }}</p>
-    <section v-if="selected" class="admin-card" :aria-label="$t('admin.AccountsAdminPage.s31')">
-      <h2>@{{ selected.username }}{{ selected.domain ? `@${selected.domain}` : '' }}</h2>
-      <dl><dt>{{ $t('admin.AccountsAdminPage.s32') }}</dt><dd>{{ selected.id }}</dd><dt>{{ $t('admin.AccountsAdminPage.s5') }}</dt><dd>{{ selected.display_name || selected.username }}</dd><dt>{{ $t('admin.AccountsAdminPage.s10') }}</dt><dd>{{ state(selected) }}</dd><dt>{{ $t('admin.AccountsAdminPage.s19') }}</dt><dd>{{ selected.role === 'admin' ? $t('admin.AccountsAdminPage.s21') : selected.role === 'user' ? $t('admin.AccountsAdminPage.s22') : '—' }}</dd><dt>{{ $t('admin.AccountsAdminPage.s33') }}</dt><dd>{{ selected.created_at ? new Date(selected.created_at).toLocaleString() : '—' }}</dd><dt>{{ $t('admin.AccountsAdminPage.s34') }}</dt><dd>{{ selected.locked ? $t('admin.AccountsAdminPage.s35') : $t('admin.AccountsAdminPage.s36') }}</dd><template v-if="twoFactor"><dt>{{ $t('admin.AccountsAdminPage.twoFactor') }}</dt><dd>{{ twoFactor.enabled ? $t('admin.AccountsAdminPage.twoFactorOn') : $t('admin.AccountsAdminPage.twoFactorOff') }}</dd></template></dl>
-      <RichText v-if="selected.account?.note" :html="selected.account.note" :emojis="selected.account.emojis" />
-      <div class="admin-toolbar">
-        <template v-if="!selected.domain && selected.user_status !== undefined">
-          <template v-if="selected.user_status === 1"><button class="admin-button admin-button--primary" :disabled="busy" @click="act('approve')">{{ $t('admin.AccountsAdminPage.s37') }}</button><button class="admin-button admin-button--danger" :disabled="busy" @click="act('reject')">{{ $t('admin.AccountsAdminPage.s38') }}</button></template>
-          <button v-else-if="selected.user_status === 2 || selected.disabled" class="admin-button" :disabled="busy" @click="act('enable')">{{ $t('admin.AccountsAdminPage.s39') }}</button>
-          <button v-else class="admin-button admin-button--danger" :disabled="busy" @click="act('disable')">{{ $t('admin.AccountsAdminPage.s40') }}</button>
+    <div v-if="detailOpen" class="account-drawer-backdrop" @click.self="!busy && closeDetail()">
+      <section ref="detailPanel" class="admin-card account-drawer" role="dialog" aria-modal="true" tabindex="-1" :aria-label="$t('admin.AccountsAdminPage.s31')" :aria-busy="detailLoading">
+        <header class="account-drawer__head">
+          <h2 v-if="selected">@{{ selected.username }}{{ selected.domain ? `@${selected.domain}` : '' }}</h2>
+          <h2 v-else>{{ $t('admin.AccountsAdminPage.s30') }}</h2>
+          <button type="button" class="admin-button" :aria-label="$t('admin.AccountsAdminPage.close')" :disabled="busy" @click="closeDetail">✕</button>
+        </header>
+        <p v-if="error" class="admin-error" role="alert">{{ error }}</p>
+        <p v-if="detailLoading" class="admin-empty" role="status">{{ $t('admin.AccountsAdminPage.s30') }}</p>
+        <template v-if="selected">
+          <dl><dt>{{ $t('admin.AccountsAdminPage.s32') }}</dt><dd>{{ selected.id }}</dd><dt>{{ $t('admin.AccountsAdminPage.s5') }}</dt><dd>{{ selected.display_name || selected.username }}</dd><dt>{{ $t('admin.AccountsAdminPage.s10') }}</dt><dd>{{ state(selected) }}</dd><dt>{{ $t('admin.AccountsAdminPage.s19') }}</dt><dd>{{ selected.role === 'admin' ? $t('admin.AccountsAdminPage.s21') : selected.role === 'user' ? $t('admin.AccountsAdminPage.s22') : '—' }}</dd><dt>{{ $t('admin.AccountsAdminPage.s33') }}</dt><dd>{{ selected.created_at ? new Date(selected.created_at).toLocaleString() : '—' }}</dd><dt>{{ $t('admin.AccountsAdminPage.s34') }}</dt><dd>{{ selected.locked ? $t('admin.AccountsAdminPage.s35') : $t('admin.AccountsAdminPage.s36') }}</dd><template v-if="twoFactor"><dt>{{ $t('admin.AccountsAdminPage.twoFactor') }}</dt><dd>{{ twoFactor.enabled ? $t('admin.AccountsAdminPage.twoFactorOn') : $t('admin.AccountsAdminPage.twoFactorOff') }}</dd></template></dl>
+          <RichText v-if="selected.account?.note" :html="selected.account.note" :emojis="selected.account.emojis" />
+          <div class="admin-toolbar">
+            <template v-if="!selected.domain && selected.user_status !== undefined">
+              <template v-if="selected.user_status === 1"><button type="button" class="admin-button admin-button--primary" :disabled="busy" @click="act('approve')">{{ $t('admin.AccountsAdminPage.s37') }}</button><button type="button" class="admin-button admin-button--danger" :disabled="busy" @click="act('reject')">{{ $t('admin.AccountsAdminPage.s38') }}</button></template>
+              <button v-else-if="selected.user_status === 2 || selected.disabled" type="button" class="admin-button" :disabled="busy" @click="act('enable')">{{ $t('admin.AccountsAdminPage.s39') }}</button>
+              <button v-else type="button" class="admin-button admin-button--danger" :disabled="busy" @click="act('disable')">{{ $t('admin.AccountsAdminPage.s40') }}</button>
+            </template>
+            <button v-if="twoFactor?.enabled" type="button" class="admin-button admin-button--danger" :disabled="busy" @click="resetTwoFactor">{{ $t('admin.AccountsAdminPage.twoFactorReset') }}</button>
+            <button v-if="selected.suspended" type="button" class="admin-button" :disabled="busy" @click="act('unsuspend')">{{ $t('admin.AccountsAdminPage.s41') }}</button>
+            <button v-else type="button" class="admin-button admin-button--danger" :disabled="busy" @click="act('suspend')">{{ $t('admin.AccountsAdminPage.s42') }}</button>
+          </div>
         </template>
-        <button v-if="twoFactor?.enabled" class="admin-button admin-button--danger" :disabled="busy" @click="resetTwoFactor">{{ $t('admin.AccountsAdminPage.twoFactorReset') }}</button>
-        <button v-if="selected.suspended" class="admin-button" :disabled="busy" @click="act('unsuspend')">{{ $t('admin.AccountsAdminPage.s41') }}</button>
-        <button v-else class="admin-button admin-button--danger" :disabled="busy" @click="act('suspend')">{{ $t('admin.AccountsAdminPage.s42') }}</button>
-      </div>
-    </section>
+      </section>
+    </div>
   </section>
 </template>
 <style scoped>
+/* The account list fills the admin viewport, so an inline card under the table
+   never enters view. Pin the detail over the page instead. */
+.account-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  justify-content: flex-end;
+  background: rgb(0 0 0 / 45%);
+}
+.account-drawer {
+  width: min(440px, 100%);
+  height: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  border-radius: 0;
+  border-top: 0;
+  border-bottom: 0;
+  border-right: 0;
+}
+.account-drawer__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.account-drawer__head h2 {
+  overflow-wrap: anywhere;
+}
 /* Decorations are 200% of the avatar and centred on it; pad so the table/scroll
    region does not clip the overhang. */
 .accounts-table-wrap {

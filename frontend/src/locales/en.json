@@ -635,7 +635,8 @@
       "twoFactorOn": "On",
       "twoFactorOff": "Off",
       "twoFactorReset": "Reset two-factor",
-      "twoFactorResetConfirm": "Turn off two-factor authentication for {'@'}{0} and delete their backup codes? Verify the person’s identity first."
+      "twoFactorResetConfirm": "Turn off two-factor authentication for {'@'}{0} and delete their backup codes? Verify the person’s identity first.",
+      "close": "Close"
     },
     "AnnouncementsAdminPage": {
       "s1": "Announcements",

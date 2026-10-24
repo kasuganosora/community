@@ -635,7 +635,8 @@
       "twoFactorOn": "Aktiv",
       "twoFactorOff": "Aus",
       "twoFactorReset": "Zwei-Faktor zurücksetzen",
-      "twoFactorResetConfirm": "Zwei-Faktor-Authentifizierung für {'@'}{0} deaktivieren und Backup-Codes löschen? Prüfe vorher die Identität der Person."
+      "twoFactorResetConfirm": "Zwei-Faktor-Authentifizierung für {'@'}{0} deaktivieren und Backup-Codes löschen? Prüfe vorher die Identität der Person.",
+      "close": "Schließen"
     },
     "AnnouncementsAdminPage": {
       "s1": "Ankündigungen",
