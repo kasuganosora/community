@@ -192,6 +192,123 @@ func directoryString(v *string) string {
 	return *v
 }
 
+// remoteRoomAlias reports an exact room alias on some other server. Bare
+// keywords and this server's own aliases are not remote lookups: a directory
+// search must not fan a term out to every hostname it happens to contain.
+func remoteRoomAlias(term, localServer string) (alias, server string, ok bool) {
+	term = strings.TrimSpace(term)
+	if strings.HasPrefix(term, "https://") || strings.HasPrefix(term, "http://") || strings.HasPrefix(strings.ToLower(term), "matrix:") {
+		parsed, _, err := parseWebGroupTarget(term, nil)
+		if err != nil {
+			return "", "", false
+		}
+		term = parsed
+	}
+	if !validGroupAlias(term) {
+		return "", "", false
+	}
+	server = extractServerName(term)
+	if server == "" || strings.EqualFold(server, localServer) {
+		return "", "", false
+	}
+	return term, server, true
+}
+
+func directoryEntryMatchesAlias(entry publicDirectoryEntry, alias, roomID string) bool {
+	if roomID != "" && entry.RoomID == roomID {
+		return true
+	}
+	if alias != "" && strings.EqualFold(strings.TrimSpace(entry.CanonicalAlias), alias) {
+		return true
+	}
+	needle := strings.ToLower(alias)
+	if needle == "" {
+		return false
+	}
+	for _, field := range []string{entry.Name, entry.Topic, entry.CanonicalAlias, entry.RoomID} {
+		if strings.Contains(strings.ToLower(field), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// aliasPublicDirectory resolves one remote alias and keeps only the directory
+// rows that are that room. The alias server is the only server contacted.
+// Some peers (Dendrite) publish federation publicRooms without applying
+// generic_search_term, so the unfiltered page is not returned as-is.
+func aliasPublicDirectory(ctx context.Context, hs *HomeServer, server, alias, knownRoomID string, req publicDirectoryRequest) (*publicDirectoryResponse, error) {
+	roomID := knownRoomID
+	var resolveErr *MatrixError
+	if !validGroupRoomID(roomID) {
+		roomID = ""
+		resolved, err := NewAliasService(hs).ResolveAliasContext(ctx, alias)
+		resolveErr = err
+		if err == nil && resolved != nil && validGroupRoomID(resolved.RoomID) {
+			roomID = resolved.RoomID
+		}
+	}
+	pageReq := req
+	pageReq.Since = ""
+	pageReq.Filter.GenericSearchTerm = alias
+	// A small client limit must not reject a peer that ignores the filter and
+	// returns its whole first page. The answer is filtered before it is returned.
+	pageReq.Limit = publicDirectoryMaxLimit
+	page, pageErr := newFederationClient(hs).PublicRoomsContext(ctx, server, pageReq)
+	chunk := []publicDirectoryEntry{}
+	raw := 0
+	if pageErr == nil && page != nil {
+		raw = len(page.Chunk)
+		for _, entry := range page.Chunk {
+			if directoryEntryMatchesAlias(entry, alias, roomID) {
+				chunk = append(chunk, entry)
+			}
+		}
+	}
+	synthesized := false
+	if len(chunk) == 0 && roomID != "" {
+		chunk = []publicDirectoryEntry{{RoomID: roomID, CanonicalAlias: alias}}
+		synthesized = true
+	}
+	if len(chunk) > 0 {
+		if req.Limit > 0 && len(chunk) > req.Limit {
+			chunk = chunk[:req.Limit]
+		}
+		out := &publicDirectoryResponse{Chunk: chunk, TotalRoomCountEstimate: int64(len(chunk))}
+		if pageErr == nil && page != nil && !synthesized && len(chunk) == raw {
+			out.NextBatch = page.NextBatch
+			out.TotalRoomCountEstimate = page.TotalRoomCountEstimate
+		}
+		return out, nil
+	}
+	if pageErr != nil {
+		// A definitive "no such alias" stays an empty directory. A refusal or
+		// outage must not look like a successful search with no rooms.
+		if resolveErr != nil && resolveErr.ErrCode == "M_NOT_FOUND" {
+			return &publicDirectoryResponse{Chunk: []publicDirectoryEntry{}}, nil
+		}
+		return nil, pageErr
+	}
+	if resolveErr != nil && resolveErr.ErrCode != "M_NOT_FOUND" {
+		return nil, aliasResolveFailure(resolveErr)
+	}
+	return &publicDirectoryResponse{Chunk: []publicDirectoryEntry{}}, nil
+}
+
+func aliasResolveFailure(err *MatrixError) error {
+	switch err.ErrCode {
+	case "M_FORBIDDEN":
+		return &federationHTTPError{Status: http.StatusForbidden, Message: err.Error}
+	case "M_LIMIT_EXCEEDED":
+		return &federationHTTPError{Status: http.StatusTooManyRequests, Message: err.Error}
+	default:
+		if err.Error == "" {
+			return errors.New("unable to resolve room alias")
+		}
+		return errors.New(err.Error)
+	}
+}
+
 func (c *FederationClient) PublicRoomsContext(ctx context.Context, server string, req publicDirectoryRequest) (*publicDirectoryResponse, error) {
 	if !usableServerName(server) {
 		return nil, errors.New("invalid server name")
@@ -235,12 +352,15 @@ func handlePublicDirectory(c *gin.Context, allowRemote bool) {
 	server := strings.TrimSpace(c.Query("server"))
 	var result *publicDirectoryResponse
 	var err error
+	alias, remote, aliasSearch := remoteRoomAlias(req.Filter.GenericSearchTerm, hs.Config.ServerName)
 	if allowRemote && server != "" && server != hs.Config.ServerName {
 		if !usableServerName(server) {
 			c.JSON(400, MatrixError{ErrCode: "M_INVALID_PARAM", Error: "Invalid server name"})
 			return
 		}
 		result, err = newFederationClient(hs).PublicRoomsContext(ctx, server, req)
+	} else if allowRemote && aliasSearch {
+		result, err = aliasPublicDirectory(ctx, hs, remote, alias, "", req)
 	} else {
 		bind := directoryBinding("matrix-public", getUserID(c), c.GetString("origin"), req.Filter.GenericSearchTerm)
 		result, err = localPublicDirectory(ctx, hs, req, bind, false)

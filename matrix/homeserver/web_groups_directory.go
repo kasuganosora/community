@@ -183,6 +183,30 @@ func publicEntryGroup(hs *HomeServer, e publicDirectoryEntry, server, user strin
 	return out
 }
 
+// attachRemoteAliasGroup fills a preview from the alias server's public
+// directory when this server has never seen the room. A metadata failure
+// leaves the already-resolved address in place.
+func attachRemoteAliasGroup(ctx context.Context, hs *HomeServer, alias, roomID, user string, out gin.H) {
+	parsed, remote, ok := remoteRoomAlias(alias, hs.Config.ServerName)
+	if !ok {
+		return
+	}
+	req := publicDirectoryRequest{Limit: publicDirectoryMaxLimit}
+	req.Filter.GenericSearchTerm = parsed
+	page, err := aliasPublicDirectory(ctx, hs, remote, parsed, roomID, req)
+	if err != nil || page == nil || len(page.Chunk) == 0 {
+		return
+	}
+	entry := page.Chunk[0]
+	for _, candidate := range page.Chunk {
+		if candidate.Name != "" {
+			entry = candidate
+			break
+		}
+	}
+	out["group"] = publicEntryGroup(hs, entry, remote, user)
+}
+
 type webDirectoryPreview struct {
 	Entry  publicDirectoryEntry `json:"entry"`
 	Server string               `json:"server"`
@@ -302,7 +326,19 @@ func handleWebGroupSearch(c *gin.Context) {
 		req := publicDirectoryRequest{Limit: limit}
 		req.Filter.GenericSearchTerm = q
 		var result *publicDirectoryResponse
-		if server == hs.Config.ServerName {
+		alias, remoteServer, aliasSearch := remoteRoomAlias(q, hs.Config.ServerName)
+		if server == hs.Config.ServerName && aliasSearch {
+			// An exact remote alias names one server. Do not require the user
+			// to retype that server, and do not search any other server.
+			if !acquireWebDirectory(c) {
+				return
+			}
+			defer func() { <-webDirectoryGate }()
+			result, err = aliasPublicDirectory(ctx, hs, remoteServer, alias, "", req)
+			if err == nil {
+				server = remoteServer
+			}
+		} else if server == hs.Config.ServerName {
 			// Keep the public directory's stable room-id position inside the web cursor.
 			if position != "" {
 				req.Since = encodeDirectoryCursor(hs, bind, position)
@@ -452,6 +488,10 @@ func handleWebGroupResolve(c *gin.Context) {
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		webGroupFailure(c, 500, "internal_error", "Cannot look up the group address")
 		return
+	} else if out["group"] == nil {
+		// A directory preview already supplied the card. Do not replace it with
+		// a bare alias when the remote listing is closed.
+		attachRemoteAliasGroup(ctx, hs, req.Target, target, getUserID(c), out)
 	}
 	c.JSON(200, out)
 }
