@@ -116,9 +116,12 @@ function holdBidiCaret(selector: string, value: string, next: string) {
 watch(content, (value) => {
   if (composing) return
   const next = markBidiNumbers(value)
-  if (next === value) return
-  holdBidiCaret('textarea', value, next)
-  content.value = next
+  if (next !== value) {
+    holdBidiCaret('textarea', value, next)
+    content.value = next
+    return
+  }
+  void nextTick(fitDraft)
 })
 watch(spoilerText, (value) => {
   if (composing) return
@@ -190,7 +193,13 @@ const loadingSource = ref(!!props.editStatus)
 const sourceUnavailable = ref(false)
 const error = ref<string | null>(null)
 const fileInput = ref<HTMLInputElement>()
-const textareaRef = ref<{ focus?: () => void } | null>(null)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
+function fitDraft() {
+  const el = textareaRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 32 * 16)}px`
+}
 
 const isEdit = computed(() => !!props.editStatus)
 const mediaIds = computed(() => media.filter(m => m.attachment).map(m => m.attachment!.id))
@@ -295,7 +304,7 @@ onMounted(async () => {
 
 function focus() {
   nextTick(() => {
-    textareaRef.value?.focus?.()
+    textareaRef.value?.focus()
   })
 }
 
@@ -484,6 +493,8 @@ function applyMention(account: MastodonAccount) {
 }
 
 function onMentionKeydown(e: KeyboardEvent) {
+  // Capture-phase preventDefault here would cancel an IME before compositionend.
+  if (e.isComposing || composing || e.keyCode === 229) return
   if (visibilityOpen.value && e.key === 'Escape') {
     e.preventDefault()
     visibilityOpen.value = false
@@ -491,8 +502,6 @@ function onMentionKeydown(e: KeyboardEvent) {
     return
   }
   if (!mentions.value.length) return
-  // Keys pressed mid-composition belong to the IME (Enter commits the pinyin).
-  if (e.isComposing || e.keyCode === 229) return
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
     const step = e.key === 'ArrowDown' ? 1 : -1
@@ -508,7 +517,9 @@ function onMentionKeydown(e: KeyboardEvent) {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  // Ctrl/Cmd+Enter posts, like most Mastodon clients.
+  // Ctrl/Cmd+Enter posts, like most Mastodon clients. Enter during composition
+  // confirms the IME candidate and must not be swallowed.
+  if (e.isComposing || composing || e.keyCode === 229) return
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault()
     handlePost()
@@ -606,15 +617,17 @@ defineExpose({ focus, reset })
           maxlength="500"
         />
         <div class="composer__field">
-          <t-textarea
+          <textarea
             ref="textareaRef"
             v-model="content"
             :placeholder="placeholderText"
             :aria-label="placeholderText"
-            :autosize="{ minRows: poll || media.length ? 1 : 3, maxRows: 30 }"
+            rows="3"
+            dir="auto"
             class="composer__textarea"
             :class="{ 'composer__textarea--compact': !!poll || media.length > 0 }"
             :disabled="loadingSource || posting"
+            @input="fitDraft"
             @keyup="scheduleMentions"
             @click="scheduleMentions"
           />
@@ -926,36 +939,46 @@ defineExpose({ focus, reset })
   white-space: nowrap;
 }
 
-/* A quiet writing surface with a visible keyboard focus boundary. */
-.composer__textarea :deep(.t-textarea__inner),
-.composer__textarea :deep(.t-textarea__inner:hover),
-.composer__textarea :deep(.t-textarea__inner:focus),
-.composer__textarea :deep(.t-textarea__inner.t-is-focused) {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  outline: none !important;
-  color: var(--color-label) !important;
+/* A quiet writing surface with a visible keyboard focus boundary.
+   Native textarea (not TDesign's controlled one): assigning .value during
+   composition drops the IME candidate. Vue's v-model skips that write. */
+textarea.composer__textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  color: var(--color-label);
+  font: inherit;
   font-size: var(--text-body) !important;
-  line-height: 1.65 !important;
+  line-height: 1.65;
   letter-spacing: 0;
   unicode-bidi: plaintext;
-  min-height: 6rem !important;
-  padding: var(--space-2) 0 !important;
-  resize: none !important;
+  min-height: 6rem;
+  max-height: 32rem;
+  padding: var(--space-2) 0;
+  resize: none;
+  overflow: auto;
 }
 
-.composer__textarea--compact :deep(.t-textarea__inner) {
-  min-height: 2.75rem !important;
+textarea.composer__textarea.composer__textarea--compact {
+  min-height: 2.75rem;
 }
 
-.composer:has(.composer__textarea textarea:focus-visible) {
+textarea.composer__textarea:focus,
+textarea.composer__textarea:focus-visible {
+  outline: none;
+}
+
+.composer:has(textarea.composer__textarea:focus-visible) {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 2px var(--color-accent-soft);
 }
 
-.composer__textarea :deep(.t-textarea__inner::placeholder) {
-  color: var(--color-label-tertiary) !important;
+textarea.composer__textarea::placeholder {
+  color: var(--color-label-tertiary);
 }
 
 .composer__toolbar {

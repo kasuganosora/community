@@ -90,6 +90,10 @@ func (m *MisskeyParams) normalize() *Error {
 			return fail("misskey_files_required")
 		}
 	case "s3":
+		// The wizard hides the local directory for object storage but used to
+		// keep submitting its default (/misskey/files). That path is not in
+		// the container, and the exporter resolves --source-dir strictly.
+		m.FilesPath = ""
 		o := &m.ObjectStorage
 		o.Endpoint, o.Bucket, o.PublicURL = strings.TrimSpace(o.Endpoint), strings.TrimSpace(o.Bucket), strings.TrimRight(strings.TrimSpace(o.PublicURL), "/")
 		if o.PublicURL == "" {
@@ -615,8 +619,18 @@ func stageMisskeyExport(ctx context.Context, r *runner) error {
 	}
 	// --final-sync makes a resumed run pick up rows changed since the
 	// previous attempt (new, updated and deleted) before building the bundle.
-	args := []string{"--base-url", job.BaseURL, "--source-version", "unknown", "--id-method", idMethod, "--output", out,
-		"--state-dir", exportStateDir(), "--final-sync", "--max-media-bytes", strconv.FormatInt(16<<40, 10)}
+	args := misskeyExportArgs(*m, job.BaseURL, out, exportStateDir())
+	r.t.logf("info", "reading the Misskey database (resumable, read-only)…")
+	return runExporter(ctx, r, "misskey_export", script, pgSource{m.Host, m.Port, m.Name, m.User, m.SSLMode, r.secrets.MisskeyPassword}, args, nil)
+}
+
+// misskeyExportArgs is the exporter command line. S3 reference (and any S3
+// mode whose local directory was cleared) must not receive --source-dir:
+// export_misskey.py resolves that path strictly, and a hidden wizard default
+// such as /misskey/files is absent in the container.
+func misskeyExportArgs(m MisskeyParams, baseURL, out, stateDir string) []string {
+	args := []string{"--base-url", baseURL, "--source-version", "unknown", "--id-method", m.IDMethod, "--output", out,
+		"--state-dir", stateDir, "--final-sync", "--max-media-bytes", strconv.FormatInt(16<<40, 10)}
 	switch m.MediaSource {
 	case "local":
 		args = append(args, "--source-dir", m.FilesPath)
@@ -625,12 +639,8 @@ func stageMisskeyExport(ctx context.Context, r *runner) error {
 		if m.MediaMode == "copy" {
 			args = append(args, "--object-storage-dir", filepath.Join(workDir(), "bucket"))
 		}
-		if m.FilesPath != "" {
-			args = append(args, "--source-dir", m.FilesPath)
-		}
 	}
-	r.t.logf("info", "reading the Misskey database (resumable, read-only)…")
-	return runExporter(ctx, r, "misskey_export", script, pgSource{m.Host, m.Port, m.Name, m.User, m.SSLMode, r.secrets.MisskeyPassword}, args, nil)
+	return args
 }
 
 func exporterAvailable(script string) bool {
@@ -794,8 +804,7 @@ func preflight(ctx context.Context, r *runner, stage, exportStage string) error 
 		// A retry must read the (fixed) source again, so the export is
 		// discarded and its stage reopened.
 		sp.Close()
-		_ = os.RemoveAll(exportDir())
-		_ = os.Remove(spoolPath())
+		discardBlockedExportFiles()
 		r.t.update(func(j *Job) {
 			if st := r.t.stage(exportStage); st != nil {
 				st.Status, st.Counts = StatusPending, nil
@@ -807,6 +816,16 @@ func preflight(ctx context.Context, r *runner, stage, exportStage string) error 
 }
 
 func spoolPath() string { return filepath.Join(workDir(), "spool.sqlite3") }
+
+// discardBlockedExportFiles drops the bundle, the resumable fetch state and
+// the spool. --final-sync only re-reads rows whose updatedAt moved, so a
+// source fix that does not bump that column (a manual NULL of a privacy
+// column, for example) would otherwise be retried against the stale staging.
+func discardBlockedExportFiles() {
+	_ = os.RemoveAll(exportDir())
+	_ = os.RemoveAll(exportStateDir())
+	_ = os.Remove(spoolPath())
+}
 
 // openSpooledExport streams bundle.json into an on-disk spool (once; a retry
 // reuses a complete spool) and indexes the export's media files. Memory stays

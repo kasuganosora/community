@@ -7,7 +7,7 @@ import AccountSwitchList from '@/shared/components/account/AccountSwitchList.vue
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { MessagePlugin } from '@/shared/ui/feedback'
-import LogoIcon from '@/shared/components/common/LogoIcon.vue'
+import BrandMark from '@/shared/components/common/BrandMark.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
 import { activeNavSection } from '@/shared/utils/nav'
@@ -83,7 +83,7 @@ async function handleLogout() {
   <div class="left-sidebar">
     <!-- Logo -->
     <button class="sidebar-logo" @click="goHome" :aria-label="$t('shared.LeftSidebar.s1')">
-      <LogoIcon :size="32" />
+      <BrandMark :size="32" />
     </button>
 
     <!-- Navigation -->

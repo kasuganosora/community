@@ -296,6 +296,8 @@ describe('migration-specific form validation and recovery', () => {
     await submit(w)
     const body = calls.find(c => c.path === 'install')?.body[mode] as Record<string, unknown>
     expect(body.object_storage).toEqual({ public_url: 'https://cdn.example/media' })
+    expect(body.files_path).toBe('')
+    expect(body.media_source).toBe('s3')
     expect(calls.some(c => c.path === 'test/object-storage')).toBe(false)
   })
 

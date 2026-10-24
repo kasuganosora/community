@@ -968,6 +968,19 @@ class Fetcher:
         return removed
 
 
+def resolve_source_dir(source_dir, object_mode):
+    """Local drive root. Reference mode does not copy bytes, so a missing
+    directory (the wizard default /misskey/files inside the container) is
+    ignored. Any other mode still fails if a path was requested but absent.
+    """
+    if not source_dir:
+        return None
+    path = Path(source_dir)
+    if object_mode == "reference" and not path.exists():
+        return None
+    return path.resolve(strict=True)
+
+
 class Converter:
     def __init__(self, tables, base_url, method, source_dir, output, version="", snapshot="", max_media_bytes=8 << 30,
                  object_mode="error", object_dir=None, object_base_url="", sink=None, progress=QUIET, skip_unattached=False,
@@ -980,7 +993,7 @@ class Converter:
         if method not in METHODS:
             raise ExportError("unsupported source ID method")
         self.method = method
-        self.source_dir = Path(source_dir).resolve(strict=True) if source_dir else None
+        self.source_dir = resolve_source_dir(source_dir, object_mode)
         # Object storage (storedInternal=false): "error" (default) refuses a
         # metadata-only backup; "copy" reads bytes from object_dir, a local
         # mirror of the bucket keyed by accessKey; "reference" keeps the

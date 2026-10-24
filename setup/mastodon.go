@@ -79,6 +79,7 @@ func (m *MastodonParams) normalize() *Error {
 			return fail("mastodon_files_required")
 		}
 	case "s3":
+		m.FilesPath = ""
 		o := &m.ObjectStorage
 		o.Endpoint, o.Bucket, o.PublicURL = strings.TrimSpace(o.Endpoint), strings.TrimSpace(o.Bucket), strings.TrimRight(strings.TrimSpace(o.PublicURL), "/")
 		switch m.MediaMode {

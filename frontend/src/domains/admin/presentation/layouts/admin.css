@@ -338,11 +338,13 @@
   overflow-wrap: anywhere;
 }
 /* ---- form --------------------------------------------------------------- */
+/* Fill the settings card. A 760px cap left a blank right column on wide pages
+   such as External Services → LLM. */
 .admin-form {
   display: grid;
   gap: 18px;
   width: 100%;
-  max-width: 760px;
+  max-width: none;
 }
 .admin-form--columns {
   grid-template-columns: repeat(2,minmax(0,1fr));

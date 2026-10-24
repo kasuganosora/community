@@ -76,6 +76,10 @@ func issue(r *Report, code, kind, id, message string) {
 	r.Issues = append(r.Issues, Issue{Severity: "error", Code: code, Kind: kind, SourceID: id, Message: message})
 }
 
+func warnIssue(r *Report, code, kind, id, message string) {
+	r.Issues = append(r.Issues, Issue{Severity: "warning", Code: code, Kind: kind, SourceID: id, Message: message})
+}
+
 func Preview(ctx context.Context, conn *gorm.DB, b *Bundle, o Options) (*Report, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -152,9 +156,12 @@ func Preview(ctx context.Context, conn *gorm.DB, b *Bundle, o Options) (*Report,
 		accounts[a.ID] = a
 		if o.Scope == "site" && a.Local {
 			// requireSigninToViewContents is imported as Account.RequireSigninToView.
+			// makeNotesFollowersOnlyBefore / makeNotesHiddenBefore are Misskey-only
+			// visibility windows. They are dropped (not applied) and reported as
+			// warnings so a single account cannot hard-block the cutover.
 			for _, key := range []string{"makeNotesFollowersOnlyBefore", "makeNotesHiddenBefore"} {
 				if policyEnabled(a.Settings[key]) {
-					issue(r, "unsupported_privacy_policy", "account", a.ID, privacyPolicyMessage(a, key))
+					warnIssue(r, "unsupported_privacy_policy", "account", a.ID, privacyPolicyMessage(a, key))
 				}
 			}
 		}
@@ -427,5 +434,5 @@ func privacyPolicyMessage(a Account, key string) string {
 	if a.Username != "" {
 		who = "@" + a.Username + " (" + a.ID + ")"
 	}
-	return fmt.Sprintf("source account %s has %s=%s; the target has no equivalent visibility policy", who, key, raw)
+	return fmt.Sprintf("source account %s has %s=%s; this Misskey-only visibility window is dropped and does not block import", who, key, raw)
 }
