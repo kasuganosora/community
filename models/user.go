@@ -23,22 +23,29 @@ const (
 )
 
 type User struct { //nolint:recvcheck
-	Id             uint64          `gorm:"primary_key;autoIncrement"                        json:"id"`
-	UUID           string          `gorm:"unique;not null;type:varchar(36)"                 json:"uuid"`       // UUID
-	UserName       string          `gorm:"unique;column:username;not null;type:varchar(64)" json:"username"`   // 用户名
-	IsBan          bool            `gorm:"default:false"                                    json:"is_ban"`     // 是否被封禁
-	IsAdmin        bool            `gorm:"default:false"                                    json:"is_admin"`   // 是否是管理员
-	EmailHash      string          `gorm:"type:varchar(255); unique;not null"               json:"email_hash"` // 邮箱的 hash 值 用于 email登录,和测试是否是同一个邮箱
-	CreatedAt      *time.Time      `gorm:"autoCreateTime"`                                                     // 创建时间
-	UpdatedAt      *time.Time      `gorm:"autoUpdateTime"`                                                     // 更新时间
-	InviteBy       uint64          `gorm:"default:0"                                        json:"invite_by"`  // 邀请人ID
-	Status         int             `gorm:"default:0"                                        json:"status"`     // 用户状态 0:正常 1:未审批, 2:被拒绝,3: 未验证邮箱
-	Properties     map[string]any  `gorm:"type:json;serializer:json"                        json:"properties"` // 用户的属性
-	IsMailVerified bool            `gorm:"default:false"                                    json:"-"`          // 邮箱是否验证
-	UserSecret     *UserSecretData `json:"-"`                                                                  // 用户的敏感数据
-	UserMeta       []*UserMeta     `json:"-"`                                                                  // 用户的元数据
-	DeletedAt      gorm.DeletedAt  `gorm:"index"                                            json:"-"`
-	Settings       *UserSetting    `json:"-"` // 用户的设置
+	Id        uint64     `gorm:"primary_key;autoIncrement"                        json:"id"`
+	UUID      string     `gorm:"unique;not null;type:varchar(36)"                 json:"uuid"`       // UUID
+	UserName  string     `gorm:"unique;column:username;not null;type:varchar(64)" json:"username"`   // 用户名
+	IsBan     bool       `gorm:"default:false"                                    json:"is_ban"`     // 是否被封禁
+	IsAdmin   bool       `gorm:"default:false"                                    json:"is_admin"`   // 是否是管理员
+	EmailHash string     `gorm:"type:varchar(255); unique;not null"               json:"email_hash"` // 邮箱的 hash 值 用于 email登录,和测试是否是同一个邮箱
+	CreatedAt *time.Time `gorm:"autoCreateTime"`                                                     // 创建时间
+	UpdatedAt *time.Time `gorm:"autoUpdateTime"`                                                     // 更新时间
+	InviteBy  uint64     `gorm:"default:0"                                        json:"invite_by"`  // 邀请人ID
+	Status    int        `gorm:"default:0"                                        json:"status"`     // 用户状态 0:正常 1:未审批, 2:被拒绝,3: 未验证邮箱
+	// Current* is the latest successful web sign-in. Last* is the one before it.
+	// Empty IP strings mean unknown; nothing here is inferred.
+	CurrentSignInAt *time.Time      `json:"-"`
+	LastSignInAt    *time.Time      `json:"-"`
+	CurrentSignInIP string          `gorm:"type:varchar(45);not null;default:''" json:"-"`
+	LastSignInIP    string          `gorm:"type:varchar(45);not null;default:''" json:"-"`
+	SignInCount     int             `gorm:"not null;default:0" json:"-"`
+	Properties      map[string]any  `gorm:"type:json;serializer:json"                        json:"properties"` // 用户的属性
+	IsMailVerified  bool            `gorm:"default:false"                                    json:"-"`          // 邮箱是否验证
+	UserSecret      *UserSecretData `json:"-"`                                                                  // 用户的敏感数据
+	UserMeta        []*UserMeta     `json:"-"`                                                                  // 用户的元数据
+	DeletedAt       gorm.DeletedAt  `gorm:"index"                                            json:"-"`
+	Settings        *UserSetting    `json:"-"` // 用户的设置
 }
 
 func (User) TableName() string {

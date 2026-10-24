@@ -1,14 +1,17 @@
 package admin
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"time"
 
-	"errors"
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/accountlifecycle"
+	"github.com/kasuganosora/community/cache"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/db/dialect"
+	cRedis "github.com/kasuganosora/community/db/redis"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"gorm.io/gorm"
@@ -33,6 +36,7 @@ func ListAccounts(c *gin.Context) {
 		offset = n
 	}
 	query := db.GetDB().WithContext(c.Request.Context()).Model(&models.Account{}).Preload("Extra").Preload("User")
+	query = query.Where("accounts.deletion_requested_at IS NULL")
 	userQuery := db.GetDB().WithContext(c.Request.Context()).Model(&models.User{}).Select("id")
 	switch c.Query("status") {
 	case "":
@@ -109,6 +113,39 @@ func GetAccount(c *gin.Context) {
 	}
 	c.JSON(200, serializeAdminAccount(account))
 }
+
+// DeleteAccount schedules the same local erasure used by self-service deletion.
+func DeleteAccount(c *gin.Context) {
+	id, ok := adminAccountID(c)
+	if !ok {
+		return
+	}
+	current, _ := c.Get("user")
+	actor, _ := current.(*models.User)
+	if actor == nil || actor.Id == 0 {
+		c.JSON(401, gin.H{"error": "authentication required"})
+		return
+	}
+	err := accountlifecycle.RequestAdminDeletion(c.Request.Context(), db.GetDB().WithContext(c.Request.Context()), id, actor.Id)
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			c.JSON(404, gin.H{"error": "account not found"})
+		case errors.Is(err, accountlifecycle.ErrLastAdministrator),
+			errors.Is(err, accountlifecycle.ErrOwnAccount),
+			errors.Is(err, accountlifecycle.ErrRemoteAccount):
+			c.JSON(422, gin.H{"error": err.Error()})
+		default:
+			c.JSON(422, gin.H{"error": "account deletion could not be scheduled"})
+		}
+		return
+	}
+	if len(cRedis.GetRedises()) > 0 {
+		_ = cache.InvalidateAccount(c.Request.Context(), id)
+	}
+	c.JSON(200, gin.H{"id": strconv.FormatUint(id, 10), "state": "pending"})
+}
+
 func adminAccountError(c *gin.Context, err error) {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(404, gin.H{"error": "account not found"})
@@ -270,6 +307,22 @@ func serializeAdminAccount(account *models.Account) gin.H {
 		lastActivityAt = account.LastActivityAt.Format(time.RFC3339)
 	}
 
+	var lastSignInAt, currentSignInAt, lastSignInIP, currentSignInIP any
+	if account.User != nil {
+		if account.User.LastSignInAt != nil {
+			lastSignInAt = account.User.LastSignInAt.Format(time.RFC3339)
+		}
+		if account.User.CurrentSignInAt != nil {
+			currentSignInAt = account.User.CurrentSignInAt.Format(time.RFC3339)
+		}
+		if ip := strings.TrimSpace(account.User.LastSignInIP); ip != "" {
+			lastSignInIP = ip
+		}
+		if ip := strings.TrimSpace(account.User.CurrentSignInIP); ip != "" {
+			currentSignInIP = ip
+		}
+	}
+
 	// Use IsBan and Locked as suspended/silenced equivalents
 	suspended := account.IsBan
 	silenced := false // Follow approval (Locked) is not moderation silencing.
@@ -298,6 +351,10 @@ func serializeAdminAccount(account *models.Account) gin.H {
 		"created_at":            createdAt, //nolint:goconst
 		"last_status_at":        lastStatusAt,
 		"last_activity_at":      lastActivityAt,
+		"last_sign_in_at":       lastSignInAt,
+		"current_sign_in_at":    currentSignInAt,
+		"last_sign_in_ip":       lastSignInIP,
+		"current_sign_in_ip":    currentSignInIP,
 		"suspended":             suspended,
 		"silenced":              silenced,
 		"account":               mastodonAccount,

@@ -10,6 +10,7 @@ import (
 	"github.com/kasuganosora/community/systemsettings"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 type AuthRequest struct {
@@ -134,6 +135,9 @@ func IssueWebSession(c *gin.Context, user *models.User) (string, error) {
 
 	token, rawTokenStr := models.NewAuthToken(user.Id, models.AuthTokenTypeWeb, 0, permissions, nil, sessionExpire, config.C.EncryptedKey)
 	if err = db.GetDB().Create(token).Error; err != nil {
+		return "", err
+	}
+	if err = models.RecordSignIn(db.GetDB(), user.Id, c.ClientIP(), time.Now()); err != nil {
 		return "", err
 	}
 

@@ -22,7 +22,10 @@ function button(text: string) { return wrapper.findAll('button').find(b => b.tex
 async function mountPage(query: Record<string, string> = {}) {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/admin/accounts', component: AccountsAdminPage }],
+    routes: [
+      { path: '/admin/accounts', component: AccountsAdminPage },
+      { path: '/@:username(.*)', name: 'profile', component: { template: '<div />' } },
+    ],
   })
   await router.push({ path: '/admin/accounts', query })
   await router.isReady()
@@ -34,6 +37,7 @@ beforeEach(() => {
   vi.spyOn(api, 'accounts').mockResolvedValue({ items: [account], total: 81 })
   vi.spyOn(api, 'account').mockResolvedValue(account)
   vi.spyOn(api, 'accountAction').mockResolvedValue(undefined)
+  vi.spyOn(api, 'deleteAccount').mockResolvedValue(undefined)
   vi.spyOn(window, 'confirm').mockReturnValue(true)
 })
 afterEach(() => { wrapper?.unmount(); vi.restoreAllMocks() })
@@ -134,6 +138,80 @@ describe('account administration', () => {
     expect(wrapper.find('.avatar-decoration').exists()).toBe(true)
     expect(wrapper.text()).toContain('待审核用户')
     expect(wrapper.text()).toContain('@pending_user')
+  })
+  it('shows last sign-in, last post, and last IP, and opens the public profile', async () => {
+    const posted = '2026-10-01T13:00:45.000Z'
+    const signedIn = '2026-10-02T01:02:03.000Z'
+    const ler: AdminAccount = {
+      ...account,
+      id: '1605',
+      username: 'ler',
+      display_name: 'ler',
+      user_status: 0,
+      locked: false,
+      last_status_at: posted,
+      current_sign_in_at: signedIn,
+      current_sign_in_ip: '203.0.113.10',
+      account: { ...mastodon, id: '1605', username: 'ler', acct: 'ler', display_name: 'ler', locked: false },
+    }
+    vi.mocked(api.accounts).mockResolvedValue({ items: [ler], total: 1 })
+    vi.mocked(api.account).mockResolvedValue(ler)
+    await mountPage()
+    expect(wrapper.findAll('th').map(header => header.text()).slice(0, 4)).toEqual(['账号', '最后登录时间', '最后发帖时间', '来源'])
+    expect(wrapper.text()).toContain(new Date(signedIn).toLocaleString())
+    expect(wrapper.text()).toContain(new Date(posted).toLocaleString())
+    await button('详情').trigger('click')
+    await flushPromises()
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.text()).toContain('最后一次发帖时间')
+    expect(dialog.text()).toContain('最后一次登录时间')
+    expect(dialog.text()).toContain('最后使用 IP')
+    expect(dialog.text()).toContain('203.0.113.10')
+    expect(dialog.text()).toContain(new Date(posted).toLocaleString())
+    expect(dialog.text()).toContain(new Date(signedIn).toLocaleString())
+    const view = dialog.get('a.admin-button')
+    expect(view.text()).toBe('查看账户')
+    expect(view.attributes('href')).toBe('/@ler')
+    await view.trigger('click')
+    await flushPromises()
+    expect(wrapper.vm.$router.currentRoute.value.path).toBe('/@ler')
+  })
+  it('uses the empty placeholder when post time, sign-in, and IP are missing', async () => {
+    await mountPage()
+    expect(wrapper.text()).toContain('最后登录时间')
+    await button('详情').trigger('click')
+    await flushPromises()
+    const value = (label: string) => {
+      const term = wrapper.findAll('dt').find(node => node.text() === label)
+      return term?.element.nextElementSibling?.textContent
+    }
+    expect(value('最后一次发帖时间')).toBe('—')
+    expect(value('最后一次登录时间')).toBe('—')
+    expect(value('最后使用 IP')).toBe('—')
+  })
+  it('confirms before deleting, then closes the drawer and reloads the list', async () => {
+    vi.mocked(api.account).mockResolvedValue({ ...account, user_status: 0 })
+    await mountPage()
+    await button('详情').trigger('click')
+    await flushPromises()
+    vi.mocked(window.confirm).mockReturnValue(false)
+    await button('删除账户').trigger('click')
+    expect(api.deleteAccount).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
+    vi.mocked(window.confirm).mockReturnValue(true)
+    await button('删除账户').trigger('click')
+    await flushPromises()
+    expect(api.deleteAccount).toHaveBeenCalledWith('17')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(api.accounts).toHaveBeenCalledTimes(2)
+    vi.mocked(api.account).mockResolvedValue({ ...account, user_status: 0 })
+    await button('详情').trigger('click')
+    await flushPromises()
+    vi.mocked(api.deleteAccount).mockRejectedValue(new Error('cannot delete your own account'))
+    await button('删除账户').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('cannot delete your own account')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(true)
   })
   it('refreshes detail and list after approval instead of optimistically claiming success', async () => {
     await mountPage()

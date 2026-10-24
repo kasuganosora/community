@@ -636,6 +636,14 @@
       "twoFactorOff": "Выключена",
       "twoFactorReset": "Сбросить 2FA",
       "twoFactorResetConfirm": "Отключить 2FA для {'@'}{0} и удалить резервные коды? Сначала проверьте личность пользователя.",
+      "lastPosted": "Последняя публикация",
+      "lastLogin": "Последний вход",
+      "lastPostedColumn": "Последняя публикация",
+      "lastLoginColumn": "Последний вход",
+      "lastIP": "Последний IP",
+      "viewAccount": "Открыть аккаунт",
+      "deleteAccount": "Удалить аккаунт",
+      "deleteConfirm": "Удалить {'@'}{0}{1}? Вход, посты и профиль будут стёрты без восстановления.",
       "close": "Закрыть"
     },
     "AnnouncementsAdminPage": {

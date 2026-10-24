@@ -527,7 +527,8 @@ func SetRouter(app gin.IRouter) {
 		POST("/admin/accounts/:id/reject", admin.RejectAccount).
 		POST("/admin/accounts/:id/unsilence", admin.UnsilenceAccount).
 		POST("/admin/accounts/:id/unsuspend", admin.UnsuspendAccount).
-		POST("/admin/accounts/:id/two_factor/reset", admin.ResetAccountTwoFactor)
+		POST("/admin/accounts/:id/two_factor/reset", admin.ResetAccountTwoFactor).
+		DELETE("/admin/accounts/:id", admin.DeleteAccount)
 
 	// 状态管理（管理员读取）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).

@@ -38,6 +38,10 @@ function state(a: AdminAccount) {
   return t('admin.AccountsAdminPage.s11')
 }
 function message(e: unknown) { return e instanceof Error ? e.message : t('admin.AccountsAdminPage.s44') }
+function when(value?: string | null) { return value ? new Date(value).toLocaleString() : '—' }
+function latestSignIn(a: AdminAccount) { return a.current_sign_in_at || a.last_sign_in_at || null }
+function lastUsedIP(a: AdminAccount) { return a.current_sign_in_ip || a.last_sign_in_ip || null }
+function profilePath(a: AdminAccount) { return `/@${a.domain ? `${a.username}@${a.domain}` : a.username}` }
 /** Prefer nested Mastodon account (proxied avatar + decorations); fall back to admin fields. */
 function avatarAccount(a: AdminAccount): MastodonAccount {
   if (a.account) return a.account
@@ -148,6 +152,18 @@ async function act(action: AccountAction) {
   } catch (e) { error.value = message(e) }
   finally { busy.value = false }
 }
+async function removeAccount() {
+  const account = selected.value
+  if (!account || account.domain || busy.value || !window.confirm(t('admin.AccountsAdminPage.deleteConfirm', [account.username, account.domain ? `@${account.domain}` : '']))) return
+  busy.value = true
+  error.value = ''
+  try {
+    await api.deleteAccount(account.id)
+    closeDetail()
+    await load()
+  } catch (e) { error.value = message(e) }
+  finally { busy.value = false }
+}
 async function page(delta: number) { offset.value = Math.max(0, offset.value + delta * limit); await load() }
 onMounted(() => { load(); window.addEventListener('keydown', onDetailKey) })
 onBeforeUnmount(() => { listRequest++; detailRequest++; document.body.style.overflow = ''; window.removeEventListener('keydown', onDetailKey) })
@@ -169,7 +185,7 @@ onBeforeUnmount(() => { listRequest++; detailRequest++; document.body.style.over
     <p v-if="loading" class="admin-empty" role="status">{{ $t('admin.AccountsAdminPage.s16') }}</p>
     <div class="admin-table-wrap admin-card accounts-table-wrap" role="region" :aria-label="$t('admin.AccountsAdminPage.s17')" tabindex="0">
       <table class="admin-table accounts-table">
-        <thead><tr><th>{{ $t('admin.AccountsAdminPage.s18') }}</th><th>{{ $t('admin.AccountsAdminPage.s6') }}</th><th>{{ $t('admin.AccountsAdminPage.s10') }}</th><th>{{ $t('admin.AccountsAdminPage.s19') }}</th><th>{{ $t('admin.AccountsAdminPage.s20') }}</th></tr></thead>
+        <thead><tr><th>{{ $t('admin.AccountsAdminPage.s18') }}</th><th>{{ $t('admin.AccountsAdminPage.lastLoginColumn') }}</th><th>{{ $t('admin.AccountsAdminPage.lastPostedColumn') }}</th><th>{{ $t('admin.AccountsAdminPage.s6') }}</th><th>{{ $t('admin.AccountsAdminPage.s10') }}</th><th>{{ $t('admin.AccountsAdminPage.s19') }}</th><th>{{ $t('admin.AccountsAdminPage.s20') }}</th></tr></thead>
         <tbody>
           <tr v-for="a in items" :key="a.id">
             <td class="accounts-table__account">
@@ -181,6 +197,8 @@ onBeforeUnmount(() => { listRequest++; detailRequest++; document.body.style.over
                 </div>
               </div>
             </td>
+            <td class="accounts-table__time">{{ when(latestSignIn(a)) }}</td>
+            <td class="accounts-table__time">{{ when(a.last_status_at) }}</td>
             <td>{{ a.domain || $t('admin.AccountsAdminPage.s8') }}</td>
             <td><span class="admin-badge">{{ state(a) }}</span></td>
             <td>{{ a.role === 'admin' ? $t('admin.AccountsAdminPage.s21') : a.role === 'user' ? $t('admin.AccountsAdminPage.s22') : '—' }}</td>
@@ -202,12 +220,27 @@ onBeforeUnmount(() => { listRequest++; detailRequest++; document.body.style.over
           <h2 v-else>{{ $t('admin.AccountsAdminPage.s30') }}</h2>
           <button type="button" class="admin-button" :aria-label="$t('admin.AccountsAdminPage.close')" :disabled="busy" @click="closeDetail">✕</button>
         </header>
-        <p v-if="error" class="admin-error" role="alert">{{ error }}</p>
-        <p v-if="detailLoading" class="admin-empty" role="status">{{ $t('admin.AccountsAdminPage.s30') }}</p>
-        <template v-if="selected">
-          <dl><dt>{{ $t('admin.AccountsAdminPage.s32') }}</dt><dd>{{ selected.id }}</dd><dt>{{ $t('admin.AccountsAdminPage.s5') }}</dt><dd>{{ selected.display_name || selected.username }}</dd><dt>{{ $t('admin.AccountsAdminPage.s10') }}</dt><dd>{{ state(selected) }}</dd><dt>{{ $t('admin.AccountsAdminPage.s19') }}</dt><dd>{{ selected.role === 'admin' ? $t('admin.AccountsAdminPage.s21') : selected.role === 'user' ? $t('admin.AccountsAdminPage.s22') : '—' }}</dd><dt>{{ $t('admin.AccountsAdminPage.s33') }}</dt><dd>{{ selected.created_at ? new Date(selected.created_at).toLocaleString() : '—' }}</dd><dt>{{ $t('admin.AccountsAdminPage.s34') }}</dt><dd>{{ selected.locked ? $t('admin.AccountsAdminPage.s35') : $t('admin.AccountsAdminPage.s36') }}</dd><template v-if="twoFactor"><dt>{{ $t('admin.AccountsAdminPage.twoFactor') }}</dt><dd>{{ twoFactor.enabled ? $t('admin.AccountsAdminPage.twoFactorOn') : $t('admin.AccountsAdminPage.twoFactorOff') }}</dd></template></dl>
-          <RichText v-if="selected.account?.note" :html="selected.account.note" :emojis="selected.account.emojis" />
-          <div class="admin-toolbar">
+        <div class="account-drawer__body">
+          <p v-if="error" class="admin-error" role="alert">{{ error }}</p>
+          <p v-if="detailLoading" class="admin-empty" role="status">{{ $t('admin.AccountsAdminPage.s30') }}</p>
+          <template v-if="selected">
+            <dl>
+              <dt>{{ $t('admin.AccountsAdminPage.s32') }}</dt><dd>{{ selected.id }}</dd>
+              <dt>{{ $t('admin.AccountsAdminPage.s5') }}</dt><dd>{{ selected.display_name || selected.username }}</dd>
+              <dt>{{ $t('admin.AccountsAdminPage.s10') }}</dt><dd>{{ state(selected) }}</dd>
+              <dt>{{ $t('admin.AccountsAdminPage.s19') }}</dt><dd>{{ selected.role === 'admin' ? $t('admin.AccountsAdminPage.s21') : selected.role === 'user' ? $t('admin.AccountsAdminPage.s22') : '—' }}</dd>
+              <dt>{{ $t('admin.AccountsAdminPage.s33') }}</dt><dd>{{ when(selected.created_at) }}</dd>
+              <dt>{{ $t('admin.AccountsAdminPage.s34') }}</dt><dd>{{ selected.locked ? $t('admin.AccountsAdminPage.s35') : $t('admin.AccountsAdminPage.s36') }}</dd>
+              <template v-if="twoFactor"><dt>{{ $t('admin.AccountsAdminPage.twoFactor') }}</dt><dd>{{ twoFactor.enabled ? $t('admin.AccountsAdminPage.twoFactorOn') : $t('admin.AccountsAdminPage.twoFactorOff') }}</dd></template>
+              <dt>{{ $t('admin.AccountsAdminPage.lastPosted') }}</dt><dd>{{ when(selected.last_status_at) }}</dd>
+              <dt>{{ $t('admin.AccountsAdminPage.lastLogin') }}</dt><dd>{{ when(latestSignIn(selected)) }}</dd>
+              <dt>{{ $t('admin.AccountsAdminPage.lastIP') }}</dt><dd>{{ lastUsedIP(selected) || '—' }}</dd>
+            </dl>
+            <RichText v-if="selected.account?.note" :html="selected.account.note" :emojis="selected.account.emojis" />
+          </template>
+        </div>
+        <div v-if="selected" class="account-drawer__footer">
+          <div class="account-drawer__footer-side">
             <template v-if="!selected.domain && selected.user_status !== undefined">
               <template v-if="selected.user_status === 1"><button type="button" class="admin-button admin-button--primary" :disabled="busy" @click="act('approve')">{{ $t('admin.AccountsAdminPage.s37') }}</button><button type="button" class="admin-button admin-button--danger" :disabled="busy" @click="act('reject')">{{ $t('admin.AccountsAdminPage.s38') }}</button></template>
               <button v-else-if="selected.user_status === 2 || selected.disabled" type="button" class="admin-button" :disabled="busy" @click="act('enable')">{{ $t('admin.AccountsAdminPage.s39') }}</button>
@@ -217,7 +250,11 @@ onBeforeUnmount(() => { listRequest++; detailRequest++; document.body.style.over
             <button v-if="selected.suspended" type="button" class="admin-button" :disabled="busy" @click="act('unsuspend')">{{ $t('admin.AccountsAdminPage.s41') }}</button>
             <button v-else type="button" class="admin-button admin-button--danger" :disabled="busy" @click="act('suspend')">{{ $t('admin.AccountsAdminPage.s42') }}</button>
           </div>
-        </template>
+          <div class="account-drawer__footer-side account-drawer__footer-side--end">
+            <RouterLink class="admin-button" :to="profilePath(selected)">{{ $t('admin.AccountsAdminPage.viewAccount') }}</RouterLink>
+            <button v-if="!selected.domain" type="button" class="admin-button admin-button--danger" :disabled="busy" @click="removeAccount">{{ $t('admin.AccountsAdminPage.deleteAccount') }}</button>
+          </div>
+        </div>
       </section>
     </div>
   </section>
@@ -234,6 +271,8 @@ onBeforeUnmount(() => { listRequest++; detailRequest++; document.body.style.over
   background: rgb(0 0 0 / 45%);
 }
 .account-drawer {
+  display: flex;
+  flex-direction: column;
   width: min(440px, 100%);
   height: 100%;
   max-height: 100%;
@@ -248,6 +287,30 @@ onBeforeUnmount(() => { listRequest++; detailRequest++; document.body.style.over
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+.account-drawer__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.account-drawer__footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+}
+.account-drawer__footer-side {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.account-drawer__footer-side--end {
+  margin-left: auto;
+}
+.account-drawer__footer a.admin-button {
+  text-decoration: none;
 }
 .account-drawer__head h2 {
   overflow-wrap: anywhere;
@@ -291,6 +354,10 @@ onBeforeUnmount(() => { listRequest++; detailRequest++; document.body.style.over
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.accounts-table__time {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 @media (max-width: 760px) {
   .accounts-table__account {

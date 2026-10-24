@@ -78,6 +78,7 @@ var ScripsType = []MigrationScript{
 	SlowQueryIndexesScript{},
 	RetentionIndexesScript{},
 	TwoFactorSecurityPinScript{},
+	UserSignInScript{},
 }
 
 type MigrationScript interface {

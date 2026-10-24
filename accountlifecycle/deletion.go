@@ -24,18 +24,44 @@ import (
 
 var ErrLastAdministrator = errors.New("cannot delete the last active administrator")
 
+// ErrOwnAccount rejects an administrator deleting the account they are signed in as.
+var ErrOwnAccount = errors.New("cannot delete your own account")
+
+// ErrRemoteAccount rejects deletion of a remote profile. Erasure is the local
+// account pipeline (sessions, posts, credentials); remote copies are not removed here.
+var ErrRemoteAccount = errors.New("remote account deletion is not supported")
+
 func RequestDeletion(ctx context.Context, conn *gorm.DB, accountID, userID uint64) error {
+	return scheduleDeletion(ctx, conn, accountID, userID, false)
+}
+
+// RequestAdminDeletion schedules the same local erasure pipeline as a
+// user-requested deletion, without the account password. The actor cannot
+// delete their own login, a remote profile, or the last active administrator.
+func RequestAdminDeletion(ctx context.Context, conn *gorm.DB, accountID, actorUserID uint64) error {
+	return scheduleDeletion(ctx, conn, accountID, actorUserID, true)
+}
+
+func scheduleDeletion(ctx context.Context, conn *gorm.DB, accountID, actorUserID uint64, asAdmin bool) error {
 	return conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var a models.Account
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&a, accountID).Error; err != nil {
 			return err
 		}
-		if a.Domain != nil || a.UserId != userID {
+		if asAdmin {
+			if a.Domain != nil || a.UserId == 0 {
+				return ErrRemoteAccount
+			}
+			if a.UserId == actorUserID {
+				return ErrOwnAccount
+			}
+		} else if a.Domain != nil || a.UserId != actorUserID {
 			return errors.New("account ownership mismatch")
 		}
 		if a.DeletionRequestedAt != nil {
 			return nil
 		}
+		userID := a.UserId
 		var user models.User
 		if err := tx.First(&user, userID).Error; err != nil {
 			return err
