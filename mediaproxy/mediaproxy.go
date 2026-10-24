@@ -130,10 +130,11 @@ func currentSecret() string {
 }
 
 // Seal returns the opaque token for kind and rawURL. expiry (unix seconds)
-// of 0 means the token never expires (URL always sets one). With the same inputs the token is
-// always the same: the nonce is a keyed hash of kind and URL (SIV style), so
-// cached API responses and browser caches keep working. The only thing that
-// reveals is that two tokens carry the same URL.
+// of 0 means the token never expires (URL always sets one). With the same
+// inputs the token is always the same: the nonce is a keyed hash of the
+// version, kind, expiry and URL (SIV style), so one expiry means one token
+// and browser caches keep working. The only thing that reveals is that two
+// tokens carry the same URL and expiry.
 func Seal(kind, rawURL string, expiry int64) (string, bool) {
 	code, ok := kindCode(kind)
 	if !ok || rawURL == "" || len(rawURL) > maxSourceURL {
@@ -160,23 +161,20 @@ func Seal(kind, rawURL string, expiry int64) (string, bool) {
 // Now is the clock; tests replace it.
 var Now = time.Now
 
-// Link lifetime. URL() mints tokens that expire between LinkTTL-LinkBucket
-// and LinkTTL seconds from now, and the same URL gets the identical token for
-// the whole bucket, which keeps browser and CDN caches effective.
-const (
-	LinkTTL    = 3600 * time.Second
-	LinkBucket = 600 * time.Second
-)
+// shanghaiLoc is Beijing time. Asia/Shanghai has been a fixed UTC+8 offset
+// with no daylight saving since 1991, so a fixed zone keeps the day boundary
+// identical in containers that ship without a zoneinfo database.
+var shanghaiLoc = time.FixedZone("Asia/Shanghai", 8*60*60)
 
 // ExpiryFor returns the expiry (unix seconds) of a token minted at t:
-// the end of the next bucket plus LinkTTL-2*LinkBucket. A link therefore
-// lives at least LinkTTL-LinkBucket (3000s) and never more than LinkTTL
-// (3600s), and every token minted inside one bucket is identical.
+// 23:59:59 Asia/Shanghai on the calendar day after t's Shanghai date.
+// Every call on that date returns the same instant, so Seal (whose nonce
+// and payload include the expiry) mints one token for the whole day.
+// A link minted at 00:00:00 lives 48h-1s; one minted at 23:59:59 lives
+// exactly 24h. Open rejects the token once this instant has passed.
 func ExpiryFor(t time.Time) int64 {
-	bucket := int64(LinkBucket / time.Second)
-	ttl := int64(LinkTTL / time.Second)
-
-	return (t.Unix()/bucket+1)*bucket + ttl - bucket
+	y, m, d := t.In(shanghaiLoc).Date()
+	return time.Date(y, m, d, 23, 59, 59, 0, shanghaiLoc).AddDate(0, 0, 1).Unix()
 }
 
 // Errors returned by Open.

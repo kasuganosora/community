@@ -40,7 +40,7 @@ init() → loadConfig()
 | `TrustedProxyHeaders` | `TRUSTED_PROXY_HEADERS` | `X-Real-IP,X-Forwarded-For` | 可信代理下按顺序采用的转发头。`X-Real-IP`（nginx 的 `$remote_addr`）优先；`X-Forwarded-For` 取最右侧不可信地址 |
 | `CORSAllowedOrigins` | `CORS_ALLOWED_ORIGINS` | _(无)_ | 逗号分隔的允许来源列表，为空则允许所有（仅开发模式） |
 | `MediaProxyEnabled` | `MEDIA_PROXY_ENABLED` | `true` | 远程头像/附件/表情/卡片图经 `/proxy/media` 流式转发（不落盘、不缓存） |
-| `MediaProxyKey` | `MEDIA_PROXY_KEY` | _(服务端加密密钥)_ | 代理令牌（AES-256-GCM，HKDF 派生）的密钥。令牌内含过期时间（API 生成的链接有效 3000–3600 秒，按 600 秒分桶保持稳定），过期返回 410；任何站点均可使用有效令牌（CORP: cross-origin），以令牌本身作为授权；每个 IP 限速/限并发 |
+| `MediaProxyKey` | `MEDIA_PROXY_KEY` | _(服务端加密密钥)_ | 代理令牌（AES-256-GCM，HKDF 派生）的密钥。令牌内含过期时间（API 生成的链接在北京时间次日 23:59:59 过期，同一天内相同参数得到相同令牌），过期返回 410；任何站点均可使用有效令牌（CORP: cross-origin），以令牌本身作为授权；每个 IP 限速/限并发 |
 | `MediaProxyPreviousKey` | `MEDIA_PROXY_PREVIOUS_KEY` | _(无)_ | 轮换密钥时仍可解密的旧密钥；新令牌始终用当前密钥 |
 | `MediaProxyMaxBytes` | `MEDIA_PROXY_MAX_BYTES` | `20971520` | 转发图片的大小上限 |
 | `MediaProxyMaxStreamBytes` | `MEDIA_PROXY_MAX_STREAM_BYTES` | `536870912` | 转发视频/音频的大小上限 |

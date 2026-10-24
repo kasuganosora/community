@@ -327,13 +327,10 @@ func TestMaxAgeNeverOutlivesTheToken(t *testing.T) {
 		require.Equal(t, tc.want, w.Header().Get("Cache-Control"))
 		require.Equal(t, `"e1"`, w.Header().Get("ETag"))
 	}
-	// API-minted links live at most 3600s, so the cap applies to them too.
+	// A freshly minted API link expires at 23:59:59 Asia/Shanghai on the next
+	// calendar day (24h to just under 48h), so the one-day cache cap applies.
 	tok, _ := mediaproxy.Seal(mediaproxy.KindMedia, srv.URL+"/a.png", mediaproxy.ExpiryFor(time.Unix(nowSec, 0)))
-	cc := do(r, "GET", "/proxy/media/"+tok, nil).Header().Get("Cache-Control")
-	age, err := strconv.Atoi(strings.TrimPrefix(cc, "public, max-age="))
-	require.NoError(t, err)
-	require.LessOrEqual(t, age, 3600)
-	require.GreaterOrEqual(t, age, 2990)
+	require.Equal(t, "public, max-age=86400", do(r, "GET", "/proxy/media/"+tok, nil).Header().Get("Cache-Control"))
 	// Links without an expiry keep the default.
 	tok, _ = mediaproxy.Seal(mediaproxy.KindMedia, srv.URL+"/a.png", 0)
 	require.Equal(t, "public, max-age=86400", do(r, "GET", "/proxy/media/"+tok, nil).Header().Get("Cache-Control"))
