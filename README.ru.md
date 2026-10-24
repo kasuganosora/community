@@ -71,7 +71,7 @@ Community решает эту проблему. Он импортирует **в
 
 **Как:** выберите «Миграция с Misskey» или «Миграция с Mastodon» в мастере установки — он сам выполнит экспорт и импорт. Из командной строки это два шага: экспорт с помощью `scripts/migration/export_misskey.py` (или `export_mastodon_db.py`), затем импорт пакета через `community-transfer --scope site --input <пакет> --report …` (сначала предварительная проверка, потом `--apply`). По умолчанию экспортируются только данные вашего инстанса (локальные пользователи, их посты, файлы и подписки, а также удалённые аккаунты и посты, на которые они ссылаются), а не весь кэш удалённого контента; чтобы экспортировать всё, добавьте `--include-remote-cache`. Пользователи также могут импортировать свои личные архивы Misskey/Mastodon. Проверено с Misskey 2026.10.0 и Mastodon 4.7.3. Подробности, чек-лист и ограничения: [docs/data-migration.md](docs/data-migration.md).
 
-**Для больших инстансов используйте прямой режим.** `community-transfer --scope site --source-dsn postgres://… --source-base-url https://your.domain` читает исходную БД и потоково импортирует её (пиковый RSS около 110 МиБ на 250 МБ вместо примерно 1,3 ГиБ). Поддерживается `--fetch-only`, затем короткий `--final-sync`. Инструкция: [docs/migration.md](https://github.com/kasuganosora/community/blob/master/docs/migration.md).
+**Для больших инстансов используйте прямой режим.** `community-transfer --source misskey --source-dsn 'host=… dbname=… user=…' --source-base-url https://your.domain --work-dir /private/migration` читает исходную БД и потоково импортирует её (пиковый RSS около 110 МиБ на 250 МБ вместо примерно 1,3 ГиБ). Поддерживается `--fetch-only`, затем короткий `--final-sync`. Для Mastodon укажите `--source mastodon`. Пароль храните в `PGPASSFILE`, не в DSN. Инструкция: [docs/migration.md](docs/migration.md).
 
 ## Сравнение
 
@@ -104,11 +104,14 @@ Community решает эту проблему. Он импортирует **в
 ```bash
 git clone https://github.com/kasuganosora/community.git
 cd community
+cp .env.setup.example .env
+# Укажите COMPOSE_PROFILES=postgres или mysql и замените BUNDLED_DB_PASSWORD.
+# Не добавляйте переменные DB_*: из-за них мастер установки не откроется.
 docker compose up -d --build
 docker compose logs community | grep -A3 "install token"
 ```
 
-Затем откройте `http://<ваш-сервер>:8080/setup`, вставьте токен и следуйте мастеру. Для публичного сервера поставьте перед ним обратный прокси с HTTPS и сразу используйте окончательный домен: он становится частью идентичности каждой учётной записи, и менять его потом не стоит.
+Затем откройте `http://<ваш-сервер>:8080/setup`, вставьте токен, выберите «Встроенная база данных» и следуйте мастеру. Для публичного сервера поставьте перед ним обратный прокси с HTTPS и сразу используйте окончательный домен: он становится частью идентичности каждой учётной записи, и менять его потом не стоит.
 
 Другие варианты (ручной `.env`, внешние базы данных, S3): [docs/setup.md](docs/setup.md) и [docs/configuration.md](docs/configuration.md).
 

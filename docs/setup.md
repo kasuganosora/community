@@ -62,8 +62,11 @@ interface language. The domain cannot be changed later.
   (`scripts/migration/export_misskey.py`), preflight and import (the same
   code as `community-transfer`), passkeys (`tootctl passkeys import-misskey`),
   administrator, finish. There is no single `tootctl` command that imports a
-  Misskey site; outside the wizard run `export_misskey.py` and then
-  `community-transfer` (see [data-migration.md](data-migration.md)).
+  Misskey site. For a whole-instance move, prefer direct mode
+  (`community-transfer --source misskey --source-dsn … --source-base-url … --work-dir …`;
+  see [migration.md](migration.md)). The bundle path — `export_misskey.py`, then
+  `community-transfer --input` — is what the wizard runs, and is documented in
+  [data-migration.md](data-migration.md).
 * The export reads only data relevant to this instance (local users and what
   they own, plus the remote accounts/posts they reference), not Misskey's
   whole remote-content cache. It pages through the source in short read-only

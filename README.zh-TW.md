@@ -71,7 +71,7 @@ Community 解決的正是這個問題。它會把**整個 Misskey 或 Mastodon �
 
 **怎麼做：** 在安裝精靈中選擇「從 Misskey 遷移」或「從 Mastodon 遷移」，精靈會自動完成匯出和匯入。命令列分兩步：先用 `scripts/migration/export_misskey.py`（Mastodon 用 `export_mastodon_db.py`）匯出，再用 `community-transfer --scope site --input <遷移包> --report …` 匯入（先預檢，再加 `--apply` 執行）。預設只匯出本站自己的資料（本地使用者及其貼文、檔案、追蹤，以及它們引用到的遠端帳號和貼文），不匯出整個遠端內容快取；加 `--include-remote-cache` 可匯出全部。普通使用者也可以把自己的 Misskey / Mastodon 個人備份匯入到自己的帳號。已用 Misskey 2026.10.0 和 Mastodon 4.7.3 測試。完整說明、檢查清單和限制見 [docs/data-migration.md](docs/data-migration.md)。
 
-**大型實例建議使用直連模式：** `community-transfer --scope site --source-dsn postgres://… --source-base-url https://你的網域` 直接讀取來源資料庫並串流匯入（250 MB 實例峰值 RSS 約 110 MiB，打包方式約 1.3 GiB），支援先 `--fetch-only` 再短暫停機 `--final-sync`。操作手冊：[docs/migration.md](https://github.com/kasuganosora/community/blob/master/docs/migration.md)。
+**大型實例建議使用直連模式：** `community-transfer --source misskey --source-dsn 'host=… dbname=… user=…' --source-base-url https://你的網域 --work-dir /private/migration` 直接讀取來源資料庫並串流匯入（250 MB 實例峰值 RSS 約 110 MiB，打包方式約 1.3 GiB），支援先 `--fetch-only` 再短暫停機 `--final-sync`。Mastodon 把 `--source` 換成 `mastodon`；密碼放在 `PGPASSFILE`，不要寫進 DSN。操作手冊：[docs/migration.md](docs/migration.md)。
 
 ## 和其他軟體比較
 
@@ -104,11 +104,14 @@ Community 解決的正是這個問題。它會把**整個 Misskey 或 Mastodon �
 ```bash
 git clone https://github.com/kasuganosora/community.git
 cd community
+cp .env.setup.example .env
+# 將 COMPOSE_PROFILES 設為 postgres 或 mysql，並替換 BUNDLED_DB_PASSWORD。
+# 不要在這裡加入 DB_*，否則會跳過安裝精靈。
 docker compose up -d --build
 docker compose logs community | grep -A3 "install token"
 ```
 
-然後開啟 `http://<你的伺服器>:8080/setup`，貼上 token，按精靈操作即可。公開部署時請在前面加一個 HTTPS 反向代理，並使用最終域名：它會成為每個帳號身份的一部分，之後不應更改。
+然後開啟 `http://<你的伺服器>:8080/setup`，貼上 token，資料庫選擇「內建資料庫」，按精靈操作即可。公開部署時請在前面加一個 HTTPS 反向代理，並使用最終域名：它會成為每個帳號身份的一部分，之後不應更改。
 
 更多選項（手動編寫 `.env`、外部資料庫、S3）：[docs/setup.md](docs/setup.md) 和 [docs/configuration.md](docs/configuration.md)。
 

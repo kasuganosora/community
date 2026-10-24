@@ -71,7 +71,7 @@ so remote servers keep trusting you and **your followers stay followers**. Nobod
 
 **How:** pick "Migrate from Misskey" or "Migrate from Mastodon" in the setup wizard, which runs the export and import for you. From the command line it is two steps: export with `scripts/migration/export_misskey.py` (or `export_mastodon_db.py`), then import the bundle with `community-transfer --scope site --input <bundle> --report …` (preflight first, then `--apply`). By default only your instance's own data is exported (local users, their posts, files and follows, plus the remote accounts and posts they reference), not the whole cache of remote content; add `--include-remote-cache` to export everything. Users can also import personal Misskey/Mastodon backups into their own account. Tested with Misskey 2026.10.0 and Mastodon 4.7.3. Full details, checklist and limits: [docs/data-migration.md](docs/data-migration.md).
 
-**Large instances: use direct mode.** `community-transfer --scope site --source-dsn postgres://… --source-base-url https://your.domain` reads the source database, streams it straight into the import (about 110 MiB peak RSS on a 250 MB instance, compared with about 1.3 GiB for the bundle path), and supports `--fetch-only` followed by a short `--final-sync`. Runbook: [docs/migration.md](https://github.com/kasuganosora/community/blob/master/docs/migration.md).
+**Large instances: use direct mode.** `community-transfer --source misskey --source-dsn 'host=… dbname=… user=…' --source-base-url https://your.domain --work-dir /private/migration` reads the source database and streams it straight into the import (about 110 MiB peak RSS on a 250 MB instance, compared with about 1.3 GiB for the bundle path). It supports `--fetch-only` followed by a short `--final-sync`. Use `--source mastodon` for a Mastodon database, and keep the password in `PGPASSFILE`, not the DSN. Runbook: [docs/migration.md](docs/migration.md).
 
 ## How it compares
 
@@ -104,11 +104,14 @@ You need Docker with Compose v2.24 or newer.
 ```bash
 git clone https://github.com/kasuganosora/community.git
 cd community
+cp .env.setup.example .env
+# Set COMPOSE_PROFILES to postgres or mysql, and replace BUNDLED_DB_PASSWORD.
+# Do not add DB_* variables; that skips the wizard.
 docker compose up -d --build
 docker compose logs community | grep -A3 "install token"
 ```
 
-Then open `http://<your-server>:8080/setup`, paste the token and follow the wizard. For a public server, put an HTTPS reverse proxy in front and use your final domain: it becomes part of every account's identity and shouldn't change later.
+Then open `http://<your-server>:8080/setup`, paste the token, choose **Built-in database**, and follow the wizard. For a public server, put an HTTPS reverse proxy in front and use your final domain: it becomes part of every account's identity and shouldn't change later.
 
 More options (manual `.env`, external databases, S3): [docs/setup.md](docs/setup.md) and [docs/configuration.md](docs/configuration.md).
 

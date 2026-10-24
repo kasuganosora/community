@@ -1,6 +1,6 @@
 # 账号备份与同域名整站迁移
 
-> **Recommended for whole-instance moves:** direct mode (`community-transfer --scope site --source-dsn … --source-base-url …`). It streams from the source database with bounded memory and supports `--fetch-only` followed by `--final-sync`. See [docs/migration.md](https://github.com/kasuganosora/community/blob/master/docs/migration.md) for the runbook and the maid.lat rehearsal lessons.
+> **整站迁移推荐直连模式（direct mode）：** `community-transfer --source misskey --source-dsn 'host=… dbname=… user=…' --source-base-url https://your.domain --work-dir /private/migration`（Mastodon 把 `--source` 换成 `mastodon`）。它只读连接源 PostgreSQL，流式写入目标库，不生成也不加载 `bundle.json`，支持源站在线时 `--fetch-only`、停写后 `--final-sync`。密码放在 `PGPASSFILE`，不要写进 DSN。命令、停机检测和 maid.lat 演练见 [migration.md](migration.md)。下面的导出包路径仍供安装向导和较小的迁移使用。
 
 Community 提供两种入口：管理员将 Misskey / Mastodon 换成 Community，以及用户将已有备份导入自己的账号。两种入口的权限、身份和数据处理方式不同。
 
@@ -21,7 +21,7 @@ Community 提供两种入口：管理员将 Misskey / Mastodon 换成 Community�
 | Misskey | `scripts/migration/export_misskey.py`：PostgreSQL 分页只读读取（可续传）+ 本地媒体快照或对象存储 | 2026.10.0 |
 | Mastodon | `scripts/migration/export_mastodon_db.py`（直接读数据库，向导使用）或原站 Rails runner `export_mastodon.rb` | 4.7.3 |
 
-整站迁移始终是两步：**先用导出器生成 `bundle.json` 和媒体，再用 `community-transfer`（或网页「整站迁移」）预检并导入。** `tootctl` 没有一步完成整站导入的命令；`tootctl` 只负责实例设置（`tootctl admin import-misskey-meta`）和 passkey（`tootctl passkeys import-misskey`）等附属步骤。安装向导的「从 Misskey / Mastodon 迁移」会按顺序自动执行这些步骤。
+**导出包路径**是两步：先用导出器生成 `bundle.json` 和媒体，再用 `community-transfer --input`（或网页「整站迁移」）预检并导入。安装向导的「从 Misskey / Mastodon 迁移」会按顺序自动执行这些步骤。大实例不要先生成整包，用上面的直连模式。`tootctl` 没有一步完成整站导入的命令；`tootctl` 只负责实例设置（`tootctl admin import-misskey-meta`）和 passkey（`tootctl passkeys import-misskey`）等附属步骤。
 
 **导出范围：** 默认只导出本站相关数据——本地用户及其资料、密钥、帖子、文件、关注/拉黑/静音、列表、书签、投票、聊天等，以及这些数据引用到的远端实体（关注关系两端的远端账号、本地帖子回复/引用/转发的远端帖子、远端对本地帖子的回复、本地帖子收到的表情回应及其用户、相关文件和表情）。源站缓存的其余远端内容（通常占数据库的绝大部分）不会被读取；指向导出范围之外的引用会从规范字段中去掉并以 `remote_reference_trimmed` 提示，原始值仍保存在私有归档中。需要完整导出时加 `--include-remote-cache`。
 
@@ -41,7 +41,9 @@ Community 提供两种入口：管理员将 Misskey / Mastodon 换成 Community�
 
 预检会检查同域身份、重复账号、密钥匹配、密码格式、媒体路径/大小/校验和、引用完整性和私信收件人等。启用的未支持 MFA、依赖 password pepper 的凭据、无法保持的隐藏策略等不能静默降级。Misskey 的某些频道、引用、群聊策略，以及其他无等价实现的内容可能只能归档；必须逐项查看报告。
 
-### 推荐切换流程
+### 导出包路径的切换流程
+
+直连模式的步骤、停机检测和演练记录见 [migration.md](migration.md)。下面是导出包路径：
 
 1. 在隔离的 Community 数据库上演练，保留原站数据库、媒体和加密配置的可恢复备份。
 2. 先读源站适配器说明并导出（见下方命令行）。正式最终导出应在源站停写后进行（或停写后运行 `--final-sync`）；只读读取不能冻结外部文件变化。
@@ -85,7 +87,7 @@ ENV_FILE=/private/community.env ./community-transfer \
   --report /private/import-result.json
 ```
 
-退出码 `0` 表示完成当前操作，`2` 表示预检阻止执行，`1` 表示读取、运行或报告写入失败。预检成功不等于已经执行导入。命令行默认 `--max-records 100000`、单个 JSON 64 MiB；较大的整站包需提高 `--max-records`、`--max-json-bytes` 和 `--max-expanded-bytes`（`bundle.json` 会整体载入内存，请预留内存）。
+退出码 `0` 表示完成当前操作，`2` 表示预检阻止执行，`1` 表示读取、运行或报告写入失败。预检成功不等于已经执行导入。命令行默认 `--max-records 100000`。整站目录里的 `bundle.json` 默认流式写入磁盘 spool 再分块导入（`--stream`，内存不随包增大）。关掉 `--stream`，或导入 ZIP / 个人备份时，单个 JSON 默认上限 64 MiB，需要再提高 `--max-json-bytes`。展开体积和文件数分别用 `--max-expanded-bytes`、`--max-files`。
 
 网页接受 ZIP、tar.gz 或适用的 JSON / CSV。整站目录打包时让 `bundle.json` 和 `media/` 位于归档根目录。命令行也接受目录，并先建立私有快照；不要对正在变化的目录运行导入。
 
@@ -111,7 +113,7 @@ ENV_FILE=/private/community.env ./community-transfer \
 
 上传后后台预检生成版本标识，执行必须提交同一个版本。一个包的业务写入在同一数据库事务中完成，失败回滚；任务租约和记录凭据用于重试与重启恢复。已完成任务再次执行不会重复创建帖子。上传包删除不会撤销已导入的数据。
 
-后台同时处理最多两个任务。网页默认限制为压缩输入 256 MiB、展开后 1 GiB、单文件 128 MiB、单 JSON 64 MiB、20,000 个文件及 100,000 条规范记录。命令行可通过 `--max-expanded-bytes`、`--max-files`、`--max-records` 和 `--max-json-bytes` 提高上限。导出器以流式方式运行、内存有上限；导入器仍会把 `bundle.json` 整体解析到内存，超大实例应使用默认的本站范围导出，并按包大小预留内存。
+后台同时处理最多两个任务。网页默认限制为压缩输入 256 MiB、展开后 1 GiB、单文件 128 MiB、单 JSON 64 MiB、20,000 个文件及 100,000 条规范记录。命令行可通过 `--max-expanded-bytes`、`--max-files`、`--max-records` 和 `--max-json-bytes` 提高上限。导出器以流式方式运行、内存有上限。命令行导入整站 `bundle.json` 时默认也流式处理；超大实例仍应优先使用直连模式（见 [migration.md](migration.md)），其次才是默认的本站范围导出包。
 
 提交后会清理受影响的时间线缓存，且不发送历史事件。缓存清理失败会在已成功导入的报告中明确警告，可重复导入触发清理。此协调覆盖当前进程；多实例部署应在维护窗口完成导入与缓存重建，避免另一进程在切换时写回旧缓存。
 

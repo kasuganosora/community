@@ -71,7 +71,7 @@ Community はこの問題を解決します。**Misskey や Mastodon のサイ�
 
 **やり方：** セットアップウィザードで「Misskey から移行」または「Mastodon から移行」を選ぶと、エクスポートとインポートをまとめて実行します。コマンドラインでは 2 段階です。`scripts/migration/export_misskey.py`（Mastodon は `export_mastodon_db.py`）でエクスポートし、そのバンドルを `community-transfer --scope site --input <バンドル> --report …` でインポートします（まず事前チェック、次に `--apply`）。既定では自インスタンスのデータ（ローカルユーザー、その投稿・ファイル・フォロー、およびそれらが参照するリモートのアカウントと投稿）だけをエクスポートし、リモートコンテンツのキャッシュ全体は含みません。すべてをエクスポートするには `--include-remote-cache` を付けます。一般ユーザーも自分の Misskey／Mastodon の個人バックアップを自分のアカウントにインポートできます。Misskey 2026.10.0 と Mastodon 4.7.3 でテスト済み。詳細、チェックリスト、制限事項は [docs/data-migration.md](docs/data-migration.md) へ。
 
-**大規模インスタンスはダイレクトモード推奨：** `community-transfer --scope site --source-dsn postgres://… --source-base-url https://your.domain` で移行元 DB を直接読み、ストリーミングでインポートします（250 MB で最大 RSS 約 110 MiB、バンドル方式は約 1.3 GiB）。`--fetch-only` の後に短い `--final-sync` を実行できます。手順：[docs/migration.md](https://github.com/kasuganosora/community/blob/master/docs/migration.md)。
+**大規模インスタンスはダイレクトモード推奨：** `community-transfer --source misskey --source-dsn 'host=… dbname=… user=…' --source-base-url https://your.domain --work-dir /private/migration` で移行元 DB を直接読み、ストリーミングでインポートします（250 MB で最大 RSS 約 110 MiB、バンドル方式は約 1.3 GiB）。`--fetch-only` の後に短い `--final-sync` を実行できます。Mastodon は `--source mastodon`。パスワードは DSN ではなく `PGPASSFILE` に置きます。手順：[docs/migration.md](docs/migration.md)。
 
 ## 他のソフトウェアとの比較
 
@@ -104,11 +104,14 @@ Docker と Compose v2.24 以降が必要です。
 ```bash
 git clone https://github.com/kasuganosora/community.git
 cd community
+cp .env.setup.example .env
+# COMPOSE_PROFILES を postgres か mysql にし、BUNDLED_DB_PASSWORD を置き換える。
+# DB_* は書かない。書くとウィザードを飛ばして起動する。
 docker compose up -d --build
 docker compose logs community | grep -A3 "install token"
 ```
 
-`http://<あなたのサーバー>:8080/setup` を開き、トークンを貼り付けてウィザードに従ってください。公開サーバーにする場合は HTTPS リバースプロキシを前に置き、最終的なドメインを使ってください。ドメインはすべてのアカウントの ID の一部になり、後から変えるべきではありません。
+`http://<あなたのサーバー>:8080/setup` を開き、トークンを貼り付け、データベースは「内蔵データベース」を選んでウィザードに従ってください。公開サーバーにする場合は HTTPS リバースプロキシを前に置き、最終的なドメインを使ってください。ドメインはすべてのアカウントの ID の一部になり、後から変えるべきではありません。
 
 その他のオプション（手動の `.env`、外部データベース、S3）：[docs/setup.md](docs/setup.md) と [docs/configuration.md](docs/configuration.md)。
 
