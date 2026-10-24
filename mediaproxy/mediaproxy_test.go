@@ -131,36 +131,79 @@ func TestExpiryIsEnforced(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 }
 
-func TestLinksLiveBetween3000And3600SecondsAndAreStablePerBucket(t *testing.T) {
+// shanghai is Beijing time: UTC+8 with no daylight saving. ExpiryFor must
+// use this calendar even when the caller passes a UTC (or other) instant.
+var shanghai = time.FixedZone("Asia/Shanghai", 8*60*60)
+
+func TestExpiryForIsNextShanghaiDayEnd(t *testing.T) {
+	// Day D in Asia/Shanghai expires at D+1 23:59:59 in that zone, for every
+	// instant on D — including the UTC instant that is still "today" in Beijing
+	// and the one that has already become tomorrow there.
+	day := time.Date(2026, 10, 24, 0, 0, 0, 0, shanghai)
+	want := time.Date(2026, 10, 25, 23, 59, 59, 0, shanghai).Unix()
+	for _, ts := range []time.Time{
+		day,
+		time.Date(2026, 10, 24, 12, 34, 56, 0, shanghai),
+		time.Date(2026, 10, 24, 23, 59, 59, 999_999_999, shanghai),
+		time.Date(2026, 10, 24, 15, 59, 59, 0, time.UTC), // 23:59:59 Shanghai
+	} {
+		require.Equal(t, want, ExpiryFor(ts), ts.Format(time.RFC3339Nano))
+	}
+	// 16:00 UTC is already the next Shanghai calendar day.
+	next := time.Date(2026, 10, 25, 0, 0, 0, 0, shanghai)
+	require.Equal(t, next, time.Date(2026, 10, 24, 16, 0, 0, 0, time.UTC).In(shanghai))
+	wantNext := time.Date(2026, 10, 26, 23, 59, 59, 0, shanghai).Unix()
+	require.Equal(t, wantNext, ExpiryFor(time.Date(2026, 10, 24, 16, 0, 0, 0, time.UTC)))
+	require.Equal(t, wantNext, ExpiryFor(next))
+	require.NotEqual(t, want, wantNext)
+
+	// Month, year, and leap-day boundaries stay on the calendar, not +N hours.
+	require.Equal(t, time.Date(2026, 11, 1, 23, 59, 59, 0, shanghai).Unix(), ExpiryFor(time.Date(2026, 10, 31, 8, 0, 0, 0, shanghai)))
+	require.Equal(t, time.Date(2027, 1, 1, 23, 59, 59, 0, shanghai).Unix(), ExpiryFor(time.Date(2026, 12, 31, 23, 0, 0, 0, shanghai)))
+	require.Equal(t, time.Date(2024, 2, 29, 23, 59, 59, 0, shanghai).Unix(), ExpiryFor(time.Date(2024, 2, 28, 0, 0, 0, 0, shanghai)))
+	require.Equal(t, time.Date(2024, 3, 1, 23, 59, 59, 0, shanghai).Unix(), ExpiryFor(time.Date(2024, 2, 29, 23, 59, 59, 0, shanghai)))
+
+	// Minted at 00:00:00 the link lives 48h-1s; minted at 23:59:59 it lives exactly 24h.
+	require.Equal(t, int64(48*60*60-1), ExpiryFor(day)-day.Unix())
+	last := time.Date(2026, 10, 24, 23, 59, 59, 0, shanghai)
+	require.Equal(t, int64(24*60*60), ExpiryFor(last)-last.Unix())
+}
+
+func TestSameShanghaiDaySameInputsSameToken(t *testing.T) {
 	setup(t)
 	defer func() { Now = time.Now }()
 	const raw = "https://r.example/a.png"
-	base := int64(1_800_000_000) // multiple of 600
-	require.Zero(t, base%600)
+	day := time.Date(2026, 10, 24, 0, 0, 0, 0, shanghai)
+	expiry := time.Date(2026, 10, 25, 23, 59, 59, 0, shanghai)
+
 	var first string
-	for off := int64(0); off < 600; off += 37 {
-		at(base + off)
+	for _, ts := range []time.Time{
+		day,
+		time.Date(2026, 10, 24, 0, 0, 1, 0, shanghai),
+		time.Date(2026, 10, 24, 15, 0, 0, 0, shanghai),
+		time.Date(2026, 10, 24, 23, 59, 59, 0, shanghai),
+		time.Date(2026, 10, 24, 15, 59, 59, 0, time.UTC),
+	} {
+		at(ts.Unix())
 		u := URL(KindMedia, raw)
 		if first == "" {
 			first = u
 		}
-		require.Equal(t, first, u, "same bucket, same token (offset %d)", off)
+		require.Equal(t, first, u, "same Shanghai day, same token (%s)", ts.Format(time.RFC3339))
 		c, err := Open(strings.TrimPrefix(u, "https://c.test/proxy/media/"))
 		require.NoError(t, err)
-		life := c.Expiry - (base + off)
-		require.Greater(t, life, int64(3000)-1)
-		require.LessOrEqual(t, life, int64(3600))
+		require.Equal(t, expiry.Unix(), c.Expiry)
 	}
-	at(base + 600)
-	require.NotEqual(t, first, URL(KindMedia, raw), "next bucket mints a new token")
-	// Valid for at least 3000s, expired after 3600s.
-	at(base)
-	u := URL(KindMedia, raw)
-	tok := strings.TrimPrefix(u, "https://c.test/proxy/media/")
-	at(base + 2999)
+
+	at(time.Date(2026, 10, 25, 0, 0, 0, 0, shanghai).Unix())
+	require.NotEqual(t, first, URL(KindMedia, raw), "next Shanghai day mints a new token")
+
+	// Valid through D+1 23:59:59, rejected at D+2 00:00:00.
+	tok := strings.TrimPrefix(first, "https://c.test/proxy/media/")
+	at(expiry.Unix())
 	_, err := Open(tok)
-	require.NoError(t, err)
-	at(base + 3601)
+	require.NoError(t, err, "valid through the expiry second")
+	at(expiry.Add(time.Second).Unix())
 	_, err = Open(tok)
 	require.ErrorIs(t, err, ErrExpired)
 }

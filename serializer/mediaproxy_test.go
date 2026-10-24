@@ -41,21 +41,32 @@ func TestProxiedLinksAreMintedAtResponseTimeEvenFromCache(t *testing.T) {
 		require.NoError(t, err, u)
 		return c.Expiry
 	}
-	start := time.Unix(1_800_000_000, 0)
+	shanghai := time.FixedZone("Asia/Shanghai", 8*60*60)
+	start := time.Date(2026, 10, 24, 16, 0, 0, 0, shanghai)
 	mediaproxy.Now = func() time.Time { return start }
 	first := ToAccount(&fromCache).Avatar
 	require.Contains(t, first, "/proxy/media/")
 	e1 := expiry(first)
-	require.Greater(t, e1, start.Unix()+2999)
-	require.LessOrEqual(t, e1, start.Unix()+3600)
+	require.Equal(t, time.Date(2026, 10, 25, 23, 59, 59, 0, shanghai).Unix(), e1)
 
-	// Two hours later the same cached entity yields a token that is valid now.
+	// Later the same Shanghai day the cached entity is sealed again and the
+	// token does not change, so browsers can keep the cached avatar.
 	later := start.Add(2 * time.Hour)
 	mediaproxy.Now = func() time.Time { return later }
 	second := ToAccount(&fromCache).Avatar
-	require.NotEqual(t, first, second)
-	e2 := expiry(second)
-	require.Greater(t, e2, later.Unix()+2999)
+	require.Equal(t, first, second)
+	_, err = mediaproxy.Open(first[strings.LastIndex(first, "/")+1:])
+	require.NoError(t, err)
+
+	// The next Shanghai day mints a new token that is valid at that moment.
+	nextDay := time.Date(2026, 10, 25, 0, 0, 0, 0, shanghai)
+	mediaproxy.Now = func() time.Time { return nextDay }
+	third := ToAccount(&fromCache).Avatar
+	require.NotEqual(t, first, third)
+	require.Equal(t, time.Date(2026, 10, 26, 23, 59, 59, 0, shanghai).Unix(), expiry(third))
+
+	// The day-D token is rejected once D+1 23:59:59 has passed.
+	mediaproxy.Now = func() time.Time { return time.Date(2026, 10, 26, 0, 0, 0, 0, shanghai) }
 	_, err = mediaproxy.Open(first[strings.LastIndex(first, "/")+1:])
 	require.ErrorIs(t, err, mediaproxy.ErrExpired)
 }
