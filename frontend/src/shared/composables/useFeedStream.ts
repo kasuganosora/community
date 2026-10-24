@@ -9,8 +9,10 @@ import { sessionEpoch } from '@/shared/api/sessionScope'
  * those sockets is healthy, a hint must not refetch the loaded window: new
  * posts stay on the pill via `onStatus`. A head check still runs every 60s,
  * and a full window read still runs after a real gap (the socket was down, or
- * the tab was actually hidden and restored). A second window is never queued
- * behind one that is already reading. Notification streams stay eager.
+ * the tab was actually hidden and restored). Browser "online" flaps on a
+ * lossy VPN are not that gap: they must not close a live socket or walk the
+ * window. A second window is never queued behind one that is already reading.
+ * Notification streams stay eager.
  */
 export type FeedSyncReason = 'sync' | 'poll' | 'gap'
 export type FeedStatusEvent = 'update' | 'delete' | 'status.update'
@@ -333,10 +335,18 @@ export function useFeedStream(target: Ref<string>, revalidate: (reason?: FeedSyn
     restart({ gap: true })
   }
   function onOnline() {
+    // Notifications still resync on reconnect. A timeline already learned
+    // about posts from status ids; tearing the socket down here was a
+    // public?limit=20 about every quiet-gap while a VPN flipped "online".
+    if (!isTimelineFeed(target.value)) { restart({ gap: true }); return }
+    if (stop) return
     const now = Date.now()
-    if (isTimelineFeed(target.value) && onlineAt && now - onlineAt < STREAM_GAP_RESYNC_MS) return
+    if (onlineAt && now - onlineAt < STREAM_GAP_RESYNC_MS) return
     onlineAt = now
-    restart({ gap: true })
+    if (!mounted || document.hidden) return
+    clearTimeout(reconnect)
+    reconnect = undefined
+    connect(generation)
   }
   function onFocus() { schedule({ gap: true }) }
   watch([target, sessionEpoch], () => { lastRevalidated = 0; restart() }, { flush: 'sync' })

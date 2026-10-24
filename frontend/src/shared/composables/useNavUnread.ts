@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import client from '@/shared/api/client'
+import { INTERACTIVE_READ_TIMEOUT_MS, settleWithin } from '@/shared/api/requestDeadline'
 import { useNotificationUnread } from './useNotificationUnread'
 
 /** Pages whose own badge is cleared while they are open. */
@@ -22,7 +23,7 @@ async function refreshNavUnread(): Promise<boolean> {
   const mine = ++generation
   const { unread } = useNotificationUnread()
   try {
-    const { data } = await client.get<UnreadCounts>('/api/v1/unread_counts')
+    const data = await settleWithin(signal => client.get<UnreadCounts>('/api/v1/unread_counts', { signal, timeout: INTERACTIVE_READ_TIMEOUT_MS }).then(response => response.data))
     if (mine !== generation) return true
     unread.value = suppressed.value === 'notifications' ? 0 : count(data?.notifications)
     announcements.value = suppressed.value === 'announcements' ? 0 : count(data?.announcements)

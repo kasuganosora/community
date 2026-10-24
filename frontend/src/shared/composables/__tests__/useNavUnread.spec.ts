@@ -14,7 +14,7 @@ describe('useNavUnread', () => {
     const nav = useNavUnread()
     expect(await nav.refreshNavUnread()).toBe(true)
     expect(get).toHaveBeenCalledTimes(1)
-    expect(get).toHaveBeenCalledWith('/api/v1/unread_counts')
+    expect(get).toHaveBeenCalledWith('/api/v1/unread_counts', expect.objectContaining({ timeout: 20_000, signal: expect.any(AbortSignal) }))
     expect(useNotificationUnread().unread.value).toBe(3)
     expect(nav.announcements.value).toBe(1)
     expect(nav.conversations.value).toBe(2)
@@ -29,6 +29,16 @@ describe('useNavUnread', () => {
     await nav.refreshNavUnread()
     expect(nav.conversations.value).toBe(0)
     expect(nav.announcements.value).toBe(1)
+  })
+
+  it('stops waiting when unread counts stay pending', async () => {
+    vi.useFakeTimers()
+    try {
+      get.mockImplementation(() => new Promise(() => {}))
+      const pending = useNavUnread().refreshNavUnread()
+      await vi.advanceTimersByTimeAsync(20_000)
+      await expect(pending).resolves.toBe(false)
+    } finally { vi.useRealTimers() }
   })
 
   it('ignores junk and keeps counts on failure', async () => {

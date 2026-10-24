@@ -84,6 +84,39 @@ describe('feed invalidation stream', () => {
     expect(callback).toHaveBeenLastCalledWith('poll')
   })
 
+  it('does not refetch a healthy public stream when the network reports online', async () => {
+    const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=public')
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    expect(callback).toHaveBeenCalledTimes(1)
+    push.enqueue(hint('subscribed', 'ready'))
+    await flushPromises()
+    const streams = fetcher.mock.calls.length
+    callback.mockClear()
+    // Stay under the 45s socket stall. Events are closer than the 15s online gate.
+    for (let i = 0; i < 3; i++) {
+      window.dispatchEvent(new Event('online'))
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(10_000)
+    }
+    expect(callback).not.toHaveBeenCalled()
+    expect(fetcher.mock.calls.length).toBe(streams)
+  })
+
+  it('reconnects a public stream after a short drop without walking the window', async () => {
+    const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=public')
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    push.enqueue(hint('subscribed', 'ready'))
+    await flushPromises()
+    callback.mockClear()
+    const streams = fetcher.mock.calls.length
+    push.close()
+    await flushPromises()
+    window.dispatchEvent(new Event('online'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(1_000)
+    expect(callback).not.toHaveBeenCalled()
+    expect(fetcher.mock.calls.length).toBeGreaterThan(streams)
+  })
+
   it('follows an in-flight head poll with one gap walk, and does not queue a second window', async () => {
     let release!: () => void
     const callback = vi.fn(() => new Promise<boolean>(resolve => { release = () => resolve(true) }))
