@@ -166,6 +166,7 @@
     "skipped": "已跳過"
   },
   "stages": {
+    "source_probe": "檢查來源資料庫",
     "config": "寫入配置",
     "schema": "建立資料庫結構",
     "misskey_meta": "匯入例項設定",

@@ -34,6 +34,7 @@ type MastodonParams struct {
 
 func mastodonStages() map[string]stageFunc {
 	s := commonStages()
+	s["source_probe"] = stageSourceProbe
 	s["mastodon_media"] = stageMastodonMedia
 	s["mastodon_export"] = stageMastodonExport
 	s["mastodon_preflight"] = func(ctx context.Context, r *runner) error {
@@ -109,39 +110,40 @@ func openMastodon(m MastodonParams, password string) (*gorm.DB, error) {
 
 // MastodonInspection summarizes a source database for the wizard.
 type MastodonInspection struct {
+	// Counts are PostgreSQL planner estimates, not exact scans.
 	Counts            map[string]int64 `json:"counts"`
 	DetectedBaseURL   string           `json:"detected_base_url"`
 	BaseURLCandidates []string         `json:"base_url_candidates,omitempty"`
 }
 
 func inspectMastodon(conn *gorm.DB) (*MastodonInspection, *Error) {
+	conn, done := probeSession(conn)
+	defer done()
 	for _, t := range []string{"accounts", "statuses", "users"} {
 		if !conn.Migrator().HasTable(t) {
 			return nil, fail("mastodon_not_mastodon")
 		}
 	}
 	res := &MastodonInspection{Counts: map[string]int64{}}
-	count := func(key, sql string) {
-		var n int64
-		if conn.Raw(sql).Scan(&n).Error == nil {
-			res.Counts[key] = n
-		}
-	}
-	count("local_users", `SELECT count(*) FROM accounts WHERE domain IS NULL AND id > 0`)
-	count("remote_users", `SELECT count(*) FROM accounts WHERE domain IS NOT NULL`)
-	count("notes", `SELECT count(*) FROM statuses`)
+	rows, frac, ok := estimateRelation(conn, "accounts", "domain")
+	setEstimate(res.Counts, "local_users", "remote_users", rows, frac, ok)
+	rows, _, ok = estimateRelation(conn, "statuses", "")
+	setEstimate(res.Counts, "notes", "", rows, nil, ok)
 	if conn.Migrator().HasTable("media_attachments") {
-		count("files", `SELECT count(*) FROM media_attachments`)
+		rows, _, ok = estimateRelation(conn, "media_attachments", "")
+		setEstimate(res.Counts, "files", "", rows, nil, ok)
 	}
 	if conn.Migrator().HasTable("custom_emojis") {
-		count("emojis", `SELECT count(*) FROM custom_emojis WHERE domain IS NULL`)
+		rows, frac, ok = estimateRelation(conn, "custom_emojis", "domain")
+		setEstimate(res.Counts, "emojis", "", rows, frac, ok)
 	}
 	if conn.Migrator().HasTable("follows") {
-		count("follows", `SELECT count(*) FROM follows`)
+		rows, _, ok = estimateRelation(conn, "follows", "")
+		setEstimate(res.Counts, "follows", "", rows, nil, ok)
 	}
 	// Local statuses store their canonical URI (https://<domain>/users/<name>/statuses/<id>).
 	var uris []string
-	conn.Raw(`SELECT s.uri FROM statuses s JOIN accounts a ON a.id = s.account_id WHERE a.domain IS NULL AND s.uri LIKE 'http%' ORDER BY s.id DESC LIMIT 200`).Scan(&uris)
+	conn.Raw(`SELECT s.uri FROM statuses s JOIN accounts a ON a.id = s.account_id WHERE a.domain IS NULL AND s.uri LIKE 'http%' ORDER BY s.id DESC LIMIT 50`).Scan(&uris)
 	votes := map[string]int{}
 	for _, u := range uris {
 		if o := originOf(u, "/users/"); o != "" {

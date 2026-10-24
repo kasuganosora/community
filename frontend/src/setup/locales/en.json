@@ -166,6 +166,7 @@
     "skipped": "Skipped"
   },
   "stages": {
+    "source_probe": "Check source database",
     "config": "Write configuration",
     "schema": "Create database schema",
     "misskey_meta": "Import instance settings",

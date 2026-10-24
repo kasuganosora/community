@@ -166,6 +166,7 @@
     "skipped": "Übersprungen"
   },
   "stages": {
+    "source_probe": "Quelldatenbank prüfen",
     "config": "Konfiguration schreiben",
     "schema": "Datenbankschema anlegen",
     "misskey_meta": "Instanzeinstellungen importieren",
