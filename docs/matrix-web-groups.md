@@ -56,7 +56,7 @@
 | 静音 | `POST /groups/:id/preferences` | `{muted:true}`／`{muted:false}` |
 | 增量同步 | `POST /group-sync` | `{since,timeout}`，详见下一节 |
 
-分页 `limit` 最大 100。各接口的游标不能混用。搜索分“我的群组”、本站公开目录、指定远端公开目录；不是全网搜索。选择远端目录会将查询发到该服务器。精确别名、`matrix.to` 链接和 `matrix:` URI 可独立解析，不能把 `user@domain` 当作 Matrix 成员 ID；邀请支持本站用户名及完整 Matrix ID。
+分页 `limit` 最大 100。各接口的游标不能混用。搜索分“我的群组”、本站公开目录、指定远端公开目录；不是全网搜索。选择远端目录会将查询发到该服务器。精确别名、`matrix.to` 链接和 `matrix:` URI 可独立解析；别名属于其他服务器时，房间目录和本站公开搜索只询问该服务器，并丢弃对方未按关键词过滤的其他房间。对方拒绝目录时返回错误，而不是空的成功结果。普通关键词（例如只输入服务器名）不会自动发往远端。不能把 `user@domain` 当作 Matrix 成员 ID；邀请支持本站用户名及完整 Matrix ID。
 
 群详情主要字段为 `id`、`name`、`topic`、`avatar_url`、`membership`、`encryption`、`join_rule`、`listed`、`member_count`、`unread_count`、`muted`、`typing_users`、`current_user_id`、`client_url`、`capabilities`、`limits`，可能附有 `replacement_id` 和 `room_type`。`capabilities` 决定界面可展示的操作，服务端仍在提交时重新授权。
 
