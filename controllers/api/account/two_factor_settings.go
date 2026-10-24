@@ -42,7 +42,7 @@ func TwoFactorStatus(c *gin.Context) {
 		return
 	}
 
-	resp := gin.H{"enabled": row.Enabled(), "enabled_at": nil, "backup_codes_remaining": 0}
+	resp := gin.H{"enabled": row.Enabled(), "enabled_at": nil, "backup_codes_remaining": 0, "security_pin_set": twofactor.SecurityPINSet(row)}
 	if row.Enabled() {
 		n, _ := twofactor.RemainingBackupCodes(db.GetDB(), u.Id)
 		resp["enabled_at"], resp["backup_codes_remaining"] = row.EnabledAt, n
@@ -206,4 +206,111 @@ func TwoFactorDisable(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"enabled": false})
+}
+
+type securityPINReq struct {
+	Password string `json:"password"`
+	Code     string `json:"code"`
+	PIN      string `json:"pin"`
+}
+
+func writeSecurityPINError(c *gin.Context, userID uint64, err error) bool {
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, twofactor.ErrInvalidPIN):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_security_pin"})
+	case errors.Is(err, twofactor.ErrNotEnabled):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "two_factor_not_enabled"})
+	case errors.Is(err, twofactor.ErrPINNotSet):
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "security_pin_not_set"})
+	default:
+		log.Error("security PIN for user %d: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+	}
+
+	return true
+}
+
+// TwoFactorSetSecurityPIN POST /accounts/two_factor/security_pin
+// {password, code, pin}. Stores a hash. TOTP stays enabled.
+func TwoFactorSetSecurityPIN(c *gin.Context) {
+	_, u, ok := lifecycleIdentity(c)
+	if !ok {
+		return
+	}
+
+	req := &securityPINReq{}
+	if c.ShouldBindJSON(req) != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid request"})
+
+		return
+	}
+
+	// Reject a bad PIN before the second factor is consumed.
+	if _, err := twofactor.NormalizeSecurityPIN(req.PIN); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_security_pin"})
+
+		return
+	}
+
+	if !lifecyclePasswordOnly(c, u.Id, req.Password) || !RequireSecondFactorForSensitive(c, u.Id, req.Code) {
+		return
+	}
+
+	if writeSecurityPINError(c, u.Id, twofactor.SetSecurityPIN(db.GetDB(), u.Id, req.PIN)) {
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"security_pin_set": true})
+}
+
+// TwoFactorRemoveSecurityPIN POST /accounts/two_factor/security_pin/remove
+// {password, code}. Clears the hash. TOTP stays enabled.
+func TwoFactorRemoveSecurityPIN(c *gin.Context) {
+	_, u, ok := lifecycleIdentity(c)
+	if !ok {
+		return
+	}
+
+	req := &securityPINReq{}
+	if c.ShouldBindJSON(req) != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid request"})
+
+		return
+	}
+
+	if !lifecyclePasswordOnly(c, u.Id, req.Password) {
+		return
+	}
+
+	row, err := twofactor.Load(db.GetDB(), u.Id)
+	if err != nil {
+		log.Error("security PIN for user %d: %v", u.Id, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+
+		return
+	}
+
+	if !row.Enabled() {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "two_factor_not_enabled"})
+
+		return
+	}
+
+	if !twofactor.SecurityPINSet(row) {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "security_pin_not_set"})
+
+		return
+	}
+
+	if !RequireSecondFactorForSensitive(c, u.Id, req.Code) {
+		return
+	}
+
+	if writeSecurityPINError(c, u.Id, twofactor.RemoveSecurityPIN(db.GetDB(), u.Id)) {
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"security_pin_set": false, "enabled": true})
 }

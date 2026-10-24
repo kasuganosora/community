@@ -77,6 +77,7 @@ var ScripsType = []MigrationScript{
 	GroupTranslationRefsScript{},
 	SlowQueryIndexesScript{},
 	RetentionIndexesScript{},
+	TwoFactorSecurityPinScript{},
 }
 
 type MigrationScript interface {

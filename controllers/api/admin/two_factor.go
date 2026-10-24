@@ -38,7 +38,7 @@ func GetAccountTwoFactor(c *gin.Context) {
 		return
 	}
 
-	resp := gin.H{"enabled": row.Enabled(), "enabled_at": nil, "backup_codes_remaining": 0}
+	resp := gin.H{"enabled": row.Enabled(), "enabled_at": nil, "backup_codes_remaining": 0, "security_pin_set": twofactor.SecurityPINSet(row)}
 	if row.Enabled() {
 		n, _ := twofactor.RemainingBackupCodes(db.GetDB(), account.UserId)
 		resp["enabled_at"], resp["backup_codes_remaining"] = row.EnabledAt, n

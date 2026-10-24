@@ -143,6 +143,121 @@ func TestLockout(t *testing.T) {
 	}
 }
 
+func TestSecurityPINIsHashedOptionalAndSharesLockout(t *testing.T) {
+	db := testDB(t)
+	adv := setClock(t, time.Unix(1_700_000_000, 0))
+	secret, codes := enable(t, db, 8)
+
+	if _, err := NormalizeSecurityPIN("short"); err != ErrInvalidPIN {
+		t.Fatalf("short pin: %v", err)
+	}
+	if _, err := NormalizeSecurityPIN("has space"); err != ErrInvalidPIN {
+		t.Fatalf("spaces: %v", err)
+	}
+	if _, err := NormalizeSecurityPIN("pin-with-symbol"); err != ErrInvalidPIN {
+		t.Fatalf("symbol: %v", err)
+	}
+	if err := SetSecurityPIN(db, 8, "nope"); err != ErrInvalidPIN {
+		t.Fatalf("reject weak pin: %v", err)
+	}
+	if err := SetSecurityPIN(db, 99, "cafe42"); err != ErrNotEnabled {
+		t.Fatalf("pin without 2FA: %v", err)
+	}
+
+	if err := SetSecurityPIN(db, 8, "cafe42"); err != nil {
+		t.Fatal(err)
+	}
+	row, err := Load(db, 8)
+	if err != nil || !row.Enabled() || !SecurityPINSet(row) {
+		t.Fatal("setting a PIN must keep TOTP enabled", err)
+	}
+	if strings.Contains(row.PinHash, "cafe42") || !strings.HasPrefix(row.PinHash, "$2") {
+		t.Fatal("PIN stored in plaintext")
+	}
+
+	adv(60 * time.Second)
+	if err := Verify(db, 8, "cafe42"); err != nil {
+		t.Fatalf("pin login: %v", err)
+	}
+	if err := Verify(db, 8, "  cafe42  "); err != nil {
+		t.Fatalf("trimmed pin: %v", err)
+	}
+	if err := Verify(db, 8, "CAFE42"); err != ErrInvalidCode {
+		t.Fatalf("pin is case-sensitive: %v", err)
+	}
+	// a 6-digit PIN is accepted when it is not the current TOTP code
+	if err := SetSecurityPIN(db, 8, "135790"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Generate(secret, now()); got == "135790" {
+		t.Fatal("fixture PIN collided with the current TOTP code")
+	}
+	if err := Verify(db, 8, "cafe42"); err != ErrInvalidCode {
+		t.Fatal("old PIN still worked")
+	}
+	if err := Verify(db, 8, "135790"); err != nil {
+		t.Fatalf("numeric pin: %v", err)
+	}
+	adv(30 * time.Second)
+	code, _ := Generate(secret, now())
+	if code == "135790" {
+		t.Fatal("fixture PIN collided with the current TOTP code")
+	}
+	if err := Verify(db, 8, code); err != nil {
+		t.Fatalf("totp still works: %v", err)
+	}
+	if err := Verify(db, 8, codes[0]); err != nil {
+		t.Fatalf("backup still works: %v", err)
+	}
+	if err := Verify(db, 8, codes[0]); err != ErrInvalidCode {
+		t.Fatal("backup code became reusable")
+	}
+	stepBefore, _ := Load(db, 8)
+	if err := Verify(db, 8, "135790"); err != nil {
+		t.Fatal(err)
+	}
+	stepAfter, _ := Load(db, 8)
+	if stepAfter.LastUsedStep != stepBefore.LastUsedStep {
+		t.Fatal("PIN use must not consume a TOTP step")
+	}
+
+	for range MaxFailures - 1 {
+		if err := Verify(db, 8, "notthepin"); err != ErrInvalidCode {
+			t.Fatal(err)
+		}
+	}
+	if err := Verify(db, 8, "135790"); err != nil {
+		t.Fatalf("pin before lockout: %v", err)
+	}
+	for range MaxFailures {
+		if err := Verify(db, 8, "wrongpin"); err != ErrInvalidCode {
+			t.Fatal(err)
+		}
+	}
+	if err := Verify(db, 8, "135790"); err != ErrLocked {
+		t.Fatalf("pin must share the 2FA lockout, got %v", err)
+	}
+	adv(LockDuration + time.Second)
+	if err := RemoveSecurityPIN(db, 8); err != nil {
+		t.Fatal(err)
+	}
+	if row, _ = Load(db, 8); !row.Enabled() || SecurityPINSet(row) {
+		t.Fatal("removing the PIN disabled TOTP or left the hash")
+	}
+	if err := Verify(db, 8, "135790"); err != ErrInvalidCode {
+		t.Fatalf("removed pin: %v", err)
+	}
+	if err := RemoveSecurityPIN(db, 8); err != ErrPINNotSet {
+		t.Fatalf("second remove: %v", err)
+	}
+	if err := AdminReset(db, 8); err != nil {
+		t.Fatal(err)
+	}
+	if on, _ := IsEnabled(db, 8); on {
+		t.Fatal("reset left 2FA enabled")
+	}
+}
+
 func TestDisableImportAndChallenge(t *testing.T) {
 	db := testDB(t)
 	setClock(t, time.Unix(1_700_000_000, 0))

@@ -58,4 +58,10 @@ func TestToken_PasswordGrant_TwoFactor(t *testing.T) {
 	assert.Equal(t, http.StatusOK, code)
 	code, _ = grant("backup-one")
 	assert.Equal(t, http.StatusBadRequest, code, "backup code reuse")
+
+	require.NoError(t, twofactor.SetSecurityPIN(env.gdb, user.Id, "cafe42"))
+	code, body = grant("cafe42")
+	assert.Equal(t, http.StatusOK, code, body)
+	code, _ = grant("cafe42")
+	assert.Equal(t, http.StatusOK, code, "security PIN stays reusable and does not turn off TOTP")
 }

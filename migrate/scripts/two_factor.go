@@ -22,6 +22,7 @@ type userTwoFactorRow struct {
 	LastUsedStep     int64 `gorm:"not null;default:0"`
 	FailedAttempts   int   `gorm:"not null;default:0"`
 	LockedUntil      *time.Time
+	PinHash          string `gorm:"type:varchar(255);not null;default:''"`
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }

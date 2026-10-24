@@ -23,7 +23,7 @@ const redacted = "[REDACTED]"
 
 // sensitiveColumn matches column names that carry credentials. It is a
 // substring match on purpose (refresh_token, device_token, password_hash...).
-const sensitiveColumn = `(?:access_token|refresh_token|token|password|passwd|secret|passphrase|api_key|private_key|authorization|code_hash)`
+const sensitiveColumn = `(?:access_token|refresh_token|token|password|passwd|secret|passphrase|api_key|private_key|authorization|code_hash|pin_hash)`
 
 var (
 	// col = 'value' | col IN ('a','b') | col LIKE 'x' | col = ?

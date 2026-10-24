@@ -4,6 +4,8 @@ export interface TwoFactorStatus {
   enabled: boolean
   enabled_at: string | null
   backup_codes_remaining: number
+  /** True when a security PIN hash is stored. The PIN does not replace TOTP. */
+  security_pin_set?: boolean
 }
 
 export interface TwoFactorSetup {
@@ -21,4 +23,10 @@ export const twoFactorApi = {
     return (await client.post<{ backup_codes: string[] }>(`${path}/backup_codes`, { password, code })).data
   },
   async disable(password: string, code: string) { await client.post(`${path}/disable`, { password, code }) },
+  async setSecurityPin(password: string, code: string, pin: string) {
+    return (await client.post<{ security_pin_set: boolean }>(`${path}/security_pin`, { password, code, pin })).data
+  },
+  async removeSecurityPin(password: string, code: string) {
+    await client.post(`${path}/security_pin/remove`, { password, code })
+  },
 }
