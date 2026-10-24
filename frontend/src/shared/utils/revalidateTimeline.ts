@@ -66,8 +66,84 @@ export async function refreshTimelineHead<T extends { id: string }>(
   return { statuses: current.map(status => fresh.get(status.id) ?? status), newer, head }
 }
 
+type PublishedRow = { id: string, created_at?: string }
+
+function publishedAt(row: PublishedRow): number | null {
+  if (typeof row.created_at !== 'string' || !row.created_at) return null
+  const value = Date.parse(row.created_at)
+  return Number.isFinite(value) ? value : null
+}
+
+function publicationOrdered(rows: PublishedRow[]): boolean {
+  return rows.every(row => publishedAt(row) !== null && /^\d+$/.test(row.id))
+}
+
+/** Negative when `a` is strictly older than `b` (publication time, then id). */
+function publicationCompare(a: PublishedRow, b: PublishedRow): number | null {
+  const left = publishedAt(a)
+  const right = publishedAt(b)
+  if (left === null || right === null || !/^\d+$/.test(a.id) || !/^\d+$/.test(b.id)) return null
+  if (left !== right) return left < right ? -1 : 1
+  if (a.id === b.id) return 0
+  return BigInt(a.id) < BigInt(b.id) ? -1 : 1
+}
+
+/**
+ * Page with the last returned status as max_id. That cursor means "older than
+ * this post". id+1 is not that post: the next serial row is often a federated
+ * status ingested late, with an older created_at, and the following page then
+ * misses the loaded window entirely.
+ */
+async function revalidateByPublication<T extends PublishedRow>(
+  current: T[],
+  head: T[],
+  read: (cursor: string | undefined, limit: number) => Promise<T[]>,
+  valid: () => boolean,
+  knownHead: readonly string[] | undefined,
+  edits: ReturnType<typeof captureEdits>,
+) {
+  const old = new Set(current.map(row => row.id))
+  const oldest = current[current.length - 1]!
+  const pending = new Map<string, { id: string }>()
+  const addPending = (id: string) => {
+    if (!old.has(id) && !knownHead?.includes(id) && pending.size < TIMELINE_PAGE_SIZE) pending.set(id, { id })
+  }
+  const found = new Map<string, T>()
+  let page = head
+  let confirmed = false
+  const seen = new Set<string>()
+  // The retained window is at most eight pages. Stop there and keep any row
+  // we could not reach, instead of treating a short walk as a revocation.
+  for (let hop = 0; hop < 8; hop++) {
+    if (!valid()) return null
+    let comparable = true
+    for (const status of page) {
+      if (old.has(status.id)) found.set(status.id, status)
+      else {
+        const order = publicationCompare(status, oldest)
+        if (order === null) comparable = false
+        else if (order !== -1) addPending(status.id)
+      }
+    }
+    const tail = page.at(-1)
+    const order = tail ? publicationCompare(tail, oldest) : null
+    if (current.every(row => found.has(row.id)) || page.length < TIMELINE_PAGE_SIZE || (order !== null && order <= 0)) {
+      confirmed = comparable
+      break
+    }
+    if (!comparable || !tail?.id || seen.has(tail.id)) break
+    seen.add(tail.id)
+    page = await read(tail.id, TIMELINE_PAGE_SIZE)
+  }
+  settleAuthoritativeEdits([...head, ...found.values()], edits)
+  const statuses = (confirmed ? current.filter(row => found.has(row.id)) : current).map(row => found.get(row.id) ?? row)
+  return { statuses, newer: [...pending.values()] }
+}
+
 /** Re-read a bounded historical window, not just since_id (which misses revocations
- * and delayed commits). Previously unseen rows wait behind the new-content button. */
+ * and delayed commits). Previously unseen rows wait behind the new-content button.
+ * Rows with created_at are paged by publication time. A synthetic id+1 cursor is
+ * only for id-only fixtures; on a real timeline it blanks the loaded page. */
 export async function revalidateTimeline<T extends { id: string }>(
   current: T[],
   fetchPage: (maxId: string | undefined, limit: number) => Promise<T[]>,
@@ -81,6 +157,9 @@ export async function revalidateTimeline<T extends { id: string }>(
   const head = await read(undefined, TIMELINE_PAGE_SIZE)
   if (!valid()) return null
   if (!current.length) { settleAuthoritativeEdits(head, edits); return { statuses: head, newer: [] as T[] } }
+  if (publicationOrdered(current) && (head.length === 0 || publicationOrdered(head))) {
+    return revalidateByPublication(current, head, read, valid, knownHead, edits)
+  }
   const first = current[0]!.id
   const last = current[current.length - 1]!.id
   // IDs stay strings throughout; never round a snowflake through Number.

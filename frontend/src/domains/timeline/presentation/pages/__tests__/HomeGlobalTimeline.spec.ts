@@ -175,6 +175,39 @@ it.each([
   expect(feed().props('statuses')[0].id).toBe('200')
 })
 
+it('keeps following posts when a tab return re-reads a publication-ordered home timeline', async () => {
+  const visible = [
+    { id: '240737', created_at: '2026-10-24T12:00:00.000Z', content: 'visible newest', visibility: 'public' },
+    { id: '240700', created_at: '2026-10-24T11:00:00.000Z', content: 'visible older', visibility: 'public' },
+  ] as MastodonStatus[]
+  const arrived = { id: '240800', created_at: '2026-10-24T13:00:00.000Z', content: 'just arrived', visibility: 'public' } as MastodonStatus
+  let homeHeads = 0
+  vi.spyOn(client, 'get').mockImplementation(async (url, config) => {
+    const maxId = (config?.params as { max_id?: string } | undefined)?.max_id
+    if (String(url).endsWith('/public')) return { data: [{ id: '9', created_at: '2026-10-24T12:00:00.000Z', content: 'public', visibility: 'public' }] }
+    if (!String(url).endsWith('/home')) return { data: [] }
+    if (!maxId) {
+      homeHeads += 1
+      return { data: homeHeads === 1 ? visible : [arrived, ...visible] }
+    }
+    // id 240738 is the next serial after the loaded head and is older by publication time.
+    if (maxId === '240738') return { data: [{ id: '100', created_at: '2026-08-01T00:00:00.000Z', content: 'ancient', visibility: 'public' }] }
+    return { data: [] }
+  })
+  wrapper = mount(HomePage, options)
+  await flushPromises()
+  expect(feed().props('statuses').map((post: MastodonStatus) => post.id)).toEqual(['240737', '240700'])
+
+  await select('global')
+  await select('following')
+  const shown = feed().props('statuses').map((post: MastodonStatus) => post.id)
+  expect(shown).toEqual(['240737', '240700'])
+  expect(feed().props('loading')).toBe(false)
+  expect(feed().props('error')).toBeNull()
+  expect(wrapper.get('[data-testid="new-posts-pill"]').text()).toContain('有新帖子，点击查看')
+  expect(shown).not.toContain('240800')
+})
+
 it('retries a failed page with its original cursor instead of refreshing the head', async () => {
   const store = useTimelineStore()
   store.homeTab = 'global'
