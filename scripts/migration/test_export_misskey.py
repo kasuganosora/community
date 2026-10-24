@@ -184,6 +184,17 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(b["emojis"][0]["media_id"], "")
         self.assertFalse((self.output / "media").exists())
 
+    def test_reference_mode_ignores_a_missing_source_dir(self):
+        missing = self.root / "misskey" / "files"
+        conv = m.Converter(self.tables, "https://source.test", "aidx", missing, self.output, object_mode="reference", object_base_url="https://r2.test")
+        self.assertIsNone(conv.source_dir)
+        self.assertIn("accounts", conv.convert())
+
+    def test_a_missing_source_dir_still_fails_outside_reference_mode(self):
+        missing = self.root / "misskey" / "files"
+        with self.assertRaises(FileNotFoundError):
+            m.Converter(self.tables, "https://source.test", "aidx", missing, self.output)
+
     def test_object_storage_copy_reads_bucket_mirror(self):
         mirror = self.root / "mirror"
         (mirror / "files").mkdir(parents=True)

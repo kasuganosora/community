@@ -382,6 +382,14 @@ func TestPrivacyPolicyIssueNamesFieldAndValue(t *testing.T) {
 	o.Scope = "site"
 	b.Scope = "site"
 	o.TargetBaseURL = b.Source.BaseURL
+	private, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	public, err := x509.MarshalPKIXPublicKey(&private.PublicKey)
+	require.NoError(t, err)
+	password, err := bcrypt.GenerateFromPassword([]byte("fixture passphrase"), bcrypt.MinCost)
+	require.NoError(t, err)
+	b.Credentials = []Credential{{AccountID: "a", PasswordHash: string(password), PasswordScheme: "bcrypt"}}
+	b.Keys = []FederationKey{{AccountID: "a", KeyID: "https://old.example/users/alice#main-key", Primary: true, PublicKey: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: public})), PrivateKey: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(private)}))}}
 	b.Accounts[0].Settings = map[string]any{"requireSigninToViewContents": true, "makeNotesFollowersOnlyBefore": nil, "makeNotesHiddenBefore": float64(-2592000)}
 	r, err := Preview(context.Background(), conn, b, o)
 	require.NoError(t, err)
@@ -393,4 +401,10 @@ func TestPrivacyPolicyIssueNamesFieldAndValue(t *testing.T) {
 	}
 	require.Len(t, messages, 1)
 	require.Contains(t, messages[0], "makeNotesHiddenBefore=-2592000")
+	for _, issue := range r.Issues {
+		if issue.Code == "unsupported_privacy_policy" {
+			require.Equal(t, "warning", issue.Severity)
+		}
+	}
+	require.True(t, r.CanExecute, "a Misskey-only visibility window must not block import: %+v", r.Issues)
 }

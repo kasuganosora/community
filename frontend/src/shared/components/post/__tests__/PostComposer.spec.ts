@@ -13,7 +13,7 @@ describe('PostComposer media upload', () => {
     vi.spyOn(postApi, 'uploadMedia').mockImplementation(() => new Promise(resolve => { finishUpload = resolve }))
     const create = vi.spyOn(postApi, 'create').mockResolvedValue({ id: 'new' } as MastodonStatus)
     const wrapper = shallowMount(PostComposer, { global: { plugins: [createPinia()], renderStubDefaultSlot: true } })
-    wrapper.findComponent({ name: 'TTextarea' }).vm.$emit('update:modelValue', 'With a picture')
+    await wrapper.get('textarea').setValue('With a picture')
     const input = wrapper.find('input[type="file"]')
     Object.defineProperty(input.element, 'files', { value: [new File(['image'], 'test.png', { type: 'image/png' })] })
     await input.trigger('change')
@@ -41,7 +41,7 @@ describe('PostComposer delete and repost', () => {
     await flushPromises()
     expect(wrapper.get('[role="note"]').text()).toContain('帖子链接会改变')
     expect(wrapper.text()).toContain('删除原帖并重发')
-    wrapper.findComponent({ name: 'TTextarea' }).vm.$emit('update:modelValue', 'Rewritten')
+    await wrapper.get('textarea').setValue('Rewritten')
     await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
     await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
     expect(replace).toHaveBeenCalledTimes(1)
@@ -62,11 +62,11 @@ describe('PostComposer delete and repost', () => {
     const replace = vi.spyOn(postApi, 'replaceStatus').mockRejectedValueOnce(new Error('Service unavailable')).mockResolvedValueOnce({ ...original, id: 'new' })
     const wrapper = shallowMount(PostComposer, { props: { editStatus: original }, global: { plugins: [createPinia()], renderStubDefaultSlot: true } })
     await flushPromises()
-    wrapper.findComponent({ name: 'TTextarea' }).vm.$emit('update:modelValue', 'Keep my draft')
+    await wrapper.get('textarea').setValue('Keep my draft')
     await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('草稿已保留')
-    expect(wrapper.findComponent({ name: 'TTextarea' }).props('modelValue')).toBe('Keep my draft')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('Keep my draft')
     expect(wrapper.emitted('posted')).toBeUndefined()
     await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
     await flushPromises()
@@ -79,7 +79,7 @@ describe('PostComposer delete and repost', () => {
     const replace = vi.spyOn(postApi, 'replaceStatus')
     const wrapper = shallowMount(PostComposer, { props: { editStatus: original }, global: { plugins: [createPinia()] } })
     await flushPromises()
-    wrapper.findComponent({ name: 'TTextarea' }).vm.$emit('update:modelValue', 'Do not overwrite unavailable source')
+    await wrapper.get('textarea').setValue('Do not overwrite unavailable source')
     await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
     expect(replace).not.toHaveBeenCalled()
     expect(wrapper.get('[role="alert"]').text()).toContain('无法读取原帖内容')
@@ -91,10 +91,7 @@ describe('PostComposer delete and repost', () => {
 
 describe('PostComposer custom emoji insertion', () => {
   it('replaces the selected range and restores the caret', async () => {
-    const wrapper = shallowMount(PostComposer, { global: {
-      plugins: [createPinia()],
-      stubs: { TTextarea: { props: ['modelValue'], emits: ['update:modelValue'], template: '<textarea :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />' } },
-    } })
+    const wrapper = shallowMount(PostComposer, { global: { plugins: [createPinia()] } })
     const input = wrapper.get('textarea')
     await input.setValue('left replace right')
     const element = input.element as HTMLTextAreaElement
@@ -135,7 +132,7 @@ describe('PostComposer visibility controls', () => {
     await wrapper.findAll('[role="option"]')[2]!.trigger('click')
     expect(trigger.text()).toBe('仅关注者')
     expect(document.activeElement).toBe(trigger.element)
-    wrapper.findComponent({ name: 'TTextarea' }).vm.$emit('update:modelValue', 'For my followers')
+    await wrapper.get('textarea').setValue('For my followers')
     await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ visibility: 'private', status: 'For my followers' }))
     wrapper.unmount()
@@ -144,10 +141,7 @@ describe('PostComposer visibility controls', () => {
 
 describe('PostComposer topic and mention tools', () => {
   it('inserts at the selection and keeps focus and the caret in the draft', async () => {
-    const wrapper = shallowMount(PostComposer, { attachTo: document.body, global: {
-      plugins: [createPinia()],
-      stubs: { TTextarea: { props: ['modelValue'], emits: ['update:modelValue'], template: '<textarea :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />' } },
-    } })
+    const wrapper = shallowMount(PostComposer, { attachTo: document.body, global: { plugins: [createPinia()] } })
     const input = wrapper.get('textarea')
     const element = input.element as HTMLTextAreaElement
     await input.setValue('left replace right')
@@ -166,19 +160,12 @@ describe('PostComposer topic and mention tools', () => {
 })
 
 describe('PostComposer mention suggestions', () => {
-  // Like TDesign's textarea, the model only follows the DOM outside an IME composition.
-  const ImeTextarea = {
-    props: ['modelValue'],
-    emits: ['update:modelValue'],
-    data: () => ({ composing: false }),
-    template: '<textarea :value="modelValue" @compositionstart="composing = true" @compositionend="composing = false; $emit(\'update:modelValue\', $event.target.value)" @input="composing || $emit(\'update:modelValue\', $event.target.value)" />',
-  }
   const qa = { id: '192', username: 'qa', acct: 'qa', display_name: '', avatar: '', emojis: [] }
 
   async function openSuggestions() {
     vi.useFakeTimers()
     vi.spyOn(userApi, 'searchAccounts').mockResolvedValue([qa] as never)
-    const wrapper = shallowMount(PostComposer, { attachTo: document.body, global: { plugins: [createPinia()], stubs: { TTextarea: ImeTextarea } } })
+    const wrapper = shallowMount(PostComposer, { attachTo: document.body, global: { plugins: [createPinia()] } })
     const input = wrapper.get('textarea')
     const element = input.element as HTMLTextAreaElement
     element.focus()
@@ -222,6 +209,25 @@ describe('PostComposer mention suggestions', () => {
     expect(element.selectionStart).toBe(4)
     await input.setValue('@qa hi')
     expect(element.value).toBe('@qa hi')
+    wrapper.unmount()
+  })
+
+  it('keeps a Chinese IME composition until compositionend, then enables publish', async () => {
+    const wrapper = shallowMount(PostComposer, { attachTo: document.body, global: { plugins: [createPinia()] } })
+    const input = wrapper.get('textarea')
+    const element = input.element as HTMLTextAreaElement
+    element.focus()
+    await input.trigger('compositionstart')
+    element.value = '你好'
+    await input.trigger('input')
+    // A re-render while the IME is open must not write the empty model back.
+    await wrapper.get('button[aria-label="可见范围"]').trigger('click')
+    expect(element.value).toBe('你好')
+    expect(wrapper.get('.composer__submit').attributes('disabled')).toBe('true')
+    await input.trigger('compositionend')
+    await flushPromises()
+    expect(element.value).toBe('你好')
+    expect(wrapper.get('.composer__submit').attributes('disabled')).toBe('false')
     wrapper.unmount()
   })
 })

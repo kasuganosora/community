@@ -90,6 +90,10 @@ watch(() => [mode.value, src.value.host, src.value.port, src.value.name, src.val
 }, { flush: 'sync' })
 watch(token, () => { verified.value = false })
 watch(() => [src.value.media_source, src.value.media_mode, src.value.object_storage], () => { tested.storage = false }, { deep: true, flush: 'sync' })
+watch(() => src.value.media_source, (value) => {
+  if (value === 's3') src.value.files_path = ''
+  else if (!src.value.files_path.trim()) src.value.files_path = mode.value === 'misskey' ? '/misskey/files' : '/mastodon/public/system'
+})
 watch([step, phase], async () => {
   await nextTick()
   const heading = content.value?.querySelector<HTMLElement>('h2')
@@ -176,7 +180,12 @@ function databaseBody() {
   return db.type === 'sqlite' ? { type: 'sqlite', path: db.path } : { ...db, port: Number(db.port) }
 }
 function misskeyBody() {
-  return { ...source, port: Number(source.port), object_storage: storageBody(source), stop_check: { ...stopCheck, redis_db: Number(stopCheck.redis_db) } }
+  return omitLocalFiles({ ...source, port: Number(source.port), object_storage: storageBody(source), stop_check: { ...stopCheck, redis_db: Number(stopCheck.redis_db) } })
+}
+/** Object storage does not use the local files directory. The field is hidden
+ *  for S3, but its default (/misskey/files) must not be submitted. */
+function omitLocalFiles<T extends { media_source: string; files_path: string }>(body: T): T {
+  return body.media_source === 's3' ? { ...body, files_path: '' } : body
 }
 function checkStatusText(status: string) { return t(`stopCheck.status.${status}`) }
 const runSourceCheck = () => guarded('stopcheck', async () => {
@@ -193,7 +202,7 @@ function storageBody(value: typeof source) {
 }
 function mastodonBody() {
   const { host, port, name, user, password, sslmode, media_source, files_path, media_mode } = mastodonSource
-  return { host, port: Number(port), name, user, password, sslmode, media_source, files_path, media_mode, object_storage: storageBody(mastodonSource) }
+  return omitLocalFiles({ host, port: Number(port), name, user, password, sslmode, media_source, files_path, media_mode, object_storage: storageBody(mastodonSource) })
 }
 function modeLabel() { return t(`mode.${mode.value}`) }
 function pickMode() {
@@ -244,6 +253,7 @@ const inspectSource = () => guarded('source', async () => {
     Object.assign(src.value.object_storage, { endpoint: '', bucket: '', region: '', access_key: '', secret_key: '', public_url: '', path_style: true })
     if (mode.value === 'misskey' && res.inspection.uses_object_storage && res.inspection.object_storage) {
       source.media_source = 's3'
+      source.files_path = ''
       Object.assign(source.object_storage, res.inspection.object_storage, { secret_key: '' })
     }
   }

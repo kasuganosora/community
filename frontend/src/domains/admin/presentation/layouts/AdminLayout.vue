@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import LogoIcon from '@/shared/components/common/LogoIcon.vue'
+import BrandMark from '@/shared/components/common/BrandMark.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { visibleAdminNavigation, adminEntry, adminSection } from '../../domain/navigation'
 import SearchIndexBanner from '../components/SearchIndexBanner.vue'
@@ -38,11 +38,11 @@ function closeMenu() {
   <div class="admin-shell" @keydown.esc="closeMenu">
     <a href="#admin-content" class="admin-skip">{{ $t('admin.AdminLayout.s1') }}</a>
     <header class="admin-mobile-header">
-      <router-link :to="entry" class="admin-brand"><LogoIcon :size="30" /><strong>Community <small>{{ $t('admin.AdminLayout.s2') }}</small></strong></router-link>
+      <router-link :to="entry" class="admin-brand"><BrandMark :size="30" /><strong>Community <small>{{ $t('admin.AdminLayout.s2') }}</small></strong></router-link>
       <button ref="menuButton" type="button" class="admin-button" :aria-expanded="menuOpen" aria-controls="admin-navigation" @click="menuOpen = !menuOpen">{{ menuOpen ? $t('admin.AdminLayout.s3') : $t('admin.AdminLayout.s4') }} <t-icon name="menu" aria-hidden="true" /></button>
     </header>
     <aside id="admin-navigation" class="admin-sidebar" :class="{ 'admin-sidebar--open': menuOpen }" :aria-label="$t('admin.AdminLayout.s4')">
-      <router-link :to="entry" class="admin-brand admin-brand--desktop"><LogoIcon :size="38" /><strong>Community <small>{{ $t('admin.AdminLayout.s2') }}</small></strong></router-link>
+      <router-link :to="entry" class="admin-brand admin-brand--desktop"><BrandMark :size="38" /><strong>Community <small>{{ $t('admin.AdminLayout.s2') }}</small></strong></router-link>
       <nav ref="navigationElement">
         <section v-for="group in navigation" :key="group.label" class="admin-nav-group" :aria-label="group.label">
           <h2>{{ group.label }}</h2>

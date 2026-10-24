@@ -23,6 +23,5 @@ declare module 'vue' {
     TInput: typeof import('tdesign-vue-next')['Input']
     TLoading: typeof import('@/shared/components/common/AppLoading.vue')['default']
     TPopup: typeof import('tdesign-vue-next')['Popup']
-    TTextarea: typeof import('tdesign-vue-next')['Textarea']
   }
 }

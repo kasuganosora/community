@@ -8,7 +8,7 @@ import { passkeySupported } from '@/shared/utils/webauthn'
 import { instanceApi } from '@/domains/instance/infrastructure/instanceApi'
 import { captchaApi } from '../../infrastructure/captchaApi'
 import CaptchaField from '../components/CaptchaField.vue'
-import LogoIcon from '@/shared/components/common/LogoIcon.vue'
+import BrandMark from '@/shared/components/common/BrandMark.vue'
 
 import { t } from '@/shared/i18n'
 const router = useRouter()
@@ -189,7 +189,7 @@ async function handleLogin() {
   <div class="login-page">
     <div class="login-card">
       <div class="login-logo">
-        <LogoIcon :size="40" />
+        <BrandMark :size="40" />
       </div>
 
       <h1 class="login-title">{{ addingAccount ? $t('auth.LoginPage.s1') : $t('auth.LoginPage.s2') }}</h1>
