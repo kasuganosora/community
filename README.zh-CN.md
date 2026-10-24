@@ -14,7 +14,7 @@
   <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/kasuganosora/community">
   <img alt="ActivityPub" src="https://img.shields.io/badge/ActivityPub-federated-8a2be2">
   <img alt="Matrix" src="https://img.shields.io/badge/Matrix-homeserver-0dbd8b">
-  <a href="https://c.hime.at"><img alt="Demo" src="https://img.shields.io/badge/demo-c.hime.at-1e90ff"></a>
+  <a href="https://maid.lat"><img alt="Demo" src="https://img.shields.io/badge/demo-maid.lat-1e90ff"></a>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 
 Community 是一个用 Go 和 Vue 写的自托管社交服务器。时间线、关注、回复、投票、媒体、私信都有，还能和 Mastodon、Misskey 以及整个 Fediverse 上的人互动。聊天室来自同一个程序里内置的 Matrix Homeserver，不需要再额外部署什么。
 
-在线体验：**https://c.hime.at**（测试服务器，请不要真的拿来用）。
+在线体验：**https://maid.lat**。
 
 ## 为什么选 Community？
 

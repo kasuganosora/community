@@ -14,7 +14,7 @@
   <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/kasuganosora/community">
   <img alt="ActivityPub" src="https://img.shields.io/badge/ActivityPub-federated-8a2be2">
   <img alt="Matrix" src="https://img.shields.io/badge/Matrix-homeserver-0dbd8b">
-  <a href="https://c.hime.at"><img alt="Demo" src="https://img.shields.io/badge/demo-c.hime.at-1e90ff"></a>
+  <a href="https://maid.lat"><img alt="Demo" src="https://img.shields.io/badge/demo-maid.lat-1e90ff"></a>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 
 Community is a self-hosted social server written in Go and Vue. You get timelines, follows, replies, polls, media and direct messages, and you can talk to people on Mastodon, Misskey and the rest of the fediverse. Chat rooms come from a Matrix homeserver that lives inside the same program, so there's nothing extra to run.
 
-Try it on the live demo: **https://c.hime.at** (a test server, please don't use it for real).
+Try it on the live demo: **https://maid.lat**.
 
 ## Why Community?
 

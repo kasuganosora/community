@@ -14,7 +14,7 @@
   <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/kasuganosora/community">
   <img alt="ActivityPub" src="https://img.shields.io/badge/ActivityPub-federated-8a2be2">
   <img alt="Matrix" src="https://img.shields.io/badge/Matrix-homeserver-0dbd8b">
-  <a href="https://c.hime.at"><img alt="Demo" src="https://img.shields.io/badge/demo-c.hime.at-1e90ff"></a>
+  <a href="https://maid.lat"><img alt="Demo" src="https://img.shields.io/badge/demo-maid.lat-1e90ff"></a>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 
 Community — это социальный сервер для самостоятельного размещения, написанный на Go и Vue. Ленты, подписки, ответы, опросы, медиа и личные сообщения на месте, а общаться можно с людьми из Mastodon, Misskey и всего федивёрса. Чаты работают на сервере Matrix, встроенном в ту же программу, так что ничего дополнительно запускать не нужно.
 
-Живое демо: **https://c.hime.at** (тестовый сервер, пожалуйста, не используйте его всерьёз).
+Живое демо: **https://maid.lat**.
 
 ## Почему Community?
 

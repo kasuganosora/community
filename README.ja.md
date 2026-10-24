@@ -14,7 +14,7 @@
   <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/kasuganosora/community">
   <img alt="ActivityPub" src="https://img.shields.io/badge/ActivityPub-federated-8a2be2">
   <img alt="Matrix" src="https://img.shields.io/badge/Matrix-homeserver-0dbd8b">
-  <a href="https://c.hime.at"><img alt="Demo" src="https://img.shields.io/badge/demo-c.hime.at-1e90ff"></a>
+  <a href="https://maid.lat"><img alt="Demo" src="https://img.shields.io/badge/demo-maid.lat-1e90ff"></a>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 
 Community は Go と Vue で作られたセルフホスト型の SNS サーバーです。タイムライン、フォロー、リプライ、投票、メディア、ダイレクトメッセージがそろっていて、Mastodon や Misskey など Fediverse 全体の人たちとつながれます。チャットルームは同じプログラムに組み込まれた Matrix ホームサーバーが提供するので、追加で動かすものはありません。
 
-デモサーバー：**https://c.hime.at**（テスト用です。本番利用はしないでください）
+デモサーバー：**https://maid.lat**
 
 ## なぜ Community？
 
