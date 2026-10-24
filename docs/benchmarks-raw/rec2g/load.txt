@@ -1,0 +1,9 @@
+op                 ok   err    p50ms    p95ms
+home             5139     0      210      605
+public           1600     0      296      613
+post             1684     0      539     1199
+poll              533     0      598     1399
+media             549     0      607     1404
+favourite        1072    21      392      898
+notifications     566     0      804     1902
+ALL             11143    21      305     1092  rps=18.6

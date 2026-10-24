@@ -1,0 +1,4 @@
+rapp 18.65MiB / 640MiB
+rpg 67.81MiB / 512MiB
+rredis 3.133MiB / 192MiB
+rmeili 8.973MiB / 704MiB

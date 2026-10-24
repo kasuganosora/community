@@ -59,8 +59,20 @@ interface language. The domain cannot be changed later.
   omitted when submitting a local-directory or reference migration.
 * Stages: write configuration, schema, instance settings
   (`tootctl admin import-misskey-meta`), media, export
-  (`scripts/migration/export_misskey.py`), preflight, import, passkeys
-  (`tootctl passkeys import-misskey`), administrator, finish.
+  (`scripts/migration/export_misskey.py`), preflight and import (the same
+  code as `community-transfer`), passkeys (`tootctl passkeys import-misskey`),
+  administrator, finish. There is no single `tootctl` command that imports a
+  Misskey site. For a whole-instance move, prefer direct mode
+  (`community-transfer --source misskey --source-dsn … --source-base-url … --work-dir …`;
+  see [migration.md](migration.md)). The bundle path — `export_misskey.py`, then
+  `community-transfer --input` — is what the wizard runs, and is documented in
+  [data-migration.md](data-migration.md).
+* The export reads only data relevant to this instance (local users and what
+  they own, plus the remote accounts/posts they reference), not Misskey's
+  whole remote-content cache. It pages through the source in short read-only
+  transactions; its state in `SETUP_WORK_DIR/export.state` lets a retried
+  export resume, and each run catches up on rows changed since the last one.
+  Progress (`done/total`, speed, ETA) appears in the job log and stage counts.
 * Existing Misskey users keep their passwords. Naming an existing user as the
   administrator makes them the owner.
 
@@ -68,8 +80,9 @@ interface language. The domain cannot be changed later.
 
 * Stop Mastodon (web, streaming and Sidekiq), or point the wizard at a copy of
   its PostgreSQL database. The source is only read: the wizard connects
-  directly and runs `scripts/migration/export_mastodon_db.py` in one
-  read-only snapshot. The Rails environment is not needed.
+  directly and runs `scripts/migration/export_mastodon_db.py` (paged
+  read-only transactions, resumable, local data plus referenced remote
+  entities). The Rails environment is not needed.
 * The domain is detected from local status URIs (`LOCAL_DOMAIN`) and shown
   read-only. Actor URIs (`/users/<name>`), status URIs
   (`/users/<name>/statuses/<id>`), the RSA keys (the `keypairs` table, or
