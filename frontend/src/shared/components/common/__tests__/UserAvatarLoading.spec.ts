@@ -1,11 +1,14 @@
 import { mount, flushPromises } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { MastodonAccount } from '@/shared/types/mastodon'
+import { resetAvatarLoadCache } from '../avatarLoadCache'
 import UserAvatar from '../UserAvatar.vue'
 
 const account = { id: 'a', username: 'alice', display_name: 'Alice', avatar: '/avatar-a.png', avatar_default: '/api/v1/avatars/default/' + 'cd'.repeat(32) + '.png' } as MastodonAccount
 
 describe('avatar loading state', () => {
+  beforeEach(() => { resetAvatarLoadCache() })
+
   it('shows a placeholder until the image loads, then fades it in', async () => {
     const wrapper = mount(UserAvatar, { props: { account } })
     await flushPromises()
@@ -46,5 +49,41 @@ describe('avatar loading state', () => {
     expect(wrapper.get('.user-avatar').classes()).toContain('user-avatar--loading')
     await wrapper.get('img').trigger('load')
     expect(wrapper.get('.user-avatar').classes()).not.toContain('user-avatar--loading')
+  })
+
+  it('does not show the loading placeholder again once the same avatar URL has loaded', async () => {
+    const first = mount(UserAvatar, { props: { account } })
+    await first.get('img').trigger('load')
+    const second = mount(UserAvatar, { props: { account: { ...account } } })
+    await flushPromises()
+    expect(second.get('.user-avatar').classes()).not.toContain('user-avatar--loading')
+    expect(second.get('.user-avatar').attributes('aria-busy')).toBeUndefined()
+    expect(second.get('img').attributes('loading')).toBe('eager')
+    expect(second.get('img').classes()).toEqual(expect.arrayContaining(['is-loaded', 'is-instant']))
+    first.unmount()
+    second.unmount()
+  })
+
+  it('clears a sibling placeholder when another row finishes loading the same avatar URL', async () => {
+    const first = mount(UserAvatar, { props: { account } })
+    const second = mount(UserAvatar, { props: { account: { ...account } } })
+    await flushPromises()
+    expect(second.get('.user-avatar').classes()).toContain('user-avatar--loading')
+    await first.get('img').trigger('load')
+    await flushPromises()
+    expect(second.get('.user-avatar').classes()).not.toContain('user-avatar--loading')
+    expect(second.get('img').classes()).toContain('is-loaded')
+    first.unmount()
+    second.unmount()
+  })
+
+  it('still shows a placeholder for an avatar URL that has not loaded', async () => {
+    const seen = mount(UserAvatar, { props: { account } })
+    await seen.get('img').trigger('load')
+    const other = mount(UserAvatar, { props: { account: { ...account, id: 'b', avatar: '/avatar-b.png' } } })
+    await flushPromises()
+    expect(other.get('.user-avatar').classes()).toContain('user-avatar--loading')
+    seen.unmount()
+    other.unmount()
   })
 })
