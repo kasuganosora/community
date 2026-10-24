@@ -7,7 +7,11 @@
  *   can still load its lazy chunks.
  * - Frontend page navigations are network-first with the last shell as an
  *   offline fallback. API, streaming, media, OAuth and federation requests
- *   are never intercepted.
+ *   are never intercepted. Emoji images under /emoji-assets/ stay on the
+ *   browser HTTP cache (stable UUID URLs, immutable for a year).
+ * - A page message { type: 'emoji-revalidate', revision } conditionally
+ *   fetches /api/v1/custom_emojis and replies on the transferred port.
+ *   The catalogue itself is stored by the page, not in this cache.
  */
 const BUILD = __BUILD_ID__
 const ASSET_PREFIX = 'community-assets-'
@@ -50,8 +54,38 @@ self.addEventListener('activate', (event) => {
 })
 
 self.addEventListener('message', (event) => {
-  if (event.data === 'SKIP_WAITING') void self.skipWaiting()
+  if (event.data === 'SKIP_WAITING') {
+    void self.skipWaiting()
+    return
+  }
+  if (!event.data || event.data.type !== 'emoji-revalidate' || !event.ports || !event.ports[0]) return
+  event.waitUntil(revalidateCustomEmoji(event.ports[0], event.data.revision))
 })
+
+// Ack before the fetch so a page still running an older worker can fall
+// through quickly. 304 returns no catalogue body.
+async function revalidateCustomEmoji(port, revision) {
+  port.postMessage({ accepted: true })
+  const headers = { Accept: 'application/json' }
+  if (typeof revision === 'string' && revision) headers['If-None-Match'] = revision
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 20000)
+  try {
+    const res = await fetch('/api/v1/custom_emojis', {
+      method: 'GET', headers, credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+    })
+    if (res.status === 304) {
+      port.postMessage({ status: 304, etag: res.headers.get('ETag'), body: null })
+      return
+    }
+    const body = res.ok ? await res.json() : null
+    port.postMessage({ status: res.status, etag: res.headers.get('ETag'), body })
+  } catch {
+    port.postMessage({ error: true })
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 // Hashed /assets files are named by content; any query (none is added by
 // the build) is ignored so cached copies always match.

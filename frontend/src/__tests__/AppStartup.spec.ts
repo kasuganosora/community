@@ -17,7 +17,7 @@ describe('startup on slow networks', () => {
     initialize.mockResolvedValue(true)
     const wrapper = mount(App, options)
     await flushPromises()
-    expect(get).toHaveBeenCalledWith('/api/v1/custom_emojis')
+    expect(get).toHaveBeenCalledWith('/api/v1/custom_emojis', expect.objectContaining({ headers: expect.objectContaining({ Accept: 'application/json' }) }))
     wrapper.unmount()
   })
 

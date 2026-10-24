@@ -62,7 +62,7 @@ function onKeydown(event: KeyboardEvent) {
   event.preventDefault()
   buttons[next]?.focus()
 }
-onMounted(() => { void store.load(); searchInput.value?.focus({ preventScroll: true }) })
+onMounted(() => { void store.load(true); searchInput.value?.focus({ preventScroll: true }) })
 </script>
 <template>
   <section class="emoji-picker" :aria-label="$t('shared.EmojiPicker.s1')" @keydown="onKeydown">

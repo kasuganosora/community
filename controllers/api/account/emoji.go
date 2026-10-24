@@ -1,28 +1,84 @@
 package account
 
 import (
-	"github.com/kasuganosora/community/serializer"
+	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
 )
+
+// emojiCatalogueRev is the public local set (domain empty, not disabled).
+// Adding, deleting, disabling, or editing a row changes the ETag; an
+// unchanged set answers 304 without loading every emoji.
+type emojiCatalogueRev struct {
+	Count      int64
+	MaxID      int64
+	MaxUpdated int64
+	Checksum   int64
+}
 
 // GetCustomEmojis handles GET /api/v1/custom_emojis.
 func GetCustomEmojis(c *gin.Context) {
-	// Query custom emojis
+	var rev emojiCatalogueRev
+	err := db.GetDB().Model(&models.Emoji{}).
+		Where("domain = ? AND disabled = ?", "", false).
+		Select("COUNT(*) AS count, COALESCE(MAX(id), 0) AS max_id, COALESCE(MAX(updated_at), 0) AS max_updated, COALESCE(SUM(updated_at), 0) AS checksum").
+		Scan(&rev).Error
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load custom emojis"})
+		return
+	}
+	etag := fmt.Sprintf(`W/"%d.%d.%d.%d"`, rev.Count, rev.MaxID, rev.MaxUpdated, rev.Checksum)
+	c.Header("ETag", etag)
+	c.Header("Cache-Control", "public, no-cache")
+	if customEmojiNoneMatch(c.GetHeader("If-None-Match"), etag) {
+		// Status alone stays inside Gin; WriteHeaderNow is what the client sees.
+		c.AbortWithStatus(http.StatusNotModified)
+		return
+	}
+
 	emojis := make([]*models.Emoji, 0)
 	if err := db.GetDB().Where("domain = '' AND disabled = ?", false).Order("shortcode ASC").Find(&emojis).Error; err != nil {
-		c.JSON(500, gin.H{"error": "failed to load custom emojis"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load custom emojis"})
 		return
 	}
 
 	// Same entity as nested status emojis: absolute URLs, null category.
-	result := serializer.ToEmojis(emojis)
+	c.JSON(http.StatusOK, serializer.ToEmojis(emojis))
+}
 
-	c.JSON(200, result)
+// customEmojiNoneMatch reports whether If-None-Match names the current tag.
+// Comparison ignores a weak prefix so a compressed response still matches.
+func customEmojiNoneMatch(header, etag string) bool {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return false
+	}
+	if header == "*" {
+		return true
+	}
+	want := etagToken(etag)
+	if want == "" {
+		return false
+	}
+	for _, part := range strings.Split(header, ",") {
+		if etagToken(part) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func etagToken(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "W/")
+	value = strings.TrimPrefix(value, "w/")
+	return strings.TrimSpace(value)
 }
 
 // Emoji represents a custom emoji for lookup.
