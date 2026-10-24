@@ -1,18 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { shallowMount, flushPromises, type VueWrapper } from '@vue/test-utils'
-import { createPinia } from 'pinia'
+import { nextTick } from 'vue'
+import { createPinia, type Pinia } from 'pinia'
 import PostReactions from '../PostReactions.vue'
+import EmojiPicker from '../EmojiPicker.vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { useEmojiStore } from '@/domains/emoji/presentation/stores/emojiStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { editedStatuses } from '@/domains/post/presentation/composables/useStatusActions'
-import type { MastodonStatus, MastodonAccount } from '@/shared/types/mastodon'
+import type { MastodonStatus, MastodonAccount, MastodonEmoji } from '@/shared/types/mastodon'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
+import client from '@/shared/api/client'
+
+const kinoko: MastodonEmoji = { shortcode: 'Kinoko7_27', url: 'https://cdn.test/kinoko.png', static_url: 'https://cdn.test/kinoko.png', visible_in_picker: true }
 afterEach(() => vi.restoreAllMocks())
 const status = { id: 'reaction-post', emoji_reactions: [{ name: '👍', count: 3, me: true }, { name: '🎉', count: 2, me: false }] } as MastodonStatus
-function mountReaction() {
-  const pinia = createPinia(); useAuthStore(pinia).currentUser = { id: 'me' } as MastodonAccount
-  return shallowMount(PostReactions, { props: { status }, global: { plugins: [pinia], renderStubDefaultSlot: true } })
+function mountReaction(props: { status: MastodonStatus } = { status }, pinia: Pinia = createPinia()) {
+  useAuthStore(pinia).currentUser = { id: 'me' } as MastodonAccount
+  return shallowMount(PostReactions, { props, global: { plugins: [pinia], renderStubDefaultSlot: true } })
 }
 function byLabel(wrapper: VueWrapper, label: string) { return wrapper.findAll('button').find(b => b.attributes('aria-label') === label)! }
 describe('post emoji reactions', () => {
@@ -96,6 +102,33 @@ describe('post emoji reactions', () => {
     resolve([{ name: '👍', count: 1, me: false, accounts: [{ id: 'private', username: 'private' } as MastodonAccount] }])
     await flushPromises()
     expect(wrapper.findAll('.responders__account')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('shows the picked custom emoji image before the reaction request returns', async () => {
+    vi.spyOn(postApi, 'react').mockImplementation(() => new Promise(() => {}))
+    const wrapper = mountReaction()
+    await byLabel(wrapper, '添加表情回应').trigger('click')
+    await wrapper.findComponent(EmojiPicker).vm.$emit('select', kinoko)
+    await nextTick()
+    expect(wrapper.get('.reaction img').attributes('src')).toBe(kinoko.url)
+    expect(wrapper.text()).not.toContain(':Kinoko7_27:')
+    wrapper.unmount()
+  })
+
+  it('replaces a shortcode reaction pill when the emoji catalogue finishes loading', async () => {
+    const pending = new Promise(() => {})
+    vi.spyOn(client, 'get').mockReturnValue(pending as never)
+    const pinia = createPinia()
+    const store = useEmojiStore(pinia)
+    const custom = { ...status, id: 'custom-reaction', emoji_reactions: [{ name: ':Kinoko7_27:', count: 1, me: true }] } as MastodonStatus
+    const wrapper = mountReaction({ status: custom }, pinia)
+    expect(wrapper.text()).toContain(':Kinoko7_27:')
+    expect(wrapper.find('.reaction img').exists()).toBe(false)
+    store.emojis = [kinoko]
+    await nextTick()
+    expect(wrapper.get('.reaction img').attributes('src')).toBe(kinoko.url)
+    expect(wrapper.text()).not.toContain(':Kinoko7_27:')
     wrapper.unmount()
   })
 

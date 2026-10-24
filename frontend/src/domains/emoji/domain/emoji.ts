@@ -1,6 +1,36 @@
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 import { sanitizeHtml } from '@/shared/utils/sanitize'
 
+/** `:shortcode:` for a local custom emoji. Remote `:shortcode@host:` is not local. */
+export function localReactionCode(name: string): string | null {
+  return /^:([^:@]+):$/.exec(name)?.[1] ?? null
+}
+
+/**
+ * Image source for a reaction pill. Prefer the URL on the reaction itself
+ * (timeline payloads and the status returned by the reaction API). When that
+ * is missing — the optimistic pill only has the shortcode — resolve it from
+ * the custom emoji catalogue.
+ */
+export function emojiForReaction(
+  reaction: { name: string; url?: string; static_url?: string; is_sensitive?: boolean },
+  catalogue: readonly MastodonEmoji[] = [],
+): MastodonEmoji | null {
+  const shortcode = localReactionCode(reaction.name) ?? ''
+  const direct = reaction.url || reaction.static_url
+  if (direct) {
+    return {
+      shortcode: shortcode || reaction.name,
+      url: reaction.url || direct,
+      static_url: reaction.static_url || '',
+      visible_in_picker: true,
+      is_sensitive: reaction.is_sensitive,
+    }
+  }
+  if (!shortcode) return null
+  return catalogue.find(emoji => emoji.shortcode === shortcode && !emoji.disabled) ?? null
+}
+
 export function emojiUrl(emoji: MastodonEmoji): string | null {
   const raw = emoji.static_url || emoji.url
   if (!raw) return null

@@ -1,14 +1,25 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createPinia } from 'pinia'
 const initialize = vi.hoisted(() => vi.fn())
 vi.mock('@/domains/auth/presentation/stores/authStore', () => ({ useAuthStore: () => ({ initialize }) }))
 vi.mock('@/shared/composables/useAccountHover', () => ({ accountHover: null }))
 import { t } from '@/shared/i18n'
 import App from '../App.vue'
+import client from '@/shared/api/client'
 
 describe('startup on slow networks', () => {
   afterEach(() => { vi.useRealTimers(); vi.clearAllMocks() })
-  const options = { global: { stubs: { SlowNetworkHint: true, TLoading: true, RouterView: { template: '<main>Loaded</main>' } } } }
+  const options = { global: { plugins: [createPinia()], stubs: { SlowNetworkHint: true, TLoading: true, RouterView: { template: '<main>Loaded</main>' } } } }
+
+  it('preloads the custom emoji catalogue at startup', async () => {
+    const get = vi.spyOn(client, 'get').mockResolvedValue({ data: [] })
+    initialize.mockResolvedValue(true)
+    const wrapper = mount(App, options)
+    await flushPromises()
+    expect(get).toHaveBeenCalledWith('/api/v1/custom_emojis')
+    wrapper.unmount()
+  })
 
   it('recovers from an initialization timeout without reloading the app', async () => {
     initialize.mockRejectedValueOnce(new Error('timeout')).mockResolvedValueOnce(true)
