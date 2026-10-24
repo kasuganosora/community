@@ -1,5 +1,6 @@
 import { adminNavigation } from '@/domains/admin/domain/navigation'
 import type { RouteRecordRaw } from 'vue-router'
+import { appDisplayName, formatDocumentTitle } from './documentTitle'
 import { lazyRoute } from './lazyRoute'
 
 import { t } from '@/shared/i18n'
@@ -290,8 +291,7 @@ export function pageHeading(name: unknown): string {
   return t || 'Community'
 }
 
-/** Document title for a route: "<page> - Community", or just the app name. */
-export function pageTitle(name: unknown, appName = 'Community'): string {
-  const title = pageHeading(name)
-  return title === 'Community' ? appName : `${title} - ${appName}`
+/** Document title for a route: "<page> - <instance title>", or just the site name. */
+export function pageTitle(name: unknown, appName = appDisplayName()): string {
+  return formatDocumentTitle(pageHeading(name), appName)
 }

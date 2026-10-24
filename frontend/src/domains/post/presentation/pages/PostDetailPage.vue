@@ -24,6 +24,7 @@ import FilteredNotice from '@/shared/components/post/FilteredNotice.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { mergeById } from '@/shared/utils/pagination'
+import { setDocumentTitle } from '@/shared/router/documentTitle'
 
 import { t } from '@/shared/i18n'
 const route = useRoute()
@@ -141,7 +142,7 @@ onMounted(loadPost)
 onBeforeUnmount(() => { ++requestVersion; ++contextVersion })
 watch(() => route.params.statusId, (id) => { if (id) loadPost() })
 watch(sessionEpoch, () => { void loadPost() }, { flush: 'sync' })
-watch(heading, (title) => { document.title = `${title} - Community` })
+watch(heading, (title) => { setDocumentTitle(title) })
 
 // Leave the page when the main post is deleted from its menu.
 watch(() => mainStatus.value && deletedStatusIds.has(mainStatus.value.id), (gone) => {

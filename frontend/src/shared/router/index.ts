@@ -1,6 +1,7 @@
 import { adminEntry, canAccessAdmin } from '@/domains/admin/domain/navigation'
 import { createRouter, createWebHistory } from 'vue-router'
-import { routes, pageTitle } from './routes'
+import { routes, pageHeading } from './routes'
+import { setDocumentTitle } from './documentTitle'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { tokenService } from '@/shared/api/client'
 import { isServerAuthReturn, safeInternalPath } from '@/shared/utils/authReturn'
@@ -74,11 +75,12 @@ router.beforeEach(async (to) => {
 
 router.beforeResolve(preloadRouteViews)
 
-// Keep the document title in step with the page (screen readers announce it,
-// and browser history/tabs were all just "Community").
+// Keep the document title in step with the page. The suffix is the instance
+// title from /api/v2/instance; "Community" is only the fallback before that
+// loads or when the configured title is blank.
 router.afterEach((to, _from, failure) => {
   if (failure) return
-  document.title = pageTitle(to.name)
+  setDocumentTitle(pageHeading(to.name))
 })
 
 export default router
