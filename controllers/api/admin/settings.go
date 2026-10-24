@@ -76,8 +76,8 @@ func settingsSections() map[string]SettingsSection {
 	sections["api_tokens"] = SettingsSection{Title: "API 令牌", Description: "访问令牌的安全策略。", Fields: []SettingsField{
 		{Key: systemsettings.KeyAPITokenInactivityExpiry, Label: "自动吊销 6 个月未使用的 API 令牌", Type: "boolean", Value: false, Description: "开启后，最后一次使用（从未使用则为创建时间）超过 180 天的访问令牌会在下次使用时被吊销。"},
 	}}
-	sections["email"] = SettingsSection{Title: "邮件服务器", Description: "保存后立即用于新的邮件连接；.env 和环境变量中的值优先。测试连接不会发送邮件。", Fields: emailSettingsFields()}
-	sections["storage"] = SettingsSection{Title: "对象存储", Description: "修改存储连接需要重启服务器；不会自动迁移已有文件。保存后可测试已保存的目标配置，重启后才切换实际存储。", Fields: storageSettingsFields()}
+	sections["email"] = SettingsSection{Title: "邮件服务器", Description: "保存后立即用于新的邮件连接。数据库中的值优先；只有该配置还没保存过时，才使用已有的环境变量。测试连接不会发送邮件。", Fields: emailSettingsFields()}
+	sections["storage"] = SettingsSection{Title: "对象存储", Description: "保存后立即切换存储连接，不必重启；不会自动迁移已有文件。数据库中的值优先；只有该配置还没保存过时，才使用已有的环境变量。未填写的存储桶会保持空白。", Fields: storageSettingsFields()}
 	sections["database"] = SettingsSection{Title: "数据库", Description: "数据库连接由部署环境管理，这里仅展示当前连接池诊断，不提供 SQL 执行或凭据。", Fields: databaseSettingsFields()}
 	sections["external"] = SettingsSection{Title: "外部服务", Description: "管理实际使用的搜索集成，查看翻译服务部署配置。", Fields: externalSettingsFields()}
 	return sections
@@ -98,27 +98,30 @@ func GetSettings(c *gin.Context) {
 		if field.ReadOnly {
 			field.Source = "runtime"
 		}
-		if field.Env != "" {
+		if field.Env != "" && config.IsExplicitlyConfigured(field.Env) {
 			envValue := deploymentSettingValue(field.Env)
-			if config.IsExplicitlyConfigured(field.Env) {
+			_, stored := systemsettings.Stored(field.Key)
+			if dbBackedSections[section.Section] {
+				// Show the legacy environment value until an admin saves, which
+				// writes the database and then takes precedence.
+				if !stored {
+					applyDeploymentDisplay(field, envValue)
+					if field.Description != "" {
+						field.Description += " "
+					}
+					field.Description += "当前显示的是环境变量中的旧值；保存后写入数据库并立即生效。"
+				}
+			} else {
 				field.ReadOnly = true
 				field.Source = "environment"
 				field.LockedBy = "process"
 				if config.IsSetInEnvFile(field.Env) {
 					field.LockedBy = "env_file"
 				}
-				switch field.Type {
-				case "number":
-					n, _ := strconv.Atoi(envValue)
-					field.Value = n
-				case "boolean":
-					field.Value = envValue == "true"
-				default:
-					field.Value = envValue
-				}
+				applyDeploymentDisplay(field, envValue)
 			}
 		}
-		if _, exists := config.C.Other[field.Key]; exists {
+		if _, exists := config.C.Other[field.Key]; exists && !dbBackedSections[section.Section] {
 			field.ReadOnly = true
 			field.Source = "environment"
 			field.LockedBy = "process"
@@ -175,9 +178,11 @@ func UpdateSettings(c *gin.Context) {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "unknown or non-editable setting"})
 			return
 		}
-		if _, exists := config.C.Other[key]; exists || (field.Env != "" && config.IsExplicitlyConfigured(field.Env)) {
-			c.JSON(http.StatusConflict, gin.H{"error": "setting is managed by deployment"})
-			return
+		if !dbBackedSections[c.Param("section")] {
+			if _, exists := config.C.Other[key]; exists || (field.Env != "" && config.IsExplicitlyConfigured(field.Env)) {
+				c.JSON(http.StatusConflict, gin.H{"error": "setting is managed by deployment"})
+				return
+			}
 		}
 
 		if field.Type == "secret" && value == "" {
@@ -202,9 +207,11 @@ func UpdateSettings(c *gin.Context) {
 		return
 	}
 	auditSettingsChange(c, c.Param("section"), allowed, req.Values, req.ClearSecrets)
-	if liveSections[c.Param("section")] {
-		// SMTP settings apply to the running mailer immediately.
+	switch c.Param("section") {
+	case "email":
 		runtimeconfig.ApplyEmail()
+	case "storage":
+		runtimeconfig.ApplyStorage()
 	}
 	GetSettings(c)
 }
@@ -294,7 +301,23 @@ func brandingSettingsFields() []SettingsField {
 }
 
 // liveSections are applied to the running server on save (no restart).
-var liveSections = map[string]bool{"email": true}
+var liveSections = map[string]bool{"email": true, "storage": true}
+
+// dbBackedSections are stored in system_settings and stay editable. An
+// existing environment value is only a fallback until the key is saved.
+var dbBackedSections = map[string]bool{"email": true, "storage": true}
+
+func applyDeploymentDisplay(field *SettingsField, envValue string) {
+	switch field.Type {
+	case "number":
+		n, _ := strconv.Atoi(envValue)
+		field.Value = n
+	case "boolean":
+		field.Value = envValue == "true"
+	default:
+		field.Value = envValue
+	}
+}
 
 // auditSettingsChange records which settings changed in the request's
 // administrative audit entry. Values are recorded for plain settings only;

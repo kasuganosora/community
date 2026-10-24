@@ -160,6 +160,9 @@ func stageAdmin(_ context.Context, r *runner) error {
 }
 
 func stageFinalize(_ context.Context, r *runner) error {
+	if err := importRuntimeServiceSettings(r); err != nil {
+		return err
+	}
 	job := r.t.snapshot()
 	if job.Locale != "" {
 		if err := systemsettings.SaveChanges(map[string]any{systemsettings.KeyDefaultLocale: job.Locale}); err != nil {

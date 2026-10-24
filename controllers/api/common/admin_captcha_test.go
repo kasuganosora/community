@@ -64,11 +64,11 @@ func TestAdminCaptchaUpdateActuallyConfiguresRuntimeAndPreservesSecret(t *testin
 	require.Equal(t, "new-public-key", captcha.GetService().GetSiteKey())
 	require.Equal(t, "original-secret", systemsettings.GetString(systemsettings.KeyCaptchaSecretKey, ""))
 	require.Equal(t, 0.8, systemsettings.GetFloat64(systemsettings.KeyCaptchaScoreThreshold, 0.5))
-	// Environment credentials continue to take precedence over editable database keys.
+	// A saved database key wins over a legacy environment value.
 	t.Setenv("HCAPTCHA_SITE_KEY", "deployment-public-key")
 	require.NoError(t, captcha.GetService().Reload())
-	require.Equal(t, "deployment-public-key", captcha.GetService().GetSiteKey())
+	require.Equal(t, "new-public-key", captcha.GetService().GetSiteKey())
 	c, w = newGetContext(t, "/api/v1/admin/captcha/config")
 	AdminGetCaptchaConfig(c)
-	require.Contains(t, w.Body.String(), `"environment_override":true`)
+	require.Contains(t, w.Body.String(), `"environment_override":false`)
 }

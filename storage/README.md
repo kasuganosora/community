@@ -55,9 +55,9 @@ report := storage.CheckHealth(ctx)          // HeadBucket 探测，超时 4 秒�
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
 | `STORAGE_TYPE` | `local` | `local`，或 `s3` / `minio`（同义） |
-| `S3_ENDPOINT` | `localhost:9000` | 端点 `host[:port]`；带 `https://` / `http://` 前缀时同时决定是否使用 TLS |
-| `S3_REGION` | `us-east-1` | Cloudflare R2 填 `auto` |
-| `S3_BUCKET` | `community` | 存储桶（必须已存在；不会自动创建或修改访问策略） |
+| `S3_ENDPOINT` | （空） | 端点 `host[:port]`；带 `https://` / `http://` 前缀时同时决定是否使用 TLS。未设置时保持空白 |
+| `S3_REGION` | （空；客户端在已配置端点时用 `us-east-1`） | Cloudflare R2 填 `auto` |
+| `S3_BUCKET` | （空） | 存储桶（必须已存在；不会自动创建或修改访问策略）。未设置时不使用占位名称 |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | （无） | 访问密钥；缺失时 S3 后端报错，**不会回退到本地** |
 | `S3_USE_SSL` | `false` | 是否使用 HTTPS（端点带协议前缀时以前缀为准） |
 | `S3_FORCE_PATH_STYLE` | `auto` | `true` 路径风格（R2 / MinIO 推荐），`false` 虚拟主机风格 |

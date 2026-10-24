@@ -61,7 +61,16 @@ interface language. The domain cannot be changed later.
   (`tootctl admin import-misskey-meta`), media, export
   (`scripts/migration/export_misskey.py`), preflight and import (the same
   code as `community-transfer`), passkeys (`tootctl passkeys import-misskey`),
-  administrator, finish. There is no single `tootctl` command that imports a
+  administrator, finish. The instance-settings stage also copies Turnstile /
+  hCaptcha / reCAPTCHA into `config.captcha.*`, and object storage plus any
+  SMTP columns on the Misskey `meta` row into `config.storage.*` and
+  `config.email.*`. Those keys live in `system_settings`, not in `.env`.
+  Keys already saved are left as they are, so a re-run only fills what is
+  missing. If `secrets/smtp.env` or `secrets/s3.env` is present
+  (`SETUP_SECRETS_DIR`, otherwise a `secrets` directory next to the config
+  directory, then `./secrets`), the finish stage copies those variables into
+  the same database keys. Empty object-storage fields stay empty; the bucket
+  is not filled with a placeholder. There is no single `tootctl` command that imports a
   Misskey site. For a whole-instance move, prefer direct mode
   (`community-transfer --source misskey --source-dsn … --source-base-url … --work-dir …`;
   see [migration.md](migration.md)). The bundle path — `export_misskey.py`, then
@@ -116,14 +125,19 @@ interface language. The domain cannot be changed later.
   Outside a container the default is `.env` next to the binary.
 * Written atomically with mode `0600`. `ENCRYPTED_KEY` and `MEDIA_PROXY_KEY`
   are generated.
-* Precedence: process environment > `.env` file > values saved in the admin
-  UI > built-in defaults.
+* Precedence for captcha, SMTP and object storage: a value saved in
+  `system_settings` wins. If that key has never been saved, an existing
+  environment variable or `.env` entry is still used. Saving in the admin UI
+  writes the database and applies immediately (no restart). Other settings keep
+  process environment > `.env` file > database > built-in defaults.
 * `.env`-only (read-only in the admin UI): database, Redis, domain
   (`APP_BASE_URL`), secrets, listen address. Everything else can be edited in
   **Admin → Settings**. A field set in `.env` shows "Locked by .env" with the
   variable name; one set by the container environment shows "Locked by
-  environment".
-* SMTP changes apply immediately. Storage and search changes are marked
+  environment". Captcha, SMTP and object storage are the exception: an
+  existing environment value is only shown until it is saved, and it does not
+  lock the field.
+* SMTP and object-storage changes apply immediately. Search changes are marked
   "restart required". SMTP and storage have **Test** buttons. Every settings
   change is written to the admin audit log (secrets are recorded only as
   changed or cleared).
@@ -151,8 +165,11 @@ Remove each listed name from **both** files:
 
 * `var/config/.env` (`/app/config/.env` in the container), and
 * the host `.env` next to `docker-compose.yml`. Compose loads it through
-  `env_file`, so its entries become process environment variables. Those
-  take precedence over both the file and the database. Deleting the line from
+  `env_file`, so its entries become process environment variables. For
+  settings other than captcha, SMTP and object storage, those variables
+  take precedence over both the file and the database. Captcha, SMTP and
+  object storage prefer a saved database value; the environment is only the
+  fallback for a key that has never been saved. Deleting the line from
   `var/config/.env` alone changes nothing.
 
 Then run `docker compose up -d` so the container is recreated. A plain

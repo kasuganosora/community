@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/kasuganosora/community/captcha/providers"
@@ -189,11 +190,13 @@ func createProvider(cfg *Config) (Provider, error) {
 }
 
 // loadConfigFromSettings 从系统设置加载配置.
+// 数据库中已保存的 config.captcha.* 优先；环境变量只在对应键还没保存时作为旧部署的回退。
 func loadConfigFromSettings() *Config {
-	// 从环境变量或系统设置中读取配置
-	providerStr := os.Getenv("CAPTCHA_PROVIDER")
-	if providerStr == "" {
-		providerStr = systemsettings.GetString("config.captcha.provider", "")
+	providerStr := ""
+	if value, ok := systemsettings.Stored(systemsettings.KeyCaptchaProvider); ok && value != nil {
+		providerStr = strings.TrimSpace(fmt.Sprint(value))
+	} else {
+		providerStr = strings.TrimSpace(os.Getenv("CAPTCHA_PROVIDER"))
 	}
 
 	// 如果没有配置新格式，尝试兼容旧格式
@@ -216,35 +219,20 @@ func loadConfigFromSettings() *Config {
 	}
 
 	// 根据供应商加载特定配置
+	siteEnv, secretEnv := "CAPTCHA_SITE_KEY", "CAPTCHA_SECRET_KEY"
+	legacySite, legacySecret := systemsettings.KeyRecaptchaSiteKey, systemsettings.KeyRecaptchaSecretKey
 	switch provider {
 	case ProviderRecaptcha:
-		cfg.SiteKey = getConfigValue("CAPTCHA_SITE_KEY", systemsettings.KeyRecaptchaSiteKey, "")
-		cfg.SecretKey = getConfigValue("CAPTCHA_SECRET_KEY", systemsettings.KeyRecaptchaSecretKey, "")
 		cfg.ScoreThreshold = systemsettings.GetFloat64("config.captcha.score_threshold", 0.5)
 	case ProviderCloudflare:
-		cfg.SiteKey = getConfigValue("CLOUDFLARE_TURNSTILE_SITE_KEY", "config.cloudflare.turnstile.site_key", "")
-		cfg.SecretKey = getConfigValue("CLOUDFLARE_TURNSTILE_SECRET_KEY", "config.cloudflare.turnstile.secret_key", "")
-	case ProviderHCaptcha:
-		cfg.SiteKey = getConfigValue("HCAPTCHA_SITE_KEY", "config.hcaptcha.site_key", "")
-		cfg.SecretKey = getConfigValue("HCAPTCHA_SECRET_KEY", "config.hcaptcha.secret_key", "")
-	}
-
-	// Administrator settings override legacy provider-specific keys. Their
-	// presence (including an explicit empty value) distinguishes intentional
-	// edits from installations which still use legacy configuration.
-	siteEnv, secretEnv := "CAPTCHA_SITE_KEY", "CAPTCHA_SECRET_KEY"
-	if provider == ProviderCloudflare {
 		siteEnv, secretEnv = "CLOUDFLARE_TURNSTILE_SITE_KEY", "CLOUDFLARE_TURNSTILE_SECRET_KEY"
-	}
-	if provider == ProviderHCaptcha {
+		legacySite, legacySecret = "config.cloudflare.turnstile.site_key", "config.cloudflare.turnstile.secret_key"
+	case ProviderHCaptcha:
 		siteEnv, secretEnv = "HCAPTCHA_SITE_KEY", "HCAPTCHA_SECRET_KEY"
+		legacySite, legacySecret = "config.hcaptcha.site_key", "config.hcaptcha.secret_key"
 	}
-	if value := systemsettings.Get(systemsettings.KeyCaptchaSiteKey, nil); value != nil && os.Getenv(siteEnv) == "" {
-		cfg.SiteKey = systemsettings.GetString(systemsettings.KeyCaptchaSiteKey, "")
-	}
-	if value := systemsettings.Get(systemsettings.KeyCaptchaSecretKey, nil); value != nil && os.Getenv(secretEnv) == "" {
-		cfg.SecretKey = systemsettings.GetString(systemsettings.KeyCaptchaSecretKey, "")
-	}
+	cfg.SiteKey = captchaCredential(systemsettings.KeyCaptchaSiteKey, siteEnv, legacySite)
+	cfg.SecretKey = captchaCredential(systemsettings.KeyCaptchaSecretKey, secretEnv, legacySecret)
 
 	// Legacy installations may auto-enable from credentials, but an explicit
 	// administrator disable must remain disabled.
@@ -255,13 +243,31 @@ func loadConfigFromSettings() *Config {
 	return cfg
 }
 
-// getConfigValue 获取配置值（优先环境变量）.
-func getConfigValue(envKey, settingsKey, defaultValue string) string {
-	if value := os.Getenv(envKey); value != "" {
+// captchaCredential reads the admin key when it has been saved (including an
+// explicit empty value). Otherwise it uses the legacy environment variable,
+// then an older provider-specific settings key.
+func captchaCredential(settingsKey, envKey, legacyKey string) string {
+	if value, ok := systemsettings.Stored(settingsKey); ok && value != nil {
+		return strings.TrimSpace(fmt.Sprint(value))
+	}
+	if value := strings.TrimSpace(os.Getenv(envKey)); value != "" {
 		return value
 	}
-
-	return systemsettings.GetString(settingsKey, defaultValue)
+	if envKey != "CAPTCHA_SITE_KEY" && envKey != "CAPTCHA_SECRET_KEY" {
+		generic := "CAPTCHA_SITE_KEY"
+		if strings.Contains(envKey, "SECRET") {
+			generic = "CAPTCHA_SECRET_KEY"
+		}
+		if value := strings.TrimSpace(os.Getenv(generic)); value != "" {
+			return value
+		}
+	}
+	if legacyKey != "" && legacyKey != settingsKey {
+		if value, ok := systemsettings.Stored(legacyKey); ok && value != nil {
+			return strings.TrimSpace(fmt.Sprint(value))
+		}
+	}
+	return ""
 }
 
 // SiteVerify 便捷的验证函数（使用全局服务）.

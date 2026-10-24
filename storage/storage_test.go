@@ -130,6 +130,17 @@ func TestLoadS3Config(t *testing.T) {
 	assert.Equal(t, "uploads", cfg.LegacyLocalRoot)
 }
 
+func TestLoadS3ConfigUnsetHasNoPlaceholderBucket(t *testing.T) {
+	old := config.C.Other
+	defer func() { config.C.Other = old }()
+	config.C.Other = map[string]string{}
+	cfg := LoadS3Config()
+	assert.Empty(t, cfg.Bucket)
+	assert.Empty(t, cfg.Endpoint)
+	assert.NotEqual(t, "community", cfg.Bucket)
+	assert.NotEqual(t, "localhost:9000", cfg.Endpoint)
+}
+
 func TestGetContentType(t *testing.T) {
 	tests := []struct {
 		filename string

@@ -3,6 +3,7 @@ package common
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/captcha"
@@ -42,12 +43,7 @@ func GetCaptchaConfig(c *gin.Context) {
 // The secret remains write-only even when the runtime provider is disabled.
 func AdminGetCaptchaConfig(c *gin.Context) {
 	service := captcha.GetService()
-	environmentOverride := false
-	for _, name := range []string{"CAPTCHA_PROVIDER", "CAPTCHA_SITE_KEY", "CAPTCHA_SECRET_KEY", "CLOUDFLARE_TURNSTILE_SITE_KEY", "CLOUDFLARE_TURNSTILE_SECRET_KEY", "HCAPTCHA_SITE_KEY", "HCAPTCHA_SECRET_KEY"} {
-		if os.Getenv(name) != "" {
-			environmentOverride = true
-		}
-	}
+	environmentOverride := captchaEnvSuppliesUnset()
 	c.JSON(http.StatusOK, gin.H{
 		"enabled":              systemsettings.GetBool(systemsettings.KeyCaptchaEnabled, false),
 		"provider":             systemsettings.GetString(systemsettings.KeyCaptchaProvider, service.GetProviderType().String()),
@@ -153,6 +149,29 @@ func GetCaptchaProviders(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, providers)
+}
+
+// captchaEnvSuppliesUnset reports a legacy environment value that is still
+// in effect because the matching database key has not been saved.
+func captchaEnvSuppliesUnset() bool {
+	pairs := []struct{ env, key string }{
+		{"CAPTCHA_PROVIDER", systemsettings.KeyCaptchaProvider},
+		{"CAPTCHA_SITE_KEY", systemsettings.KeyCaptchaSiteKey},
+		{"CAPTCHA_SECRET_KEY", systemsettings.KeyCaptchaSecretKey},
+		{"CLOUDFLARE_TURNSTILE_SITE_KEY", systemsettings.KeyCaptchaSiteKey},
+		{"CLOUDFLARE_TURNSTILE_SECRET_KEY", systemsettings.KeyCaptchaSecretKey},
+		{"HCAPTCHA_SITE_KEY", systemsettings.KeyCaptchaSiteKey},
+		{"HCAPTCHA_SECRET_KEY", systemsettings.KeyCaptchaSecretKey},
+	}
+	for _, pair := range pairs {
+		if strings.TrimSpace(os.Getenv(pair.env)) == "" {
+			continue
+		}
+		if _, ok := systemsettings.Stored(pair.key); !ok {
+			return true
+		}
+	}
+	return false
 }
 
 // AdminUpdateCaptchaConfigRequest 管理员更新验证码配置请求.

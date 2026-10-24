@@ -7,6 +7,7 @@ import (
 
 	"github.com/kasuganosora/community/captcha/providers"
 	"github.com/kasuganosora/community/captcha/types"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -339,21 +340,14 @@ func TestNewService_WithScoreThreshold(t *testing.T) {
 	assert.InDelta(t, 0.8, svc.scoreThreshold, 1e-9)
 }
 
-// =============================================================================
-// getConfigValue
-// =============================================================================
-
-func TestGetConfigValue(t *testing.T) {
-	// When env var is not set, falls through to systemsettings.GetString.
-	// systemsettings may not be initialised in test env, so catch panic.
-	defer func() {
-		r := recover()
-		_ = r
-	}()
-
-	val := getConfigValue("NONEXISTENT_ENV_VAR_CAPTCHA_TEST", "nonexistent.settings.key", "default-val")
-	// systemsettings.GetString may return default or empty, but should not panic
-	_ = val
+func TestCaptchaCredentialPrefersDatabaseOverEnv(t *testing.T) {
+	const key = "config.captcha.site_key"
+	systemsettings.Set(key, "db-site")
+	t.Cleanup(func() { systemsettings.Set(key, nil) })
+	t.Setenv("CLOUDFLARE_TURNSTILE_SITE_KEY", "env-site")
+	require.Equal(t, "db-site", captchaCredential(key, "CLOUDFLARE_TURNSTILE_SITE_KEY", ""))
+	systemsettings.Set(key, nil)
+	require.Equal(t, "env-site", captchaCredential(key, "CLOUDFLARE_TURNSTILE_SITE_KEY", ""))
 }
 
 // =============================================================================

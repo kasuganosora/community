@@ -23,7 +23,7 @@ func AdminCommand() *cli.Command {
 		Subcommands: []*cli.Command{
 			{
 				Name:  "import-misskey-meta",
-				Usage: "Import moderation settings (and branding fields we support) from a Misskey PostgreSQL database",
+				Usage: "Import moderation, branding, captcha, SMTP and object-storage settings from a Misskey PostgreSQL database",
 				Description: `Reads Misskey's meta row and imports the admin "moderation" settings:
 disableRegistration, emailRequiredForSignup, ugcVisibilityForVisitor,
 preservedUsernames, sensitiveWords, prohibitedWords,
@@ -31,9 +31,11 @@ prohibitedWordsForNameOfUser, hiddenTags, blockedHosts, silencedHosts,
 mediaSilencedHosts and serverRules (added to the rules list when missing),
 plus manually suspended instances from Misskey's instance table.
 Branding fields are imported only where this server has a matching setting
-(name, description, maintainerEmail ...). Columns missing on either side are
-skipped, so older or newer Misskey versions work. Lists replace the current
-values; run with --dry-run first.`,
+(name, description, maintainerEmail ...). Turnstile (and hCaptcha / reCAPTCHA),
+SMTP columns and object storage are written to system_settings (config.captcha.*,
+config.email.*, config.storage.*) when those keys are not already saved.
+Columns missing on either side are skipped, so older or newer Misskey versions
+work. Lists replace the current values; run with --dry-run first.`,
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "dsn", EnvVars: []string{"MISSKEY_DSN"}, Usage: "Misskey PostgreSQL DSN/URL (or $MISSKEY_DSN)"},
 					&cli.BoolFlag{Name: "dry-run", Usage: "only report what would be imported"},
@@ -132,6 +134,7 @@ func loadMisskeyMeta(src *gorm.DB) (map[string]string, map[string][]string, erro
 		return nil, nil, fmt.Errorf("misskey meta table not found")
 	}
 	want := []string{"disableRegistration", "emailRequiredForSignup", "ugcVisibilityForVisitor", "serverRules"}
+	want = append(want, misskeyServiceColumns()...)
 	for _, l := range misskeyListSettings {
 		want = append(want, l.column)
 	}
@@ -229,6 +232,11 @@ func ImportMisskeyMeta(src, dst *gorm.DB, out io.Writer, opts MisskeyMetaOptions
 			}
 		}
 	}
+	// Captcha, SMTP and object storage are filled only when that key is not
+	// already saved, so a re-run does not overwrite a later admin edit.
+	for key, value := range WithoutStored(MisskeyServiceSettings(scalars)) {
+		changes[key] = value
+	}
 	keys := make([]string, 0, len(changes))
 	for k := range changes {
 		keys = append(keys, k)
@@ -239,7 +247,7 @@ func ImportMisskeyMeta(src, dst *gorm.DB, out io.Writer, opts MisskeyMetaOptions
 		case []string:
 			_, _ = fmt.Fprintf(out, "%s%s: %d entries\n", prefix, k, len(v))
 		default:
-			_, _ = fmt.Fprintf(out, "%s%s = %v\n", prefix, k, v)
+			_, _ = fmt.Fprintf(out, "%s%s = %s\n", prefix, k, settingLogValue(k, v))
 		}
 	}
 	if !opts.DryRun {
@@ -331,4 +339,15 @@ func importMisskeySuspendedInstances(src, dst *gorm.DB, dryRun bool) (int, error
 func hasColumn(cols map[string]bool, name string) bool {
 	_, ok := cols[name]
 	return ok
+}
+
+func settingLogValue(key string, value any) string {
+	name := strings.ToLower(key)
+	if strings.Contains(name, "secret") || strings.Contains(name, "password") {
+		if strings.TrimSpace(fmt.Sprint(value)) == "" {
+			return "(empty)"
+		}
+		return "(set)"
+	}
+	return fmt.Sprint(value)
 }
