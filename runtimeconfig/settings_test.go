@@ -45,6 +45,30 @@ func TestEffectiveConfigDeploymentOverridesSavedSettings(t *testing.T) {
 		t.Setenv(env, "explicit")
 	}
 	effective := EffectiveConfig()
-	require.Equal(t, config.C.SmtpServer, effective.SmtpServer)
-	require.Equal(t, config.C.Other, effective.Other)
+	require.Equal(t, "saved.example", effective.SmtpServer)
+	require.Equal(t, "saved", effective.Other["S3_BUCKET"])
+	require.Equal(t, "https://deployed.example", effective.Other["MEILISEARCH_HOST"])
+	require.Equal(t, "auto", effective.Other["MEILISEARCH_ENABLED"])
+	require.Equal(t, "deployed.example", config.C.SmtpServer)
+}
+
+func TestEffectiveConfigUsesLegacyEnvOnlyWhenUnset(t *testing.T) {
+	previous := config.C
+	t.Cleanup(func() { config.C = previous })
+	config.C = config.Config{SmtpServer: "legacy.example", Other: map[string]string{"S3_BUCKET": "legacy-bucket", "S3_ENDPOINT": "https://legacy.example"}}
+	for _, env := range []string{"SMTP_SERVER", "S3_BUCKET", "S3_ENDPOINT"} {
+		t.Setenv(env, "legacy")
+	}
+	systemsettings.Set("config.email.server", nil)
+	systemsettings.Set("config.storage.bucket", nil)
+	systemsettings.Set("config.storage.endpoint", nil)
+	t.Cleanup(func() {
+		systemsettings.Set("config.email.server", nil)
+		systemsettings.Set("config.storage.bucket", nil)
+		systemsettings.Set("config.storage.endpoint", nil)
+	})
+	effective := EffectiveConfig()
+	require.Equal(t, "legacy.example", effective.SmtpServer)
+	require.Equal(t, "legacy-bucket", effective.Other["S3_BUCKET"])
+	require.NotEqual(t, "community", effective.Other["S3_BUCKET"])
 }

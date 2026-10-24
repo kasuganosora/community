@@ -125,11 +125,8 @@ func TestStorageSettings(c *gin.Context) {
 	}
 	endpoint := cfg.Other["S3_ENDPOINT"]
 	bucket := cfg.Other["S3_BUCKET"]
-	if bucket == "" {
-		bucket = "community"
-	}
-	if endpoint == "" || cfg.Other["S3_ACCESS_KEY"] == "" || cfg.Other["S3_SECRET_KEY"] == "" {
-		c.JSON(422, gin.H{"success": false, "message": "Save the endpoint, access key and secret key first"})
+	if endpoint == "" || bucket == "" || cfg.Other["S3_ACCESS_KEY"] == "" || cfg.Other["S3_SECRET_KEY"] == "" {
+		c.JSON(422, gin.H{"success": false, "message": "Save the endpoint, bucket, access key and secret key first"})
 		return
 	}
 	var transport http.RoundTripper = activitypub.NewAuthenticatedMediaHTTPClient(nil).Transport

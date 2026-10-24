@@ -46,9 +46,9 @@ type S3Config struct {
 // LoadS3Config reads S3_* settings from the configuration.
 func LoadS3Config() S3Config {
 	cfg := S3Config{
-		Endpoint:        getEnvOrDefault("S3_ENDPOINT", "localhost:9000"),
-		Region:          getEnvOrDefault("S3_REGION", "us-east-1"),
-		Bucket:          getEnvOrDefault("S3_BUCKET", "community"),
+		Endpoint:        getEnvOrDefault("S3_ENDPOINT", ""),
+		Region:          getEnvOrDefault("S3_REGION", ""),
+		Bucket:          getEnvOrDefault("S3_BUCKET", ""),
 		AccessKey:       getEnvOrDefault("S3_ACCESS_KEY", ""),
 		SecretKey:       getEnvOrDefault("S3_SECRET_KEY", ""),
 		UseSSL:          strings.EqualFold(getEnvOrDefault("S3_USE_SSL", "false"), "true"),
@@ -105,6 +105,11 @@ func NewS3Backend(cfg S3Config) *S3Backend {
 
 	cfg.Endpoint = strings.TrimRight(endpoint, "/")
 	cfg.PublicURL = strings.TrimRight(cfg.PublicURL, "/")
+	if cfg.Region == "" && cfg.Endpoint != "" {
+		// Client default only. An unset region stays blank in the admin UI
+		// and in saved settings; it is not a sign that storage is configured.
+		cfg.Region = "us-east-1"
+	}
 	b := &S3Backend{cfg: cfg}
 
 	if cfg.LegacyLocalRoot != "" {

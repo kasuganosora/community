@@ -194,6 +194,16 @@ func Default() Backend {
 	return defaultBackend
 }
 
+// ResetDefault drops the cached backend so the next Default call reads the
+// current configuration. Admin saves use this so object storage changes
+// apply without a process restart.
+func ResetDefault() {
+	defaultMu.Lock()
+	defaultBackend = nil
+	defaultMu.Unlock()
+	resetHealthCache()
+}
+
 // SetDefault replaces the default backend (tests, tooling) and returns a
 // function restoring the previous one. Passing nil re-reads configuration
 // on next use.

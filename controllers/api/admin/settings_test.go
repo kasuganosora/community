@@ -3,11 +3,13 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/storage"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -96,6 +98,10 @@ func TestSettingsRollbackDoesNotPublishAndDiagnosticsCannotWrite(t *testing.T) {
 
 func TestSettingsDeploymentMetadataRemainsReadOnlyAndRedacted(t *testing.T) {
 	newAdminTestEnv(t)
+	t.Cleanup(func() {
+		systemsettings.Set("config.storage.secret_key", nil)
+		systemsettings.Set("config.storage.bucket", nil)
+	})
 	t.Setenv("S3_SECRET_KEY", "private-fixture-value")
 	old := config.C.Other
 	config.C.Other = map[string]string{"S3_SECRET_KEY": "private-fixture-value"}
@@ -119,13 +125,52 @@ func TestSettingsDeploymentMetadataRemainsReadOnlyAndRedacted(t *testing.T) {
 		if field.Key == "config.storage.secret_key" {
 			found = true
 			require.Equal(t, "S3_SECRET_KEY", field.DeploymentKey)
-			require.True(t, field.ReadOnly)
+			require.False(t, field.ReadOnly)
 			require.True(t, field.SecretSet)
 			require.Nil(t, field.Value)
 		}
+		if field.Key == "config.storage.bucket" {
+			require.NotEqual(t, "community", field.Value)
+		}
 	}
 	require.True(t, found)
-	c, w = newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "storage"}}, map[string]any{"values": map[string]any{"config.storage.secret_key": "attempted-override"}})
+	c, w = newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "storage"}}, map[string]any{"values": map[string]any{"config.storage.secret_key": "attempted-override", "config.storage.bucket": "maid-file"}})
 	UpdateSettings(c)
-	require.Equal(t, 409, w.Code)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.NotContains(t, w.Body.String(), "private-fixture-value")
+	require.NotContains(t, w.Body.String(), "attempted-override")
+	require.Equal(t, "attempted-override", systemsettings.GetString("config.storage.secret_key", ""))
+	require.Equal(t, "maid-file", systemsettings.GetString("config.storage.bucket", ""))
+	require.False(t, strings.Contains(w.Body.String(), `"restart_required":true`))
+}
+
+func TestStorageSettingsApplyWithoutRestart(t *testing.T) {
+	newAdminTestEnv(t)
+	prev := config.C
+	t.Cleanup(func() {
+		config.C = prev
+		storage.ResetDefault()
+		systemsettings.Set("config.storage.type", nil)
+		systemsettings.Set("config.storage.endpoint", nil)
+		systemsettings.Set("config.storage.bucket", nil)
+	})
+	config.C.StorageType = "local"
+	if config.C.Other == nil {
+		config.C.Other = map[string]string{}
+	}
+	storage.ResetDefault()
+	require.Equal(t, storage.KindLocal, storage.Default().Kind())
+	for _, field := range storageSettingsFields() {
+		if field.Key == "config.storage.bucket" {
+			require.Empty(t, field.Value)
+		}
+	}
+	c, w := newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "storage"}}, map[string]any{"values": map[string]any{
+		"config.storage.type": "s3", "config.storage.endpoint": "https://acct.r2.example", "config.storage.bucket": "maid-file",
+	}})
+	UpdateSettings(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Equal(t, "s3", config.C.StorageType)
+	require.Equal(t, "maid-file", config.C.Other["S3_BUCKET"])
+	require.Equal(t, storage.KindS3, storage.Default().Kind())
 }

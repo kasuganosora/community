@@ -114,6 +114,19 @@ func Load() {
 	loaded = true
 }
 
+// Stored reports a value saved in system_settings. It does not consult the
+// process environment or .env. A nil value means the key was cleared in memory
+// and is treated as absent by callers that prefer the database.
+func Stored(key string) (any, bool) {
+	Load()
+
+	mu.RLock()
+	defer mu.RUnlock()
+
+	v, ok := settings[key]
+	return v, ok
+}
+
 func Get(key string, defaultValue any) any {
 	Load()
 

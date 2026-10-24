@@ -45,8 +45,8 @@ var useDrive types.Drive
 
 func init() { Reload() }
 
-// Reload is called during startup, after saved settings are applied and before
-// handlers or background jobs can send mail. It is not a live mutation API.
+// Reload rebuilds the mailer from the current configuration. Startup and
+// admin email saves both call it; SMTP changes do not require a restart.
 func Reload() {
 	useDrive = nil
 	if config.C.EmailMode == "smtp" && config.C.SmtpServer != "" {
