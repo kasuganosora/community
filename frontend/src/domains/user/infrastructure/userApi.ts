@@ -1,5 +1,5 @@
 import { cursorPage, type CursorPage } from '@/shared/utils/pagination'
-import client, { tokenService } from '@/shared/api/client'
+import client, { isTimeoutError, requestTimeout, tokenService } from '@/shared/api/client'
 import type { MastodonAccount, MastodonStatus, MastodonRelationship } from '@/shared/types/mastodon'
 import type { PaginationParams } from '@/shared/types/pagination'
 import { pickAccountByAcct } from '../domain/acct'
@@ -17,14 +17,72 @@ export function parseBackfillState(value: unknown): ProfileBackfillState {
   return value === 'pending' || value === 'done' || value === 'unavailable' ? value : null
 }
 
+function errorStatus(error: unknown): number | undefined {
+  const value = error as { response?: { status?: number }; status?: number } | null
+  return value?.response?.status ?? value?.status
+}
+
 function isNotFound(e: unknown): boolean {
-  return (e as { response?: { status?: number } } | null)?.response?.status === 404
+  return errorStatus(e) === 404
+}
+
+function isGone(e: unknown): boolean {
+  return errorStatus(e) === 410
+}
+
+/** Above the shared 15s axios budget so one stall retry still has time left. */
+export const ACCOUNT_READ_TIMEOUT_MS = 30_000
+
+export function accountReadTimeout(): number {
+  return Math.max(ACCOUNT_READ_TIMEOUT_MS, requestTimeout())
+}
+
+const accountCache = new Map<string, MastodonAccount>()
+
+export function accountCacheKey(acct: string): string {
+  return acct.trim().replace(/^@/, '').toLowerCase()
+}
+
+export function rememberCachedAccount(account: MastodonAccount, query?: string): void {
+  if (query) accountCache.set(accountCacheKey(query), account)
+  if (account.acct) accountCache.set(accountCacheKey(account.acct), account)
+  // Local accts have no domain. Don't alias a remote username onto the local route.
+  if (account.username && account.acct && !account.acct.includes('@')) accountCache.set(accountCacheKey(account.username), account)
+}
+
+export function peekCachedAccount(acct: string): MastodonAccount | undefined {
+  return accountCache.get(accountCacheKey(acct))
+}
+
+export function forgetCachedAccount(acct: string): void {
+  const current = accountCache.get(accountCacheKey(acct))
+  accountCache.delete(accountCacheKey(acct))
+  if (!current) return
+  for (const [key, cached] of accountCache) {
+    if (cached.id === current.id) accountCache.delete(key)
+  }
+}
+
+export function clearCachedAccounts(): void {
+  accountCache.clear()
+}
+
+/** Timeouts, dropped connections, and 408/429/5xx. Real 404/410 stay final. */
+export function isTransientAccountError(error: unknown): boolean {
+  const status = errorStatus(error)
+  if (status === 404 || status === 410) return false
+  if (status === 408 || status === 429 || (status !== undefined && status >= 500)) return true
+  if (status !== undefined) return false
+  const code = (error as { code?: string } | null)?.code
+  if (code === 'ERR_NETWORK' || code === 'OFFLINE' || code === 'ECONNABORTED' || code === 'ETIMEDOUT') return true
+  return isTimeoutError(error as { code?: string; message?: string } | null)
 }
 
 export const userApi = {
   // Hovering must never trigger a federated account resolution/backfill.
   async lookupCachedAccount(acct: string, signal?: AbortSignal): Promise<MastodonAccount> {
     const { data } = await client.get<MastodonAccount>('/api/v1/accounts/lookup', { params: { acct }, signal })
+    rememberCachedAccount(data, acct)
     return data
   },
 
@@ -53,17 +111,29 @@ export const userApi = {
     const q = acct.trim().replace(/^@/, '')
     if (!q) throw new Error(t('user.userApi.s1'))
     try {
-      const { data } = await client.get<MastodonAccount>('/api/v1/accounts/lookup', { params: { acct: q } })
+      const { data } = await client.get<MastodonAccount>('/api/v1/accounts/lookup', {
+        params: { acct: q },
+        timeout: accountReadTimeout(),
+      })
+      rememberCachedAccount(data, q)
       return data
     } catch (e) {
+      if (isGone(e)) {
+        forgetCachedAccount(q)
+        throw e
+      }
       if (!isNotFound(e)) throw e
+      forgetCachedAccount(q)
     }
     if (q.includes('@') && tokenService.get()) {
       const { data } = await client.get<MastodonAccount[]>('/api/v1/accounts/search', {
         params: { q, limit: 5, resolve: true },
       })
       const match = pickAccountByAcct(data, q, window.location.hostname)
-      if (match) return match
+      if (match) {
+        rememberCachedAccount(match, q)
+        return match
+      }
     }
     throw new Error(t('user.userApi.s1'))
   },
@@ -78,7 +148,10 @@ export const userApi = {
    * imported from the remote server, "unavailable" when it hides them.
    */
   async getStatusesWithBackfill(id: string, params?: AccountStatusesParams): Promise<{ statuses: MastodonStatus[]; backfill: ProfileBackfillState }> {
-    const { data, headers } = await client.get<MastodonStatus[]>(`/api/v1/accounts/${encodeURIComponent(id)}/statuses`, { params })
+    const { data, headers } = await client.get<MastodonStatus[]>(`/api/v1/accounts/${encodeURIComponent(id)}/statuses`, {
+      params,
+      timeout: accountReadTimeout(),
+    })
     return { statuses: data, backfill: parseBackfillState(headers?.['x-profile-backfill']) }
   },
 

@@ -5,11 +5,19 @@ download speed below 1 Mbps when the browser exposes Network Information.
 Browsers without this API retain the normal request policy.
 
 - API requests allow 15 seconds normally and 45 seconds on a slow connection.
-- Only timeline and search GETs may retry automatically, once, after no data
-  has arrived for 8 seconds (30 seconds on a slow connection). Receiving any
-  response body disables this retry, so partially downloaded data is kept.
-  Both attempts share the original timeout budget. Cancellation stops the
-  active attempt, clears timers/listeners, and prevents another request.
+  Account lookup and account status reads use at least 30 seconds (or the slow
+  budget, whichever is longer) so one stall retry still has time on a stuck
+  client path. The global axios timeout is unchanged.
+- Timeline, search, account lookup, and account status GETs may retry
+  automatically, once, after no data has arrived for 8 seconds (30 seconds on
+  a slow connection). Receiving any response body disables this retry, so
+  partially downloaded data is kept. Both attempts share the original timeout
+  budget. Cancellation stops the active attempt, clears timers/listeners, and
+  prevents another request. A fast 404 or 410 is not retried.
+- A profile with a cached account keeps that shell on screen while lookup
+  refetches. A timeout or other transient failure leaves the shell up and
+  shows retry there. 404 and 410 still replace it with the error state. The
+  manual retry button remains when nothing is cached.
 - Credential verification timeouts, network errors and server failures retain
   the local session. Startup shows an error and an in-place retry; a 401 still
   expires the session. Slow startup displays an explanation after 6 seconds.
@@ -34,8 +42,10 @@ Slow 3G, then repeat after a normal visit with the cache enabled:
 
 1. Inspect requests during worker installation: unused page and locale chunks
    should not be downloaded.
-2. Hold a timeline/search response for over 8 seconds on a reported 3G
-   connection, then finish it. There should be one successful request.
+2. Hold a timeline, search, or account-lookup response for over 8 seconds
+   on a reported 3G connection, then finish it. There should be one successful
+   request. A cached profile stays visible during that refetch; a 404/410
+   still replaces the page.
 3. Stream part of a response before 8 seconds and finish later: the partial
    response should not be aborted or restarted.
 4. Fail credential verification with 503 or a timeout. The error's retry button

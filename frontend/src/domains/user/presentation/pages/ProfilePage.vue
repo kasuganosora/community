@@ -5,7 +5,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessagePlugin, DialogPlugin } from '@/shared/ui/feedback'
 import type { MastodonAccount, MastodonStatus } from '@/shared/types/mastodon'
-import { userApi, type ProfileBackfillState } from '../../infrastructure/userApi'
+import { isTransientAccountError, peekCachedAccount, userApi, type ProfileBackfillState } from '../../infrastructure/userApi'
 import { PROFILE_TABS, type ProfileTabValue } from '../../domain/entities'
 import { followButtonLabel } from '../../domain/relationship'
 import { useRelationships } from '../composables/useRelationships'
@@ -30,6 +30,7 @@ const account = ref<MastodonAccount | null>(null)
 const activeTab = ref<ProfileTabValue>('posts')
 const loading = ref(true)
 const error = ref<string | null>(null)
+const refreshError = ref<string | null>(null)
 const relationships = useRelationships()
 const reporting = ref(false)
 
@@ -113,22 +114,42 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
 
 async function loadProfile() {
   const myVersion = ++requestVersion
-  loading.value = true
-  error.value = null
-  account.value = null
-  resetBackfill()
-  feed.reset()
-  activeTab.value = 'posts'
   const username = route.params.username as string
+  // Paint the shell from the last good local account. A stuck client→API
+  // lookup (axios abort at the shared timeout) must not blank that shell.
+  const cached = peekCachedAccount(username)
+  const same = !!cached && account.value?.id === cached.id
+  error.value = null
+  refreshError.value = null
+  if (!same) {
+    // Clear the previous profile before the tab watcher runs, so it cannot
+    // refetch that profile. A cached account stays mounted for the shell.
+    account.value = cached ?? null
+    loading.value = !cached
+    resetBackfill()
+    feed.reset()
+    activeTab.value = 'posts'
+  } else {
+    account.value = cached
+    loading.value = false
+  }
   try {
     const acctData = await userApi.lookupAccount(username)
     if (myVersion !== requestVersion) return
     account.value = acctData
-    feed.refresh()
+    // Header is already up when cached. Statuses and relationships follow;
+    // they are not required to paint the shell.
+    void feed.refresh()
     if (acctData.id !== authStore.currentUser?.id) relationships.load([acctData.id])
   } catch (e) {
     if (myVersion !== requestVersion) return
     console.error('Failed to load profile:', e)
+    if (account.value && isTransientAccountError(e)) {
+      refreshError.value = e instanceof Error ? e.message : t('user.ProfilePage.s22')
+      return
+    }
+    refreshError.value = null
+    account.value = null
     error.value = e instanceof Error ? e.message : t('user.ProfilePage.s22')
   } finally {
     if (myVersion === requestVersion) loading.value = false
@@ -216,6 +237,11 @@ watch(activeTab, () => {
         <h1 class="page-header__title" dir="auto"><EmojiText :text="account.display_name || account.username" :emojis="account.emojis" /></h1>
         <span class="profile-header-bar__count">{{ $t('user.ProfilePage.s2', [formatCount(account.statuses_count)]) }}</span>
       </div>
+    </div>
+
+    <div v-if="refreshError" class="profile-refresh-error" role="alert" data-testid="profile-refresh-error">
+      <span>{{ refreshError }}</span>
+      <button type="button" class="btn btn--secondary btn--sm" @click="loadProfile">{{ $t('user.ProfilePage.s21') }}</button>
     </div>
 
     <!-- Banner -->
@@ -373,6 +399,19 @@ watch(activeTab, () => {
 .profile-metadata > span { display: inline-flex; align-items: center; gap: .35rem; }
 .profile-follow-message { padding: .75rem 1rem; border-radius: 12px; background: var(--color-bg-grouped); white-space: pre-wrap; overflow-wrap: anywhere; }
 .profile-field__proof { flex: none; color: var(--color-success, #2c9b70); margin-right: .35rem; vertical-align: middle; }
+
+.profile-refresh-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-3) var(--space-4) 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: 12px;
+  background: var(--color-bg-grouped);
+  color: var(--color-label-secondary);
+  font-size: var(--text-footnote, 13px);
+}
 
 .profile-backfill {
   display: flex;

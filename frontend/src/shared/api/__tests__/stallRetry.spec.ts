@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AxiosAdapter, AxiosProgressEvent, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { nextTick, watch } from 'vue'
-import { isStallRetryable, stallRetryAdapter, stalledRequests } from '../stallRetry'
+import { applyStallRetry, isStallRetryable, stallRetryAdapter, stalledRequests } from '../stallRetry'
 
 beforeEach(() => { vi.useFakeTimers(); stalledRequests.value = 0 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
@@ -23,11 +23,34 @@ function adapter(plan: Array<'hang' | 'ok' | 'fail'>) {
   return { base, signals }
 }
 
-it('only applies to idempotent search and timeline GETs', () => {
+it('only applies to idempotent search, timeline, and account profile GETs', () => {
   expect(isStallRetryable(cfg())).toBe(true)
   expect(isStallRetryable(cfg({ url: '/api/v1/timelines/home' }))).toBe(true)
+  expect(isStallRetryable(cfg({ url: '/api/v1/accounts/lookup' }))).toBe(true)
+  expect(isStallRetryable(cfg({ url: '/api/v1/accounts/1538/statuses' }))).toBe(true)
   expect(isStallRetryable(cfg({ method: 'post' }))).toBe(false)
   expect(isStallRetryable(cfg({ url: '/api/v1/statuses' }))).toBe(false)
+  expect(isStallRetryable(cfg({ url: '/api/v1/accounts/search' }))).toBe(false)
+  expect(isStallRetryable(cfg({ method: 'post', url: '/api/v1/accounts/1538/follow' }))).toBe(false)
+})
+
+it('retries a stalled account lookup once and keeps a fast 410 as a single attempt', async () => {
+  const stalled = adapter(['hang', 'ok'])
+  const lookup = cfg({ url: '/api/v1/accounts/lookup', timeout: 30000 })
+  applyStallRetry(lookup, stalled.base)
+  const recovered = (lookup.adapter as AxiosAdapter)(lookup)
+  await vi.advanceTimersByTimeAsync(8000)
+  await expect(recovered).resolves.toMatchObject({ data: 2 })
+  expect(stalled.signals).toHaveLength(2)
+  expect(stalled.signals[0].aborted).toBe(true)
+
+  const gone = Object.assign(new Error('gone'), { response: { status: 410 } })
+  const base = vi.fn<AxiosAdapter>(() => Promise.reject(gone))
+  const missing = cfg({ url: '/api/v1/accounts/lookup', timeout: 30000 })
+  applyStallRetry(missing, base)
+  await expect((missing.adapter as AxiosAdapter)(missing)).rejects.toBe(gone)
+  await vi.advanceTimersByTimeAsync(30000)
+  expect(base).toHaveBeenCalledTimes(1)
 })
 
 it('answers normally without retrying when the first attempt is quick', async () => {
