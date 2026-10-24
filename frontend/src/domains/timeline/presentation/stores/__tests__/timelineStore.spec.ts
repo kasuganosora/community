@@ -158,6 +158,29 @@ describe('timeline account and cursor isolation', () => {
     vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([{ id: '20' }] as MastodonStatus[])
     await pending
   })
+  it('applies the home reread that replaces one cancelled by a tab switch', async () => {
+    const visible = [
+      { id: '240737', created_at: '2026-10-24T12:00:00.000Z', content: 'visible' },
+      { id: '240700', created_at: '2026-10-24T11:00:00.000Z', content: 'older' },
+    ] as MastodonStatus[]
+    const api = vi.mocked(timelineApi.getHomeTimeline)
+    api.mockResolvedValueOnce(visible)
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+    let release!: (rows: MastodonStatus[]) => void
+    api.mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
+    const stale = store.checkNewer('home')
+    await Promise.resolve()
+    store.cancelRevalidation()
+    api.mockResolvedValue([{ id: '240800', created_at: '2026-10-24T13:00:00.000Z', content: 'new' }, ...visible] as MastodonStatus[])
+    const fresh = store.checkNewer('home')
+    release(visible)
+    await stale
+    await fresh
+    expect(api.mock.calls.length).toBeGreaterThan(2)
+    expect(store.homeStatuses.map(status => status.id)).toEqual(['240737', '240700'])
+    expect(store.homeTimeline.newer.map(status => status.id)).toEqual(['240800'])
+  })
   it('checks only the head when asked, and does not walk max_id', async () => {
     vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([{ id: '20' }, { id: '19' }] as MastodonStatus[])
     const store = useTimelineStore()

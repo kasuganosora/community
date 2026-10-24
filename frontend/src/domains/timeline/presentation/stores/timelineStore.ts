@@ -289,7 +289,15 @@ export const useTimelineStore = defineStore('timeline', () => {
     return fetchTimeline(type)
   }
 
-  function cancelRevalidation() { ++listGeneration.home; ++listGeneration.public }
+  function cancelRevalidation() {
+    // The in-flight walk is stale. Drop its flight slot so the tab we just
+    // opened starts its own read; joining the cancelled one throws the
+    // successful page away and leaves the empty list on screen.
+    ++listGeneration.home
+    ++listGeneration.public
+    delete flight.home
+    delete flight.public
+  }
 
   function commitHead(type: ManagedTimelineType, data: MastodonStatus[]) {
     const timeline = getTimeline(type)

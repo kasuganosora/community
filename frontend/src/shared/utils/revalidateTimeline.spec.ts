@@ -77,3 +77,38 @@ it('detects delayed lower-ID head content even when the original head page has b
   expect(result?.statuses).toEqual(rows(50, 49))
   expect(result?.newer).toEqual(rows(95))
 })
+
+/** Newest publication first. max_id is that status's publication time, not "id < cursor". */
+function publicationPage(timeline: { id: string, created_at: string, content: string }[], cursor: string | undefined) {
+  const ordered = timeline.slice().sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || (a.id < b.id ? 1 : -1))
+  const start = cursor ? ordered.findIndex(row => row.id === cursor) + 1 : 0
+  return ordered.slice(Math.max(0, start))
+}
+
+it('keeps posts a successful home page already returned when the next serial id is an older post', async () => {
+  const visible = Array.from({ length: 20 }, (_, index) => ({
+    id: String(100 - index),
+    created_at: new Date(Date.parse('2026-10-24T12:00:00.000Z') - index * 60_000).toISOString(),
+    content: `visible ${100 - index}`,
+  }))
+  const arrived = { id: '300', created_at: '2026-10-24T12:30:00.000Z', content: 'just arrived' }
+  const backdated = { id: '101', created_at: '2026-01-01T00:00:00.000Z', content: 'ingested late' }
+  const timeline = [...visible, arrived, backdated]
+  const fetcher = vi.fn(async (cursor: string | undefined) => publicationPage(timeline, cursor).slice(0, 20))
+  const result = await revalidateTimeline(visible, fetcher, () => true, visible.map(row => row.id))
+  expect(result?.statuses.map(row => row.content)).toEqual(visible.map(row => row.content))
+  expect(result?.newer).toEqual([{ id: '300' }])
+  expect(fetcher.mock.calls.map(call => call[0])).not.toContain('101')
+})
+
+it('drops a row the publication-ordered pages no longer contain without blanking the rest', async () => {
+  const current = [
+    { id: '50', created_at: '2026-10-24T03:00:00.000Z', content: 'stays' },
+    { id: '40', created_at: '2026-10-24T02:00:00.000Z', content: 'revoked' },
+    { id: '30', created_at: '2026-10-24T01:00:00.000Z', content: 'stays too' },
+  ]
+  const fetcher = vi.fn(async (cursor: string | undefined) => cursor ? [] : [current[0]!, current[2]!])
+  const result = await revalidateTimeline(current, fetcher, () => true, current.map(row => row.id))
+  expect(result?.statuses.map(row => row.id)).toEqual(['50', '30'])
+  expect(result?.newer).toEqual([])
+})
