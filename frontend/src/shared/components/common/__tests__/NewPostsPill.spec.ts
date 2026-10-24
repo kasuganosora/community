@@ -40,6 +40,20 @@ describe('NewPostsPill', () => {
     expect(wrapper.find('.app-loading').exists()).toBe(false)
   })
 
+  it('does not show a loading state when reveal finishes synchronously', async () => {
+    let calls = 0
+    const wrapper = mount(NewPostsPill, {
+      props: { show: true, reveal: () => { calls += 1 } },
+    })
+    const button = wrapper.get('[data-testid="new-posts-pill"]')
+    await button.trigger('click')
+    expect(calls).toBe(1)
+    expect(button.attributes('disabled')).toBeUndefined()
+    expect(button.attributes('aria-busy')).toBeUndefined()
+    expect(button.text()).toContain('有新帖子，点击查看')
+    expect(wrapper.find('.app-loading').exists()).toBe(false)
+  })
+
   it('re-enables the pill when refreshing fails', async () => {
     const pending = deferred()
     const wrapper = mount(NewPostsPill, {

@@ -15,11 +15,24 @@ const props = withDefaults(defineProps<{
 
 const busy = ref(false)
 
+function isPromise(value: unknown): value is Promise<unknown> {
+  return !!value && typeof (value as Promise<unknown>).then === 'function'
+}
+
 async function onClick() {
   if (busy.value) return
+  // A finished prefetch resolves synchronously. Awaiting it would still yield
+  // and flash the spinner for a result that is already in memory.
+  let result: unknown
+  try {
+    result = props.reveal()
+  } catch {
+    return
+  }
+  if (!isPromise(result)) return
   busy.value = true
   try {
-    await props.reveal()
+    await result
   } catch {
     // The timeline already records the failure. The pill must accept another try.
   } finally {
