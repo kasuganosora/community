@@ -9,7 +9,16 @@ import { isSlowConnection } from '@/shared/utils/network'
 // connections get more time; a response already downloading is never restarted.
 export const STALL_MS = 8000
 export const SLOW_STALL_MS = 30000
-const RETRYABLE = [/^\/api\/v2\/search(\?|$)/, /^\/api\/v1\/timelines\//]
+// Account lookup and status pages are idempotent reads. A stuck client→API
+// path used to burn the whole axios budget and surface the profile error
+// state; one silent stall gets a fresh attempt, same as timelines/search.
+// Search-with-resolve and account mutations stay out: those are not retries.
+const RETRYABLE = [
+  /^\/api\/v2\/search(\?|$)/,
+  /^\/api\/v1\/timelines\//,
+  /^\/api\/v1\/accounts\/lookup(\?|$)/,
+  /^\/api\/v1\/accounts\/[^/]+\/statuses(\?|$)/,
+]
 
 /** Number of stalled requests currently being retried (drives the hint). */
 export const stalledRequests = ref(0)
