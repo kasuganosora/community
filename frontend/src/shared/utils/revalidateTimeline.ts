@@ -34,6 +34,25 @@ function settleAuthoritativeEdits<T extends { id: string }>(rows: T[], edits: Re
   }
 }
 
+function embeddedStatusID(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || !('id' in value)) return
+  const id = (value as { id?: unknown }).id
+  return typeof id === 'string' && id !== '' ? id : undefined
+}
+
+/** Ids already on screen: the card, and the boost, reply parent, or quote it renders. */
+export function representedStatusIDs<T extends { id: string }>(rows: readonly T[]): Set<string> {
+  const seen = new Set<string>()
+  for (const row of rows) {
+    seen.add(row.id)
+    const extra = row as { reblog?: unknown, reply?: unknown, quote?: unknown }
+    for (const id of [embeddedStatusID(extra.reblog), embeddedStatusID(extra.reply), embeddedStatusID(extra.quote)]) {
+      if (id) seen.add(id)
+    }
+  }
+  return seen
+}
+
 export interface TimelineHead<T> {
   /** Loaded rows, with any that also appear in the fresh head replaced. Nothing is removed. */
   statuses: T[]
@@ -56,11 +75,11 @@ export async function refreshTimelineHead<T extends { id: string }>(
   if (!valid()) return null
   settleAuthoritativeEdits(head, edits)
   if (!current.length) return { statuses: head, newer: [], head }
-  const old = new Set(current.map(status => status.id))
+  const seen = representedStatusIDs(current)
   const known = new Set(knownHead ?? [])
   const newer: { id: string }[] = []
   for (const status of head) {
-    if (!old.has(status.id) && !known.has(status.id) && newer.length < TIMELINE_PAGE_SIZE) newer.push({ id: status.id })
+    if (!seen.has(status.id) && !known.has(status.id) && newer.length < TIMELINE_PAGE_SIZE) newer.push({ id: status.id })
   }
   const fresh = new Map(head.map(status => [status.id, status]))
   return { statuses: current.map(status => fresh.get(status.id) ?? status), newer, head }
@@ -83,11 +102,12 @@ export async function revalidateTimeline<T extends { id: string }>(
   if (!current.length) { settleAuthoritativeEdits(head, edits); return { statuses: head, newer: [] as T[] } }
   const first = current[0]!.id
   const last = current[current.length - 1]!.id
+  const shown = new Set(current.map(status => status.id))
+  const seen = representedStatusIDs(current)
   // IDs stay strings throughout; never round a snowflake through Number.
-  if (!/^\d+$/.test(first) || !/^\d+$/.test(last)) return { statuses: head.filter(s => current.some(old => old.id === s.id)), newer: head.filter(s => !current.some(old => old.id === s.id)) }
-  const old = new Set(current.map(status => status.id))
+  if (!/^\d+$/.test(first) || !/^\d+$/.test(last)) return { statuses: head.filter(s => shown.has(s.id)), newer: head.filter(s => !seen.has(s.id)) }
   const pending = new Map<string, { id: string }>()
-  const addPending = (id: string) => { if (!old.has(id) && pending.size < TIMELINE_PAGE_SIZE) pending.set(id, { id }) }
+  const addPending = (id: string) => { if (!seen.has(id) && pending.size < TIMELINE_PAGE_SIZE) pending.set(id, { id }) }
   for (const status of head) {
     if (!knownHead?.includes(status.id)) addPending(status.id)
   }
@@ -102,7 +122,7 @@ export async function revalidateTimeline<T extends { id: string }>(
     if (!valid()) return null
     for (const status of data) {
       if (!/^\d+$/.test(status.id) || BigInt(status.id) < BigInt(last)) continue
-      if (old.has(status.id)) rows.push(status)
+      if (shown.has(status.id)) rows.push(status)
       else addPending(status.id)
     }
     const next = data.at(-1)?.id

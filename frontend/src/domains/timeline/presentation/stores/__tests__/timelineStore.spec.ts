@@ -112,6 +112,28 @@ describe('timeline account and cursor isolation', () => {
     expect(timelineApi.getHomeTimeline).toHaveBeenCalledTimes(2)
     expect(store.homeStatuses).toEqual([])
   })
+  it('does not pill a status already visible as a reply parent, boost, or quote', async () => {
+    vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([
+      { id: '20', reply: { id: '13' } },
+      { id: '19', reblog: { id: '18' } },
+      { id: '17', quote: { id: '16' } },
+    ] as MastodonStatus[])
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+    store.applyStreamed('home', { event: 'update', id: '13' })
+    store.applyStreamed('home', { event: 'update', id: '18' })
+    store.applyStreamed('home', { event: 'update', id: '16' })
+    store.applyStreamed('home', { event: 'update', id: '20' })
+    store.applyStreamed('home', { event: 'status.update', id: '13' })
+    expect(store.homeTimeline.newer).toEqual([])
+    expect(store.homeStatuses.map(status => status.id)).toEqual(['20', '19', '17'])
+    store.applyStreamed('home', { event: 'update', id: '21' })
+    store.applyStreamed('home', { event: 'update', id: '21' })
+    expect(store.homeTimeline.newer.map(status => status.id)).toEqual(['21'])
+    expect(store.homeStatuses.map(status => status.id)).toEqual(['20', '19', '17'])
+    store.applyStreamed('home', { event: 'delete', id: '13' })
+    expect(store.homeStatuses.map(status => status.id)).toEqual(['20', '19', '17'])
+  })
   it('puts streamed home posts on the pill and deletes without another timeline read', async () => {
     vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([{ id: '20', content: 'old' }, { id: '19' }] as MastodonStatus[])
     const store = useTimelineStore()

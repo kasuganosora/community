@@ -303,6 +303,16 @@ describe('bounded bidirectional timeline pages', () => {
     expect(list.newer.value.map(row => row.id)).toEqual(['21'])
     expect(list.items.value.map(row => row.id)).toEqual(['20'])
   })
+  it('does not pill an id already shown inside a reply or boost', async () => {
+    const fetcher = vi.fn().mockResolvedValue([{ id: '20', reply: { id: '13' } }, { id: '19', reblog: { id: '18' } }])
+    const list = usePaginatedList(fetcher, 20, 8)
+    await list.refresh()
+    list.applyStreamed({ event: 'update', id: '13' })
+    list.applyStreamed({ event: 'update', id: '18' })
+    list.applyStreamed({ event: 'update', id: '21' })
+    expect(list.newer.value.map(row => row.id)).toEqual(['21'])
+    expect(list.items.value.map(row => row.id)).toEqual(['20', '19'])
+  })
   it('does not let a late revalidation restore a previous scope', async () => {
     let finish!: (rows: {id:string}[]) => void
     const fetcher = vi.fn().mockResolvedValueOnce(page(20, 19)).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
