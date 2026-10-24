@@ -3,6 +3,69 @@ import { editedStatuses } from '@/domains/post/presentation/composables/useStatu
 import { mergeById } from './pagination'
 import { TIMELINE_PAGE_SIZE } from './constants'
 
+async function readTimelinePage<T>(
+  fetchPage: (maxId: string | undefined, limit: number) => Promise<T[]>,
+  cursor: string | undefined,
+  limit: number,
+) {
+  try { return await fetchPage(cursor, limit) }
+  catch (error) {
+    // A deleted list or revoked scope must not leave its last private cards on screen.
+    if (axios.isAxiosError(error) && [401, 403, 404].includes(error.response?.status ?? 0)) return [] as T[]
+    throw error
+  }
+}
+
+/** Snapshot before the request so a mutation that lands while it is in flight is kept. */
+function captureEdits() {
+  return new Map([...editedStatuses].map(([id, status]) => [id, { original: status, snapshot: { ...status } }]))
+}
+
+/** Drop optimistic edits once HTTP has returned the same row unchanged. */
+function settleAuthoritativeEdits<T extends { id: string }>(rows: T[], edits: ReturnType<typeof captureEdits>) {
+  for (const row of rows) {
+    const reblog = (row as { reblog?: { id: string } | null }).reblog
+    for (const id of [row.id, reblog?.id]) {
+      if (!id) continue
+      const captured = edits.get(id)
+      const current = editedStatuses.get(id)
+      if (captured && current === captured.original && Object.keys(current).length === Object.keys(captured.snapshot).length && Object.entries(captured.snapshot).every(([key, value]) => current[key as keyof typeof current] === value)) editedStatuses.delete(id)
+    }
+  }
+}
+
+export interface TimelineHead<T> {
+  /** Loaded rows, with any that also appear in the fresh head replaced. Nothing is removed. */
+  statuses: T[]
+  newer: { id: string }[]
+  head: T[]
+}
+
+/**
+ * One head read. New ids wait on the pill. Rows already on screen are refreshed
+ * when they appear in that page. The loaded tail is not walked and not deleted.
+ */
+export async function refreshTimelineHead<T extends { id: string }>(
+  current: T[],
+  fetchPage: (maxId: string | undefined, limit: number) => Promise<T[]>,
+  valid: () => boolean,
+  knownHead?: readonly string[],
+): Promise<TimelineHead<T> | null> {
+  const edits = captureEdits()
+  const head = await readTimelinePage(fetchPage, undefined, TIMELINE_PAGE_SIZE)
+  if (!valid()) return null
+  settleAuthoritativeEdits(head, edits)
+  if (!current.length) return { statuses: head, newer: [], head }
+  const old = new Set(current.map(status => status.id))
+  const known = new Set(knownHead ?? [])
+  const newer: { id: string }[] = []
+  for (const status of head) {
+    if (!old.has(status.id) && !known.has(status.id) && newer.length < TIMELINE_PAGE_SIZE) newer.push({ id: status.id })
+  }
+  const fresh = new Map(head.map(status => [status.id, status]))
+  return { statuses: current.map(status => fresh.get(status.id) ?? status), newer, head }
+}
+
 /** Re-read a bounded historical window, not just since_id (which misses revocations
  * and delayed commits). Previously unseen rows wait behind the new-content button. */
 export async function revalidateTimeline<T extends { id: string }>(
@@ -12,28 +75,12 @@ export async function revalidateTimeline<T extends { id: string }>(
   knownHead?: readonly string[],
 ) {
   async function read(cursor: string | undefined, limit: number) {
-    try { return await fetchPage(cursor, limit) }
-    catch (error) {
-      // A deleted list or revoked scope must not leave its last private cards on screen.
-      if (axios.isAxiosError(error) && [401, 403, 404].includes(error.response?.status ?? 0)) return [] as T[]
-      throw error
-    }
+    return readTimelinePage(fetchPage, cursor, limit)
   }
-  const edits = new Map([...editedStatuses].map(([id, status]) => [id, { original: status, snapshot: { ...status } }]))
-  function authoritative(rows: T[]) {
-    for (const row of rows) {
-      const reblog = (row as { reblog?: { id: string } | null }).reblog
-      for (const id of [row.id, reblog?.id]) {
-        if (!id) continue
-        const captured = edits.get(id)
-        const current = editedStatuses.get(id)
-        if (captured && current === captured.original && Object.keys(current).length === Object.keys(captured.snapshot).length && Object.entries(captured.snapshot).every(([key, value]) => current[key as keyof typeof current] === value)) editedStatuses.delete(id)
-      }
-    }
-  }
+  const edits = captureEdits()
   const head = await read(undefined, TIMELINE_PAGE_SIZE)
   if (!valid()) return null
-  if (!current.length) { authoritative(head); return { statuses: head, newer: [] as T[] } }
+  if (!current.length) { settleAuthoritativeEdits(head, edits); return { statuses: head, newer: [] as T[] } }
   const first = current[0]!.id
   const last = current[current.length - 1]!.id
   // IDs stay strings throughout; never round a snowflake through Number.
@@ -64,6 +111,6 @@ export async function revalidateTimeline<T extends { id: string }>(
     while (index < current.length && BigInt(current[index]!.id) >= BigInt(next)) index++
   }
   const verified = mergeById([], rows)
-  authoritative([...head, ...verified])
+  settleAuthoritativeEdits([...head, ...verified], edits)
   return { statuses: verified, newer: [...pending.values()] }
 }

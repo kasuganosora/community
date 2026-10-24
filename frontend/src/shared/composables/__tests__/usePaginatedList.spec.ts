@@ -48,17 +48,18 @@ describe('usePaginatedList', () => {
     expect(list.hasMore.value).toBe(false)
   })
 
-  it('ignores a stale response after refresh', async () => {
+  it('shares an in-flight refresh instead of opening a second read', async () => {
     let resolveOld: (v: { id: string }[]) => void = () => {}
-    const fetcher = vi.fn()
-      .mockImplementationOnce(() => new Promise(r => { resolveOld = r }))
-      .mockResolvedValueOnce(page(9))
+    const fetcher = vi.fn().mockImplementationOnce(() => new Promise(r => { resolveOld = r }))
     const list = usePaginatedList(fetcher, 20)
     const old = list.refresh()
-    await list.refresh()
+    const again = list.refresh()
+    expect(fetcher).toHaveBeenCalledTimes(1)
     resolveOld(page(1))
     await old
-    expect(list.items.value.map(i => i.id)).toEqual(['9'])
+    await again
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(list.items.value.map(i => i.id)).toEqual(['1'])
   })
 
   it('keeps the current page until a refresh resolves', async () => {
@@ -109,19 +110,20 @@ describe('relationship cursor pagination', () => {
     expect(list.items.value.map(i => i.id)).toEqual(['999', '888', '777'])
     expect(list.hasMore.value).toBe(false)
   })
-  it('does not overwrite the active cursor with a stale response', async () => {
+  it('does not open a second refresh while the first is in flight', async () => {
     let resolveOld!: (value: unknown) => void
     const fetcher = vi.fn()
       .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
-      .mockResolvedValueOnce({ items: page(999), nextCursor: '42' })
       .mockResolvedValueOnce({ items: page(888) })
     const list = usePaginatedList(fetcher, 2)
     const old = list.refresh()
-    await list.refresh()
+    const again = list.refresh()
+    expect(fetcher).toHaveBeenCalledTimes(1)
     resolveOld({ items: page(111), nextCursor: '7' })
     await old
+    await again
     await list.loadMore()
-    expect(fetcher).toHaveBeenLastCalledWith('42', 2)
+    expect(fetcher).toHaveBeenLastCalledWith('7', 2)
   })
 })
 
@@ -264,6 +266,42 @@ describe('bounded bidirectional timeline pages', () => {
     expect(list.error.value).toContain('编辑')
     list.setPinnedIds([]); await list.loadMore()
     expect(list.items.value[0]?.id).toBe('4980')
+  })
+  it('does not load the next page while a window read is in flight', async () => {
+    let release!: (rows: { id: string }[]) => void
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(page(20, 19))
+      .mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
+    const list = usePaginatedList(fetcher, 2, 8)
+    await list.refresh()
+    const pending = list.revalidate()
+    await list.loadMore()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    release(page(20, 19))
+    fetcher.mockResolvedValueOnce(page(19))
+    await pending
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+  it('does not start a second window read while one is in flight, and a streamed id does not fetch', async () => {
+    let release!: (rows: { id: string }[]) => void
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(page(20, 19))
+      .mockImplementationOnce(() => new Promise(resolve => { release = resolve }))
+    const list = usePaginatedList(fetcher, 20, 8)
+    await list.refresh()
+    const first = list.revalidate()
+    const second = list.revalidate()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    release(page(20))
+    fetcher.mockResolvedValueOnce(page(20))
+    await first
+    await second
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    list.applyStreamed({ event: 'update', id: '21' })
+    list.applyStreamed({ event: 'delete', id: '19' })
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    expect(list.newer.value.map(row => row.id)).toEqual(['21'])
+    expect(list.items.value.map(row => row.id)).toEqual(['20'])
   })
   it('does not let a late revalidation restore a previous scope', async () => {
     let finish!: (rows: {id:string}[]) => void

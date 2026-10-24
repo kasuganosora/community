@@ -42,6 +42,12 @@ export function createNewerPrefetch<T>() {
     slot = next
   }
 
+  /** Remember a page the caller already fetched, so the pill click does not request it again. */
+  function adopt(key: string, rows: T) {
+    if (!key) return
+    slot = { key, settled: true, failed: false, rows, promise: Promise.resolve(rows) }
+  }
+
   function ready(key: string): T | null {
     if (!slot || slot.key !== key || !slot.settled || slot.failed || slot.rows === undefined) return null
     return slot.rows
@@ -61,6 +67,7 @@ export function createNewerPrefetch<T>() {
 
   return {
     schedule,
+    adopt,
     ready,
     consume,
     clear() { slot = undefined },

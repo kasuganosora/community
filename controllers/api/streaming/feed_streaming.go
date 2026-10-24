@@ -27,15 +27,25 @@ import (
 )
 
 // Each process owns one Redis subscription per active channel, shared between
-// browser tabs/connections. A peer keeps only the latest hint: a full HTTP
-// window revalidation makes dropping intermediate hints safe and bounded.
+// browser tabs/connections. A peer keeps only the latest notice so a slow
+// client cannot queue a walk of timeline bodies. Status ids outrank hints:
+// dropping an intermediate id is recovered by the client's head check, and a
+// hint must not evict an id that is already waiting.
 type feedTopic struct {
 	pub       *redis.PubSub
 	ready     chan struct{}
 	readyOnce sync.Once
 	cancel    context.CancelFunc
 	err       error
-	peers     map[chan feed.ChangeHint]bool
+	peers     map[chan feedNotice]bool
+}
+
+// feedNotice is one invalidation hint or one status id. Status frames are
+// ids only — post text never crosses this socket.
+type feedNotice struct {
+	Hint  feed.ChangeHint
+	Event string
+	ID    string
 }
 
 var feedTopics = struct {
@@ -72,7 +82,7 @@ func CloseFeedTopics() {
 	}
 }
 
-func subscribeFeedHint(ctx context.Context, channel string) (<-chan feed.ChangeHint, func(), error) {
+func subscribeFeedHint(ctx context.Context, channel string) (<-chan feedNotice, func(), error) {
 	client := db.GetUniversalRedis()
 	key := fmt.Sprintf("%p/%s", client, channel)
 	for {
@@ -87,7 +97,7 @@ func subscribeFeedHint(ctx context.Context, channel string) (<-chan feed.ChangeH
 		topic := feedTopics.entries[key]
 		if topic == nil {
 			initCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-			topic = &feedTopic{ready: make(chan struct{}), cancel: cancel, peers: map[chan feed.ChangeHint]bool{}}
+			topic = &feedTopic{ready: make(chan struct{}), cancel: cancel, peers: map[chan feedNotice]bool{}}
 			feedTopics.entries[key] = topic
 			defer func() {
 				feedTopics.Lock()
@@ -158,7 +168,7 @@ func subscribeFeedHint(ctx context.Context, channel string) (<-chan feed.ChangeH
 			feedTopics.Unlock()
 			continue
 		}
-		peer := make(chan feed.ChangeHint, 1)
+		peer := make(chan feedNotice, 1)
 		topic.peers[peer] = true
 		feedTopics.Unlock()
 		var once sync.Once
@@ -190,7 +200,7 @@ func runFeedTopic(key string, topic *feedTopic) {
 		for peer := range topic.peers {
 			close(peer)
 		}
-		topic.peers = map[chan feed.ChangeHint]bool{}
+		topic.peers = map[chan feedNotice]bool{}
 		feedTopics.Unlock()
 	}()
 	for msg := range topic.pub.Channel(redis.WithChannelSize(32)) {
@@ -201,33 +211,31 @@ func runFeedTopic(key string, topic *feedTopic) {
 		if json.Unmarshal([]byte(msg.Payload), &wire) != nil {
 			continue
 		}
-		var hint feed.ChangeHint
+		var notice feedNotice
 		if wire.Type == "feed.changed" {
+			var hint feed.ChangeHint
 			if json.Unmarshal(wire.Payload, &hint) != nil || len(hint.Epoch) > 128 || len(hint.Revision) > 128 {
 				continue
 			}
+			notice.Hint = hint
+		} else if wire.Type == "update" || wire.Type == "delete" || wire.Type == "status.update" {
+			id, ok := feedStatusID(wire.Payload)
+			if !ok {
+				continue
+			}
+			notice.Event = wire.Type
+			notice.ID = id
 		} else {
 			switch wire.Type {
-			case "update", "delete", "status.update", "filters_changed", "notification", "conversation", "announcement":
+			case "filters_changed", "notification", "conversation", "announcement":
 			default:
 				continue
 			}
-			hint = feed.ChangeHint{Epoch: "legacy", Revision: strconv.FormatUint(legacyHintRevision.Add(1), 10)}
+			notice.Hint = feed.ChangeHint{Epoch: "legacy", Revision: strconv.FormatUint(legacyHintRevision.Add(1), 10)}
 		}
 		feedTopics.Lock()
 		for peer := range topic.peers {
-			select {
-			case peer <- hint:
-			default:
-				select {
-				case <-peer:
-				default:
-				}
-				select {
-				case peer <- hint:
-				default:
-				}
-			}
+			deliverNotice(peer, notice)
 		}
 		feedTopics.Unlock()
 	}
@@ -292,7 +300,7 @@ func FeedStreaming(c *gin.Context) {
 		// the same stream, so one connection keeps all three dots current.
 		channels = append(channels, feed.GetRedisChannelName(&direct.DirectTimeline{Account: account}), feed.GetRedisChannelName(feed.AnnouncementsChannel{}))
 	}
-	merged := make(chan feed.ChangeHint, 1)
+	merged := make(chan feedNotice, 1)
 	mergeCtx, stopMerge := context.WithCancel(ctx)
 	defer stopMerge()
 	for _, channel := range channels {
@@ -302,20 +310,17 @@ func FeedStreaming(c *gin.Context) {
 			return
 		}
 		defer stop()
-		go func(input <-chan feed.ChangeHint) {
+		go func(input <-chan feedNotice) {
 			for {
 				select {
 				case <-mergeCtx.Done():
 					return
-				case hint, ok := <-input:
+				case notice, ok := <-input:
 					if !ok {
 						stopMerge()
 						return
 					}
-					select {
-					case merged <- hint:
-					default:
-					}
+					deliverNotice(merged, notice)
 				}
 			}
 		}(hints)
@@ -354,7 +359,7 @@ func FeedStreaming(c *gin.Context) {
 		select {
 		case <-mergeCtx.Done():
 			return
-		case hint := <-merged:
+		case notice := <-merged:
 			current, err := revalidateFeedStreamingAccount(c, account)
 			if err != nil {
 				return
@@ -365,7 +370,13 @@ func FeedStreaming(c *gin.Context) {
 					return
 				}
 			}
-			if out.hint(hint) != nil {
+			if notice.Event != "" {
+				if out.status(notice.Event, notice.ID) != nil {
+					return
+				}
+				continue
+			}
+			if out.hint(notice.Hint) != nil {
 				return
 			}
 		case <-heartbeat.C:
@@ -415,11 +426,72 @@ func sseHintFrame(hint feed.ChangeHint) []byte {
 	return append(append([]byte("event: feed.changed\ndata: "), data...), '\n', '\n')
 }
 
+func sseStatusFrame(event, id string) []byte {
+	data, _ := json.Marshal(struct {
+		ID string `json:"id"`
+	}{ID: id})
+	frame := make([]byte, 0, len(event)+len(data)+16)
+	frame = append(frame, "event: "...)
+	frame = append(frame, event...)
+	frame = append(frame, "\ndata: "...)
+	frame = append(frame, data...)
+	frame = append(frame, '\n', '\n')
+	return frame
+}
+
+// deliverNotice keeps one pending notice. A hint does not replace a status id.
+func deliverNotice(dst chan feedNotice, notice feedNotice) {
+	select {
+	case dst <- notice:
+		return
+	default:
+	}
+	select {
+	case pending := <-dst:
+		if notice.Event == "" && pending.Event != "" {
+			select {
+			case dst <- pending:
+			default:
+			}
+			return
+		}
+	default:
+	}
+	select {
+	case dst <- notice:
+	default:
+	}
+}
+
+// feedStatusID copies a decimal id out of a redis status payload and drops every other field.
+func feedStatusID(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 || len(raw) > 1<<20 {
+		return "", false
+	}
+	var payload struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if json.Unmarshal(raw, &payload) != nil || len(payload.ID) == 0 || len(payload.ID) > 40 {
+		return "", false
+	}
+	id := strings.Trim(string(payload.ID), `"`)
+	if id == "" || len(id) > 20 {
+		return "", false
+	}
+	for _, r := range id {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+	return id, true
+}
+
 // feedTransport carries feed hints over SSE or WebSocket. Both deliver the
 // same "subscribed" confirmation first, then hints and heartbeats.
 type feedTransport interface {
 	open(first feed.ChangeHint) error
 	hint(feed.ChangeHint) error
+	status(event, id string) error
 	heartbeat() error
 	done()
 }
@@ -446,8 +518,11 @@ func (t *feedSSETransport) open(first feed.ChangeHint) error {
 	return t.write(append(append([]byte{}, sseInitialPadding...), sseHintFrame(first)...))
 }
 func (t *feedSSETransport) hint(h feed.ChangeHint) error { return t.write(sseHintFrame(h)) }
-func (t *feedSSETransport) heartbeat() error             { return t.write(sseHeartbeat) }
-func (t *feedSSETransport) done()                        { _ = t.controller.SetWriteDeadline(time.Time{}) }
+func (t *feedSSETransport) status(event, id string) error {
+	return t.write(sseStatusFrame(event, id))
+}
+func (t *feedSSETransport) heartbeat() error { return t.write(sseHeartbeat) }
+func (t *feedSSETransport) done()            { _ = t.controller.SetWriteDeadline(time.Time{}) }
 
 // feedWSTransport sends Mastodon-shaped messages:
 // {"stream":["feed"],"event":"feed.changed","payload":"{\"epoch\":...}"}.
@@ -481,6 +556,12 @@ func (t *feedWSTransport) open(first feed.ChangeHint) error { return t.hint(firs
 func (t *feedWSTransport) hint(h feed.ChangeHint) error {
 	data, _ := json.Marshal(h)
 	return t.send("feed.changed", string(data))
+}
+func (t *feedWSTransport) status(event, id string) error {
+	data, _ := json.Marshal(struct {
+		ID string `json:"id"`
+	}{ID: id})
+	return t.send(event, string(data))
 }
 func (t *feedWSTransport) heartbeat() error {
 	t.mu.Lock()

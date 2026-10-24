@@ -32,7 +32,9 @@ const feed = usePaginatedList(
 )
 const { items: statuses, loading, error, hasMore, newer, hasPrevious } = feed
 const streamTarget = computed(() => `stream=list&list=${encodeURIComponent(listId.value)}`)
-useFeedStream(streamTarget, feed.revalidate)
+useFeedStream(streamTarget, async (reason) => reason === 'poll' ? feed.catchUpHead() : feed.revalidate(), {
+  onStatus: (status) => feed.applyStreamed(status),
+})
 async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
 function revealNewerPosts() {
   const pending = feed.revealNewer()

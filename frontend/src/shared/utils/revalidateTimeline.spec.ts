@@ -61,6 +61,16 @@ it('does not evict valid old tail cards when delayed inserts fill more than the 
   expect(fetcher).toHaveBeenCalledTimes(4) // head + one bounded verification per sparse old ID
 })
 
+it('refreshes the head in one request and keeps the loaded tail', async () => {
+  const { refreshTimelineHead } = await import('./revalidateTimeline')
+  const fetcher = vi.fn().mockResolvedValue([{ id: '30', content: 'fresh' }, { id: '20', content: 'edited' }])
+  const result = await refreshTimelineHead([{ id: '20', content: 'old' }, { id: '10', content: 'tail' }], fetcher, () => true, ['20'])
+  expect(fetcher).toHaveBeenCalledTimes(1)
+  expect(fetcher).toHaveBeenCalledWith(undefined, 20)
+  expect(result?.newer).toEqual([{ id: '30' }])
+  expect(result?.statuses).toEqual([{ id: '20', content: 'edited' }, { id: '10', content: 'tail' }])
+})
+
 it('detects delayed lower-ID head content even when the original head page has been evicted', async () => {
   const fetcher = vi.fn().mockResolvedValueOnce(rows(100, 95, 90)).mockResolvedValueOnce(rows(50, 49))
   const result = await revalidateTimeline(rows(50, 49), fetcher, () => true, ['100', '90'])

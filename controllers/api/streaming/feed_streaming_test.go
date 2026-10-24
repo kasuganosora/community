@@ -34,12 +34,13 @@ func TestFeedHintSubscriptionSharedAndContentFree(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), counts[channel], "two tabs share a Redis subscription")
 	require.NoError(t, client.Publish(ctx, channel, `{"type":"feed.changed","payload":{"epoch":"e","revision":"r","content":"private body","id":"secret-id"}}`).Err())
-	for _, input := range []<-chan feed.ChangeHint{first, second} {
+	for _, input := range []<-chan feedNotice{first, second} {
 		select {
-		case hint := <-input:
-			encoded, err := json.Marshal(hint)
+		case notice := <-input:
+			encoded, err := json.Marshal(notice.Hint)
 			require.NoError(t, err)
 			require.JSONEq(t, `{"epoch":"e","revision":"r"}`, string(encoded))
+			require.Empty(t, notice.Event)
 		case <-ctx.Done():
 			t.Fatal("missing hint")
 		}
@@ -47,8 +48,8 @@ func TestFeedHintSubscriptionSharedAndContentFree(t *testing.T) {
 	stopFirst()
 	require.NoError(t, feed.PublishChanged(ctx, timeline, "e", "next"))
 	select {
-	case hint := <-second:
-		require.Equal(t, "next", hint.Revision)
+	case notice := <-second:
+		require.Equal(t, "next", notice.Hint.Revision)
 	case <-ctx.Done():
 		t.Fatal("remaining subscriber was closed")
 	}
@@ -97,6 +98,70 @@ func TestFeedStreamingAuthenticatedHTTPAndTimeoutExemption(t *testing.T) {
 		}
 	}
 	require.JSONEq(t, `{"epoch":"new-epoch","revision":"opaque-revision"}`, got)
+	cancel()
+}
+
+func TestFeedHintKeepsStatusIDAndDropsBody(t *testing.T) {
+	client := setupRedisForTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	timeline := &home.HomeTimeline{Account: &models.Account{Id: 42}}
+	notices, stop, err := subscribeFeedHint(ctx, feed.GetRedisChannelName(timeline))
+	require.NoError(t, err)
+	defer stop()
+	require.NoError(t, client.Publish(ctx, feed.GetRedisChannelName(timeline), `{"type":"update","payload":{"id":19687,"content":"secret body","spoiler_text":"hidden"}}`).Err())
+	select {
+	case notice := <-notices:
+		require.Equal(t, "update", notice.Event)
+		require.Equal(t, "19687", notice.ID)
+		require.Empty(t, notice.Hint.Epoch)
+		encoded, err := json.Marshal(notice)
+		require.NoError(t, err)
+		require.NotContains(t, string(encoded), "secret")
+		require.NotContains(t, string(encoded), "hidden")
+	case <-ctx.Done():
+		t.Fatal("missing status id")
+	}
+}
+
+func TestFeedStreamingForwardsStatusIDWithoutBody(t *testing.T) {
+	conn, _, viewer := streamPrivacyDB(t)
+	auth := feedAuthFixture(t, conn, viewer)
+	client := setupRedisForTest(t)
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/v1/streaming/feed", func(c *gin.Context) { auth(c); FeedStreaming(c) })
+	server := httptest.NewServer(router)
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/v1/streaming/feed?stream=user", nil)
+	require.NoError(t, err)
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, 200, response.StatusCode)
+	scanner := bufio.NewScanner(response.Body)
+	skipSSEPadding(t, scanner)
+	require.True(t, scanner.Scan())
+	require.Equal(t, "event: feed.changed", scanner.Text())
+	timeline := &home.HomeTimeline{Account: viewer}
+	require.NoError(t, client.Publish(ctx, feed.GetRedisChannelName(timeline), `{"type":"delete","payload":{"id":42,"content":"secret body"}}`).Err())
+	var eventLine, dataLine string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "event: ") && line != "event: feed.changed" {
+			eventLine = line
+			continue
+		}
+		if eventLine != "" && strings.HasPrefix(line, "data: ") {
+			dataLine = strings.TrimPrefix(line, "data: ")
+			break
+		}
+	}
+	require.Equal(t, "event: delete", eventLine)
+	require.JSONEq(t, `{"id":"42"}`, dataLine)
+	require.NotContains(t, dataLine, "secret")
 	cancel()
 }
 

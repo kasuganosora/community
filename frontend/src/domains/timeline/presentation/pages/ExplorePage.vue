@@ -54,7 +54,9 @@ const feed = usePaginatedList((maxId, limit) => timelineApi.getPublicTimeline({
 }), TIMELINE_PAGE_SIZE, 8, { prefetchNewer: true })
 const { items: statuses, loading, error, hasMore, newer, hasPrevious } = feed
 const streamTarget = computed(() => feedTab.value === 'local' ? 'stream=public:local' : 'stream=public')
-useFeedStream(streamTarget, feed.revalidate)
+useFeedStream(streamTarget, async (reason) => reason === 'poll' ? feed.catchUpHead() : feed.revalidate(), {
+  onStatus: (status) => feed.applyStreamed(status),
+})
 async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
 function revealNewerPosts() {
   const pending = feed.revealNewer()

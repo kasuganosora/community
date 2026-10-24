@@ -89,6 +89,20 @@ describe('feed stream reconnect', () => {
     expect(streamTransport.sseUntil).toBeGreaterThan(Date.now())
   })
 
+  it('applies home status ids from the socket without an HTTP read', async () => {
+    const seen: { event: string, id: string }[] = []
+    const callback = vi.fn().mockResolvedValue(true)
+    mounted.push(mount(defineComponent({ setup() { useFeedStream(ref('stream=user'), callback, { poll: false, onStatus: status => { seen.push(status) } }); return () => null } })))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    callback.mockClear()
+    last().hint('home', '1')
+    last().onmessage?.({ data: JSON.stringify({ stream: ['feed'], event: 'update', payload: JSON.stringify({ id: 19687, content: 'secret' }) }) })
+    last().onmessage?.({ data: JSON.stringify({ stream: ['feed'], event: 'delete', payload: JSON.stringify({ id: '5' }) }) })
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(callback).not.toHaveBeenCalled()
+    expect(seen).toEqual([{ event: 'update', id: '19687' }, { event: 'delete', id: '5' }])
+  })
+
   it('does not reread a public timeline on every fast reconnect', async () => {
     const callback = setup('stream=public')
     await flushPromises()
