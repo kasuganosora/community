@@ -1,5 +1,5 @@
 import { sessionEpoch } from '@/shared/api/sessionScope'
-import { revalidateTimeline } from '@/shared/utils/revalidateTimeline'
+import { refreshTimelineHead, revalidateTimeline } from '@/shared/utils/revalidateTimeline'
 import { mergeById } from '@/shared/utils/pagination'
 import { createNewerPrefetch, newerPrefetchKey } from '@/shared/utils/newerPrefetch'
 import { ref, computed, watch } from 'vue'
@@ -7,6 +7,7 @@ import { defineStore } from 'pinia'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import type { ManagedTimelineType } from '../../domain/entities'
 import { timelineApi } from '../../infrastructure/timelineApi'
+import { postApi } from '@/domains/post/infrastructure/postApi'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 
@@ -93,8 +94,23 @@ export const useTimelineStore = defineStore('timeline', () => {
     return type === 'home' ? homeTimeline.value : publicTimeline.value
   }
 
+  const flight: Partial<Record<ManagedTimelineType, Promise<unknown>>> = {}
+
+  /** One timeline HTTP per feed. A second caller waits on that request and does not open another. */
+  function startFlight(type: ManagedTimelineType, work: () => Promise<unknown>) {
+    const existing = flight[type]
+    if (existing) return existing
+    const run = work().finally(() => { if (flight[type] === run) delete flight[type] })
+    flight[type] = run
+    return run
+  }
+
   // Generic fetch function to avoid code duplication
-  async function fetchTimeline(type: ManagedTimelineType) {
+  function fetchTimeline(type: ManagedTimelineType) {
+    return startFlight(type, () => fetchTimelineNow(type)).then(() => undefined)
+  }
+
+  async function fetchTimelineNow(type: ManagedTimelineType) {
     const timeline = getTimeline(type)
     if (pinned[type].size) { timeline.error = t('timeline.timelineStore.s1'); return }
     const myVersion = ++requestVersionMap[type]
@@ -133,16 +149,22 @@ export const useTimelineStore = defineStore('timeline', () => {
     }
   }
 
-  async function fetchHomeTimeline() {
-    await fetchTimeline('home')
+  function fetchHomeTimeline() {
+    return fetchTimeline('home')
   }
 
-  async function fetchPublicTimeline() {
-    await fetchTimeline('public')
+  function fetchPublicTimeline() {
+    return fetchTimeline('public')
   }
 
-  // Generic load more function
-  async function loadMore(type: ManagedTimelineType) {
+  // Generic load more function. A window walk already in flight is the next page; do not stack another max_id.
+  function loadMore(type: ManagedTimelineType) {
+    const timeline = getTimeline(type)
+    if (flight[type] || !timeline.hasMore || timeline.isLoading) return
+    return startFlight(type, () => loadMoreNow(type)).then(() => undefined)
+  }
+
+  async function loadMoreNow(type: ManagedTimelineType) {
     const timeline = getTimeline(type)
     if (!timeline.hasMore || timeline.isLoading) return
     
@@ -182,12 +204,12 @@ export const useTimelineStore = defineStore('timeline', () => {
     }
   }
 
-  async function loadMoreHome() {
-    await loadMore('home')
+  function loadMoreHome() {
+    return loadMore('home')
   }
 
-  async function loadMorePublic() {
-    await loadMore('public')
+  function loadMorePublic() {
+    return loadMore('public')
   }
 
   function prependStatus(status: MastodonStatus) {
@@ -225,12 +247,18 @@ export const useTimelineStore = defineStore('timeline', () => {
     timeline.hasPrevious = previousCursors[type].length > 0 || droppedHistory[type]
   }
 
-  async function loadPrevious(type: ManagedTimelineType) {
+  function loadPrevious(type: ManagedTimelineType) {
+    const timeline = getTimeline(type)
+    if (flight[type] || timeline.isLoading || !timeline.hasPrevious) return
+    return startFlight(type, () => loadPreviousNow(type)).then(() => undefined)
+  }
+
+  async function loadPreviousNow(type: ManagedTimelineType) {
     const timeline = getTimeline(type)
     if (timeline.isLoading || !timeline.hasPrevious) return
     if (timeline.statuses.slice(-TIMELINE_PAGE_SIZE).some(item => pinned[type].has(item.id))) { timeline.error = t('timeline.timelineStore.s1'); return }
     const cursor = previousCursors[type].at(-1)
-    if (!cursor) { await fetchTimeline(type); return }
+    if (!cursor) { await fetchTimelineNow(type); return }
     const version = ++requestVersionMap[type]
     ++listGeneration[type]
     timeline.isLoading = true
@@ -300,23 +328,104 @@ export const useTimelineStore = defineStore('timeline', () => {
     })
   }
 
-  watch(() => newerPrefetchKey(homeTimeline.value.newer), () => scheduleNewerPrefetch('home'), { flush: 'sync' })
-  watch(() => newerPrefetchKey(publicTimeline.value.newer), () => scheduleNewerPrefetch('public'), { flush: 'sync' })
+  // Streamed pill updates must not prefetch a head page per status.
+  let streamedNewer = false
+  watch(() => newerPrefetchKey(homeTimeline.value.newer), () => { if (!streamedNewer) scheduleNewerPrefetch('home') }, { flush: 'sync' })
+  watch(() => newerPrefetchKey(publicTimeline.value.newer), () => { if (!streamedNewer) scheduleNewerPrefetch('public') }, { flush: 'sync' })
 
-  async function checkNewer(type: ManagedTimelineType) {
+  let editFlight: Promise<void> | undefined
+
+  function fetchPage(type: ManagedTimelineType, maxId: string | undefined, limit: number) {
+    const cursor = maxId ? { max_id: maxId, limit } : { limit }
+    return type === 'home' ? timelineApi.getHomeTimeline(cursor) : timelineApi.getPublicTimeline(cursor)
+  }
+
+  function mergePill(type: ManagedTimelineType, incoming: { id: string }[], visible: { id: string }[]) {
+    const shown = new Set(visible.map(status => status.id))
+    const seen = new Set<string>()
+    const merged: { id: string }[] = []
+    for (const item of [...incoming, ...getTimeline(type).newer]) {
+      if (shown.has(item.id) || seen.has(item.id) || merged.length >= TIMELINE_PAGE_SIZE) continue
+      seen.add(item.id)
+      merged.push(item)
+    }
+    return merged
+  }
+
+  async function readTimeline(type: ManagedTimelineType, scope: 'head' | 'window') {
     const timeline = getTimeline(type)
-    if (timeline.isLoading) return false
+    // The page's own load is already the fresh read. Retrying here starts a second walk.
+    if (timeline.isLoading) return true
     const generation = ++listGeneration[type]
     const version = requestVersionMap[type]
     const valid = () => generation === listGeneration[type] && version === requestVersionMap[type]
-    const result = await revalidateTimeline(timeline.statuses.slice(),
-      (max_id, limit) => type === 'home' ? timelineApi.getHomeTimeline({ max_id, limit }) : timelineApi.getPublicTimeline({ max_id, limit }), valid, knownHead[type])
+    if (scope === 'head') {
+      const result = await refreshTimelineHead(timeline.statuses.slice(), (maxId, limit) => fetchPage(type, maxId, limit), valid, knownHead[type])
+      if (result && valid()) {
+        if (!knownHead[type]) knownHead[type] = result.statuses.slice(0, TIMELINE_PAGE_SIZE).map(row => row.id)
+        timeline.statuses = result.statuses
+        const newer = mergePill(type, result.newer, result.statuses)
+        const key = newerPrefetchKey(newer)
+        const headIds = new Set(result.head.map(row => row.id))
+        if (key && newer.every(item => headIds.has(item.id))) prefetchedNewer[type].adopt(key, result.head)
+        streamedNewer = true
+        timeline.newer = newer
+        streamedNewer = false
+      }
+      return true
+    }
+    let seenHead: MastodonStatus[] | undefined
+    const result = await revalidateTimeline(timeline.statuses.slice(), async (maxId, limit) => {
+      const page = await fetchPage(type, maxId, limit)
+      if (maxId === undefined) seenHead = page
+      return page
+    }, valid, knownHead[type])
     if (result && valid()) {
       if (!knownHead[type]) knownHead[type] = result.statuses.slice(0, TIMELINE_PAGE_SIZE).map(row => row.id)
       timeline.statuses = result.statuses
-      timeline.newer = result.newer.map(({ id }) => ({ id }))
+      const newer = result.newer.map(({ id }) => ({ id }))
+      const key = newerPrefetchKey(newer)
+      if (seenHead && key && newer.every(item => seenHead!.some(row => row.id === item.id))) prefetchedNewer[type].adopt(key, seenHead)
+      streamedNewer = true
+      timeline.newer = newer
+      streamedNewer = false
     }
     return true
+  }
+
+  /** One home or public read at a time. A second caller waits on that read instead of starting another walk. */
+  function checkNewer(type: ManagedTimelineType, scope: 'head' | 'window' = 'window') {
+    return startFlight(type, () => readTimeline(type, scope)).then(() => true)
+  }
+
+  function refreshEdited(type: ManagedTimelineType, id: string) {
+    // The in-flight head or window already replaces visible rows. A second GET would stack on a slow link.
+    if (editFlight || flight[type]) return
+    editFlight = postApi.getStatus(id).then(status => { updateStatus(id, status) }).catch(() => { /* the safety read reconciles */ }).finally(() => { editFlight = undefined })
+  }
+
+  /** Apply one streamed status id. New posts stay behind the pill; this does not fetch the timeline. */
+  function applyStreamed(type: ManagedTimelineType, status: { event: 'update' | 'delete' | 'status.update', id: string }) {
+    const id = status.id
+    if (!/^\d+$/.test(id)) return
+    const timeline = getTimeline(type)
+    const visible = (row: { id: string, reblog?: { id?: string } | null }) => row.id === id || row.reblog?.id === id
+    if (status.event === 'delete') {
+      timeline.statuses = timeline.statuses.filter(row => !visible(row))
+      streamedNewer = true
+      timeline.newer = timeline.newer.filter(row => row.id !== id)
+      streamedNewer = false
+      return
+    }
+    if (status.event === 'status.update') {
+      if (timeline.statuses.some(visible)) refreshEdited(type, id)
+      return
+    }
+    if (timeline.statuses.some(row => row.id === id) || timeline.newer.some(row => row.id === id) || knownHead[type]?.includes(id)) return
+    if (timeline.newer.length >= TIMELINE_PAGE_SIZE) return
+    streamedNewer = true
+    timeline.newer = [...timeline.newer, { id }]
+    streamedNewer = false
   }
 
   function revealNewer(type: ManagedTimelineType): Promise<void> | void {
@@ -377,6 +486,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     loadMorePublic,
     retryTimeline,
     checkNewer,
+    applyStreamed,
     cancelRevalidation,
     loadPrevious,
     setPinnedIds,

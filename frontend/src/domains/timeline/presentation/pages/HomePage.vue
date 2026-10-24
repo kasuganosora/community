@@ -128,8 +128,13 @@ watch(discoveryInvalidation, () => {
 })
 // Ranked feeds only change when explicitly refreshed. Each chronological
 // timeline subscribes to its own invalidations and retains its own cursors.
-useFeedStream(computed(() => chronologicalType.value === 'public' ? 'stream=public' : 'stream=user'), async () => {
-  if (!isDiscovery.value) await timelineStore.checkNewer(chronologicalType.value)
+useFeedStream(computed(() => chronologicalType.value === 'public' ? 'stream=public' : 'stream=user'), async (reason) => {
+  if (isDiscovery.value) return
+  // The 60s safety read is one head page. A real gap still reconciles the loaded window.
+  if (reason === 'poll') await timelineStore.checkNewer(chronologicalType.value, 'head')
+  else await timelineStore.checkNewer(chronologicalType.value)
+}, {
+  onStatus: (status) => timelineStore.applyStreamed(chronologicalType.value, status),
 })
 // Only rebuild after the window went stale while hidden, not on every app/tab switch.
 function resume() {

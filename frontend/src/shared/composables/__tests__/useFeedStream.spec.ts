@@ -1,16 +1,16 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent, ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { streamTransport, useFeedStream } from '../useFeedStream'
+import { STREAM_GAP_RESYNC_MS, streamTransport, useFeedStream, type FeedStreamStatus } from '../useFeedStream'
 import { invalidateSessionData } from '@/shared/api/sessionScope'
 
 let push: ReadableStreamDefaultController<Uint8Array>
 const mounted: ReturnType<typeof mount>[] = []
 const fetcher = vi.fn()
 const encode = (value: string) => new TextEncoder().encode(value)
-function setup(callback = vi.fn().mockResolvedValue(true), query = 'stream=user') {
+function setup(callback = vi.fn().mockResolvedValue(true), query = 'stream=user', onStatus?: (status: FeedStreamStatus) => void) {
   const target = ref(query)
-  const wrapper = mount(defineComponent({ setup() { useFeedStream(target, callback); return () => null } }))
+  const wrapper = mount(defineComponent({ setup() { useFeedStream(target, callback, { onStatus }); return () => null } }))
   mounted.push(wrapper)
   return { callback, target }
 }
@@ -25,29 +25,33 @@ beforeEach(() => {
 afterEach(() => { streamTransport.sseUntil = 0; streamTransport.wsFailures = 0; mounted.splice(0).forEach(w => w.unmount()); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('feed invalidation stream', () => {
-  it('uses header auth and merges bursts without treating heartbeat or duplicate revisions as content', async () => {
+  it('uses header auth and does not revalidate a healthy home stream on a hint burst', async () => {
     const { callback } = setup()
     await flushPromises(); await vi.advanceTimersByTimeAsync(250)
     expect(fetcher.mock.calls[0]![0]).not.toContain('test-secret')
     expect(fetcher.mock.calls[0]![1].headers.Authorization).toBe('Bearer test-secret')
+    expect(callback).toHaveBeenCalledTimes(1)
     callback.mockClear()
     for (let i = 0; i < 10; i++) push.enqueue(encode(`event: feed.changed\ndata: {"epoch":"a","revision":"${i}"}\n\n`))
-    await flushPromises(); await vi.advanceTimersByTimeAsync(249)
-    expect(callback).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(1); expect(callback).toHaveBeenCalledTimes(1)
     push.enqueue(encode(': heartbeat\n\nevent: feed.changed\ndata: {"epoch":"a","revision":"9"}\n\n'))
-    await flushPromises(); await vi.advanceTimersByTimeAsync(300)
-    expect(callback).toHaveBeenCalledTimes(1)
+    await flushPromises(); await vi.advanceTimersByTimeAsync(20_000)
+    expect(callback).not.toHaveBeenCalled()
   })
-  it('revalidates after disconnect even if the next revision is unchanged', async () => {
+  it('does not reread home on a short flap, and does after the socket was down', async () => {
     const { callback } = setup()
-    await flushPromises(); await vi.advanceTimersByTimeAsync(250); callback.mockClear()
-    push.close(); await flushPromises(); await vi.advanceTimersByTimeAsync(1250)
-    expect(fetcher).toHaveBeenCalledTimes(2)
-    expect(callback).not.toHaveBeenCalled() // resync waits for the subscribed confirmation
-    push.enqueue(encode(': padding\n\nevent: feed.changed\ndata: {"epoch":"subscribed","revision":"r2"}\n\n'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    push.enqueue(hint('subscribed', 'r1'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    callback.mockClear()
+    push.close(); await flushPromises(); await vi.advanceTimersByTimeAsync(1_250)
+    push.enqueue(hint('subscribed', 'r2'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    expect(callback).not.toHaveBeenCalled()
+    push.close(); await flushPromises(); await vi.advanceTimersByTimeAsync(STREAM_GAP_RESYNC_MS)
+    push.enqueue(hint('subscribed', 'r3'))
     await flushPromises(); await vi.advanceTimersByTimeAsync(250)
     expect(callback).toHaveBeenCalledTimes(1)
+    expect(callback).toHaveBeenLastCalledWith('gap')
   })
   it('aborts old scopes and suppresses hidden page polling, then rechecks on resume', async () => {
     const { callback, target } = setup()
@@ -66,18 +70,44 @@ describe('feed invalidation stream', () => {
     expect(callback).toHaveBeenCalledTimes(1)
   })
 
-  it('coalesces a public firehose into one head read per quiet window, then the 60s fallback', async () => {
+  it('does not revalidate a healthy public stream on a hint firehose, and still polls', async () => {
     const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=public')
     await flushPromises(); await vi.advanceTimersByTimeAsync(250)
     expect(callback).toHaveBeenCalledTimes(1)
+    expect(callback).toHaveBeenLastCalledWith('poll')
     for (let i = 0; i < 40; i++) push.enqueue(hint('public', `p${i}`))
-    await flushPromises(); await vi.advanceTimersByTimeAsync(5_000)
+    await flushPromises(); await vi.advanceTimersByTimeAsync(20_000)
     expect(callback).toHaveBeenCalledTimes(1)
-    await vi.advanceTimersByTimeAsync(10_000)
-    expect(callback).toHaveBeenCalledTimes(2) // one trailing read for hints that arrived during the window
     callback.mockClear()
     await vi.advanceTimersByTimeAsync(60_000)
-    expect(callback).toHaveBeenCalledTimes(1) // disconnected-style safety poll still runs
+    expect(callback).toHaveBeenCalledTimes(1)
+    expect(callback).toHaveBeenLastCalledWith('poll')
+  })
+
+  it('follows an in-flight head poll with one gap walk, and does not queue a second window', async () => {
+    let release!: () => void
+    const callback = vi.fn(() => new Promise<boolean>(resolve => { release = () => resolve(true) }))
+    setup(callback, 'stream=public')
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    expect(callback).toHaveBeenCalledTimes(1)
+    expect(callback).toHaveBeenLastCalledWith('poll')
+    push.enqueue(hint('subscribed', 'r1'))
+    await flushPromises()
+    push.close(); await flushPromises(); await vi.advanceTimersByTimeAsync(STREAM_GAP_RESYNC_MS)
+    push.enqueue(hint('subscribed', 'r2'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    expect(callback).toHaveBeenCalledTimes(1)
+    release()
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    expect(callback).toHaveBeenCalledTimes(2)
+    expect(callback).toHaveBeenLastCalledWith('gap')
+    push.close(); await flushPromises(); await vi.advanceTimersByTimeAsync(STREAM_GAP_RESYNC_MS)
+    push.enqueue(hint('subscribed', 'r3'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(1_000)
+    expect(callback).toHaveBeenCalledTimes(2)
+    release()
+    await flushPromises(); await vi.advanceTimersByTimeAsync(1_000)
+    expect(callback).toHaveBeenCalledTimes(2)
   })
 
   it('does not open another public read while one is in flight, and does not chain one per hint', async () => {
@@ -90,10 +120,8 @@ describe('feed invalidation stream', () => {
     await flushPromises(); await vi.advanceTimersByTimeAsync(2_000)
     expect(callback).toHaveBeenCalledTimes(1)
     release()
-    await flushPromises(); await vi.advanceTimersByTimeAsync(1_000)
+    await flushPromises(); await vi.advanceTimersByTimeAsync(20_000)
     expect(callback).toHaveBeenCalledTimes(1)
-    await vi.advanceTimersByTimeAsync(14_000)
-    expect(callback).toHaveBeenCalledTimes(2)
   })
 
   it('ignores a visibility flicker instead of reconnecting and rereading the public timeline', async () => {
@@ -125,8 +153,26 @@ describe('feed invalidation stream', () => {
     expect(callback).toHaveBeenCalledTimes(1)
   })
 
-  it('still revalidates a home stream when a later hint arrives', async () => {
-    const { callback } = setup()
+  it('reports streamed status ids on home without an HTTP revalidate', async () => {
+    const seen: FeedStreamStatus[] = []
+    const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=user', status => { seen.push(status) })
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250); callback.mockClear()
+    push.enqueue(encode('event: update\ndata: {"id":"19687","content":"secret"}\n\n'))
+    push.enqueue(encode('event: delete\ndata: {"id":"10","content":"gone"}\n\n'))
+    push.enqueue(encode('event: status.update\ndata: {"id":"11","text":"edited"}\n\n'))
+    push.enqueue(encode('event: update\ndata: {"id":"not-a-status","content":"nope"}\n\n'))
+    push.enqueue(hint('home', '99'))
+    await flushPromises(); await vi.advanceTimersByTimeAsync(5_000)
+    expect(callback).not.toHaveBeenCalled()
+    expect(seen).toEqual([
+      { event: 'update', id: '19687' },
+      { event: 'delete', id: '10' },
+      { event: 'status.update', id: '11' },
+    ])
+  })
+
+  it('still revalidates a notification stream when a later hint arrives', async () => {
+    const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=notification')
     await flushPromises(); await vi.advanceTimersByTimeAsync(250); callback.mockClear()
     push.enqueue(hint('a', '1'))
     await flushPromises(); await vi.advanceTimersByTimeAsync(250)

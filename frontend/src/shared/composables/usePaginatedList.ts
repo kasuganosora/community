@@ -1,4 +1,4 @@
-import { revalidateTimeline } from '@/shared/utils/revalidateTimeline'
+import { refreshTimelineHead, revalidateTimeline } from '@/shared/utils/revalidateTimeline'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { createNewerPrefetch, newerPrefetchKey } from '@/shared/utils/newerPrefetch'
 import { ref, watch, getCurrentScope, onScopeDispose, type Ref } from 'vue'
@@ -13,6 +13,10 @@ export interface PaginatedList<T> {
   hasPrevious: Ref<boolean>
   loadPrevious: () => Promise<void>
   revalidate: () => Promise<boolean>
+  /** One head page: new ids join the pill, the loaded tail is not walked. */
+  catchUpHead: () => Promise<boolean>
+  /** Apply a streamed status id without fetching the timeline. */
+  applyStreamed: (status: { event: 'update' | 'delete' | 'status.update', id: string }) => void
   revealNewer: () => Promise<void> | void
   setPinnedIds: (ids: string[]) => void
   loading: Ref<boolean>
@@ -55,6 +59,7 @@ export function usePaginatedList<T extends { id: string }>(
   let version = 0
   let nextCursor: string | undefined
   const prefetch = options?.prefetchNewer ? createNewerPrefetch<T[] | CursorPage<T>>() : undefined
+  let streamedNewer = false
 
   function prefetchToken() {
     return newerPrefetchKey(newer.value)
@@ -62,6 +67,7 @@ export function usePaginatedList<T extends { id: string }>(
 
   if (prefetch) {
     watch(prefetchToken, key => {
+      if (streamedNewer) return
       if (!key) {
         prefetch.clear()
         return
@@ -142,7 +148,10 @@ export function usePaginatedList<T extends { id: string }>(
   }
 
   async function loadPrevious() {
-    if (loading.value || !hasPrevious.value) return
+    if (flight || loading.value || !hasPrevious.value) return
+    await startFlight(() => loadPreviousNow())
+  }
+  async function loadPreviousNow() {
     const cursor = history.at(-1)
     if (!cursor) { await run(false); return }
     if (items.value.slice(-pageSize).some(item => pinned.has(item.id))) { error.value = t('shared.usePaginatedList.s1'); return }
@@ -161,20 +170,89 @@ export function usePaginatedList<T extends { id: string }>(
     finally { if (my === version) loading.value = false }
   }
 
-  async function revalidate() {
-    if (loading.value) return false
+  let flight: Promise<unknown> | undefined
+  function startFlight<T>(work: () => Promise<T>): Promise<T> {
+    const existing = flight
+    if (existing) return existing as Promise<T>
+    const run = work().finally(() => { if (flight === run) flight = undefined })
+    flight = run
+    return run
+  }
+  async function readRows(cursor: string | undefined, limit: number) {
+    const response = await fetchPage(cursor, limit)
+    return Array.isArray(response) ? response : response.items
+  }
+  function begin(scope: 'head' | 'window') {
+    if (flight) return flight.then(() => true)
+    // An in-flight page load is already the fresh read. A false return would queue another walk behind it.
+    if (loading.value) return Promise.resolve(true)
+    return startFlight(() => scope === 'head' ? readHead() : readWindow())
+  }
+  async function readWindow() {
     const my = ++version
+    let seenHead: T[] | undefined
     const result = await revalidateTimeline(items.value.slice(), async (cursor, limit) => {
-      const response = await fetchPage(cursor, limit)
-      return Array.isArray(response) ? response : response.items
+      const page = await readRows(cursor, limit)
+      if (cursor === undefined) seenHead = page
+      return page
     }, () => my === version, knownHead)
     if (result && my === version) {
       if (!knownHead) knownHead = result.statuses.slice(0, pageSize).map(row => row.id)
       items.value = result.statuses
-      newer.value = result.newer.map(({ id }) => ({ id }))
+      const newerRows = result.newer.map(({ id }) => ({ id }))
+      const key = newerPrefetchKey(newerRows)
+      if (seenHead && key && newerRows.every(item => seenHead!.some(row => row.id === item.id))) prefetch?.adopt(key, seenHead)
+      streamedNewer = true
+      newer.value = newerRows
+      streamedNewer = false
       nextCursor = items.value.at(-1)?.id
     }
     return true
+  }
+  async function readHead() {
+    const my = ++version
+    const result = await refreshTimelineHead(items.value.slice(), readRows, () => my === version, knownHead)
+    if (result && my === version) {
+      if (!knownHead) knownHead = result.statuses.slice(0, pageSize).map(row => row.id)
+      items.value = result.statuses
+      const shown = new Set(result.statuses.map(row => row.id))
+      const seen = new Set<string>()
+      const merged: { id: string }[] = []
+      for (const item of [...result.newer, ...newer.value]) {
+        if (shown.has(item.id) || seen.has(item.id) || merged.length >= pageSize) continue
+        seen.add(item.id)
+        merged.push({ id: item.id })
+      }
+      const key = newerPrefetchKey(merged)
+      const headIds = new Set(result.head.map(row => row.id))
+      if (key && merged.every(item => headIds.has(item.id))) prefetch?.adopt(key, result.head)
+      streamedNewer = true
+      newer.value = merged
+      streamedNewer = false
+      nextCursor = items.value.at(-1)?.id
+    }
+    return true
+  }
+  function revalidate() { return begin('window') }
+  function catchUpHead() { return begin('head') }
+  function applyStreamed(status: { event: 'update' | 'delete' | 'status.update', id: string }) {
+    const id = status.id
+    if (!/^\d+$/.test(id)) return
+    const visible = (row: { id: string, reblog?: { id?: string } | null }) => row.id === id || row.reblog?.id === id
+    if (status.event === 'delete') {
+      items.value = items.value.filter(row => !visible(row))
+      streamedNewer = true
+      newer.value = newer.value.filter(row => row.id !== id)
+      streamedNewer = false
+      if (nextCursor && !items.value.some(row => row.id === nextCursor)) nextCursor = items.value.at(-1)?.id
+      return
+    }
+    if (status.event !== 'update') return
+    if (items.value.some(row => row.id === id) || newer.value.some(row => row.id === id) || knownHead?.includes(id)) return
+    if (newer.value.length >= pageSize) return
+    streamedNewer = true
+    newer.value = [...newer.value, { id }]
+    streamedNewer = false
   }
   function revealNewer(): Promise<void> | void {
     if (!prefetch) {
@@ -225,18 +303,20 @@ export function usePaginatedList<T extends { id: string }>(
     hasPrevious,
     loadPrevious,
     revalidate,
+    catchUpHead,
+    applyStreamed,
     revealNewer,
     setPinnedIds,
     loading,
     error,
     hasMore,
-    refresh: () => run(false),
+    refresh: () => flight ? flight.then(() => undefined) : startFlight(() => run(false)).then(() => undefined),
     reset,
     hydrate,
     windowState: () => ({ previousCursors: history.slice(), droppedHistory, knownHead: knownHead?.slice() }),
     loadMore: async () => {
-      if (loading.value || !hasMore.value || items.value.length === 0) return
-      await run(true)
+      if (flight || loading.value || !hasMore.value || items.value.length === 0) return
+      await startFlight(() => run(true))
     },
   }
 }
