@@ -8,6 +8,16 @@ describe('pageTitle', () => {
     expect(pageTitle(undefined)).toBe('Community')
     expect(pageTitle('not-a-route')).toBe('Community')
   })
+
+  it('uses a configured instance title and falls back when that title is blank', () => {
+    expect(pageTitle('home', 'メイド🎀')).toBe('首页 - メイド🎀')
+    expect(pageTitle('explore', 'メイド🎀')).toBe('探索 - メイド🎀')
+    expect(pageTitle('notifications', 'メイド🎀')).toBe('通知 - メイド🎀')
+    expect(pageTitle(undefined, 'メイド🎀')).toBe('メイド🎀')
+    expect(pageTitle('not-a-route', 'メイド🎀')).toBe('メイド🎀')
+    expect(pageTitle('home', '   ')).toBe('首页 - Community')
+    expect(pageTitle(undefined, '')).toBe('Community')
+  })
 })
 
 describe('routes', () => {
