@@ -28,11 +28,18 @@ const feed = usePaginatedList(
   (maxId, limit) => listApi.getTimeline(listId.value, { max_id: maxId, limit }),
   TIMELINE_PAGE_SIZE,
   8,
+  { prefetchNewer: true },
 )
 const { items: statuses, loading, error, hasMore, newer, hasPrevious } = feed
 const streamTarget = computed(() => `stream=list&list=${encodeURIComponent(listId.value)}`)
 useFeedStream(streamTarget, feed.revalidate)
 async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
+function revealNewerPosts() {
+  const pending = feed.revealNewer()
+  const scroll = () => { if (!error.value) window.scrollTo(0, 0) }
+  if (pending) return pending.then(scroll)
+  scroll()
+}
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
 )
@@ -270,7 +277,7 @@ onMounted(load)
       <router-link to="/lists" class="btn btn--secondary btn--sm">{{ $t('list.ListTimelinePage.s5') }}</router-link>
     </div>
 
-    <NewPostsPill :show="newer.length > 0" :reveal="reloadHead" />
+    <NewPostsPill :show="newer.length > 0" :reveal="revealNewerPosts" />
     <TimelineFeed
       v-if="list && !listError"
       :statuses="statuses"

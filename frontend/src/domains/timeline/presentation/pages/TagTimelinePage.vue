@@ -59,11 +59,18 @@ const feed = usePaginatedList(
   (maxId, limit) => timelineApi.getTagTimeline(tag.value, { max_id: maxId, limit }),
   TIMELINE_PAGE_SIZE,
   8,
+  { prefetchNewer: true },
 )
 const { items: statuses, loading, error, hasMore, newer, hasPrevious } = feed
 const streamTarget = computed(() => `stream=hashtag&tag=${encodeURIComponent(tag.value)}`)
 useFeedStream(streamTarget, feed.revalidate)
 async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
+function revealNewerPosts() {
+  const pending = feed.revealNewer()
+  const scroll = () => { if (!error.value) window.scrollTo(0, 0) }
+  if (pending) return pending.then(scroll)
+  scroll()
+}
 
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
@@ -85,7 +92,7 @@ onMounted(() => { feed.refresh(); void loadFollow() })
         {{ following ? $t('timeline.TagTimelinePage.s2') : $t('timeline.TagTimelinePage.s3') }}
       </button>
     </div>
-    <NewPostsPill :show="newer.length > 0" :reveal="reloadHead" />
+    <NewPostsPill :show="newer.length > 0" :reveal="revealNewerPosts" />
     <TimelineFeed
       :statuses="statuses"
       :scope-key="streamTarget"

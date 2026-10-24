@@ -1,5 +1,6 @@
 import { revalidateTimeline } from '@/shared/utils/revalidateTimeline'
 import { sessionEpoch } from '@/shared/api/sessionScope'
+import { createNewerPrefetch, newerPrefetchKey } from '@/shared/utils/newerPrefetch'
 import { ref, watch, getCurrentScope, onScopeDispose, type Ref } from 'vue'
 import { mergeById, hasMoreAfter, type CursorPage } from '@/shared/utils/pagination'
 
@@ -12,7 +13,7 @@ export interface PaginatedList<T> {
   hasPrevious: Ref<boolean>
   loadPrevious: () => Promise<void>
   revalidate: () => Promise<boolean>
-  revealNewer: () => Promise<void>
+  revealNewer: () => Promise<void> | void
   setPinnedIds: (ids: string[]) => void
   loading: Ref<boolean>
   error: Ref<string | null>
@@ -38,6 +39,7 @@ export function usePaginatedList<T extends { id: string }>(
   fetchPage: (maxId: string | undefined, limit: number) => Promise<T[] | CursorPage<T>>,
   pageSize = 20,
   maxPages = Infinity,
+  options?: { prefetchNewer?: boolean },
 ): PaginatedList<T> {
   const items = ref([]) as Ref<T[]>
   const newer = ref<{ id: string }[]>([])
@@ -52,6 +54,41 @@ export function usePaginatedList<T extends { id: string }>(
   const hasMore = ref(true)
   let version = 0
   let nextCursor: string | undefined
+  const prefetch = options?.prefetchNewer ? createNewerPrefetch<T[] | CursorPage<T>>() : undefined
+
+  function prefetchToken() {
+    return newerPrefetchKey(newer.value)
+  }
+
+  if (prefetch) {
+    watch(prefetchToken, key => {
+      if (!key) {
+        prefetch.clear()
+        return
+      }
+      prefetch.schedule(key, async () => {
+        const result = await fetchPage(undefined, pageSize)
+        if (!Array.isArray(result) && !result?.items) throw new Error('timeline prefetch failed')
+        return result
+      })
+    }, { flush: 'sync' })
+  }
+
+  function commitFreshPage(result: T[] | CursorPage<T>) {
+    ++version
+    const page = Array.isArray(result) ? result : result.items
+    knownHead = page.map(row => row.id)
+    history.length = 0
+    droppedHistory = false
+    hasPrevious.value = false
+    newer.value = []
+    nextCursor = Array.isArray(result) ? page.at(-1)?.id : result.nextCursor
+    items.value = mergeById([], page)
+    hasMore.value = Array.isArray(result) ? hasMoreAfter(page.length, pageSize) : !!nextCursor
+    loading.value = false
+    error.value = null
+    prefetch?.clear()
+  }
 
   function reset() {
     ++version
@@ -139,9 +176,32 @@ export function usePaginatedList<T extends { id: string }>(
     }
     return true
   }
-  async function revealNewer() {
-    ++version
-    // A fresh first page restores a continuous cursor window, including any gap.
+  function revealNewer(): Promise<void> | void {
+    if (!prefetch) {
+      ++version
+      // A fresh first page restores a continuous cursor window, including any gap.
+      return run(false)
+    }
+    if (!newer.value.length) return
+    if (pinned.size) return run(false)
+    const token = prefetchToken()
+    const cached = prefetch.ready(token)
+    if (cached) {
+      commitFreshPage(cached)
+      return
+    }
+    return revealPrefetchOrFetch()
+  }
+
+  async function revealPrefetchOrFetch() {
+    if (!prefetch) return run(false)
+    const rows = await prefetch.consume()
+    const token = prefetchToken()
+    if (!newer.value.length) return
+    if (rows && token && prefetch.ready(token) === rows && !pinned.size) {
+      commitFreshPage(rows)
+      return
+    }
     await run(false)
   }
 

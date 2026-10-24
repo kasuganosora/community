@@ -164,6 +164,81 @@ describe('scope transitions and nonadvancing cursors', () => {
   })
 })
 
+describe('newer prefetch', () => {
+  it('fetches the first page when newer ids appear and reveals it without a second request', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(page(20))
+      .mockResolvedValueOnce(page(21, 20))
+    const list = usePaginatedList(fetcher, 2, 8, { prefetchNewer: true })
+    await list.refresh()
+    list.newer.value = [{ id: '21' }]
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fetcher).toHaveBeenLastCalledWith(undefined, 2)
+    expect(list.items.value.map(item => item.id)).toEqual(['20'])
+    await list.revealNewer()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(list.items.value.map(item => item.id)).toEqual(['21', '20'])
+    expect(list.newer.value).toEqual([])
+  })
+
+  it('reuses an in-flight prefetch when revealing', async () => {
+    let resolve!: (rows: { id: string }[]) => void
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(page(20))
+      .mockImplementationOnce(() => new Promise(r => { resolve = r }))
+    const list = usePaginatedList(fetcher, 2, 8, { prefetchNewer: true })
+    await list.refresh()
+    list.newer.value = [{ id: '21' }]
+    const reveal = list.revealNewer()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    resolve(page(21, 20))
+    await reveal
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(list.items.value.map(item => item.id)).toEqual(['21', '20'])
+  })
+
+  it('falls back to a fresh fetch when prefetch fails', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(page(20))
+      .mockRejectedValueOnce(new Error('prefetch'))
+      .mockResolvedValueOnce(page(21, 20))
+    const list = usePaginatedList(fetcher, 2, 8, { prefetchNewer: true })
+    await list.refresh()
+    list.newer.value = [{ id: '21' }]
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(list.error.value).toBeNull()
+    await list.revealNewer()
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    expect(list.items.value.map(item => item.id)).toEqual(['21', '20'])
+    expect(list.error.value).toBeNull()
+  })
+
+  it('follows a replacement prefetch when a newer id arrives while revealing', async () => {
+    let resolveFirst!: (rows: { id: string }[]) => void
+    let resolveSecond!: (rows: { id: string }[]) => void
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(page(20))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve }))
+    const list = usePaginatedList(fetcher, 2, 8, { prefetchNewer: true })
+    await list.refresh()
+    list.newer.value = [{ id: '21' }]
+    const reveal = list.revealNewer()
+    list.newer.value = [{ id: '22' }, { id: '21' }]
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    resolveFirst(page(21, 20))
+    await Promise.resolve()
+    expect(list.items.value.map(item => item.id)).toEqual(['20'])
+    resolveSecond(page(22, 21))
+    await reveal
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    expect(list.items.value.map(item => item.id)).toEqual(['22', '21'])
+  })
+})
+
 describe('bounded bidirectional timeline pages', () => {
   const all = Array.from({ length: 5000 }, (_, i) => ({ id: String(5000 - i) }))
   const fetchPage = async (cursor: string | undefined, limit: number) => all.filter(row => !cursor || BigInt(row.id) < BigInt(cursor)).slice(0, limit)
