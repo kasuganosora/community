@@ -69,7 +69,7 @@ describe('profile lookup', () => {
       params: { acct: 'kanna' },
       timeout: expect.any(Number),
     }))
-    expect(get.mock.calls[0]?.[1]?.timeout).toBeGreaterThan(15_000)
+    expect(get.mock.calls[0]![1]!.timeout).toBeGreaterThan(15_000)
     expect(peekCachedAccount('kanna')).toEqual(account)
     expect(peekCachedAccount('@Kanna')).toEqual(account)
   })
@@ -77,7 +77,7 @@ describe('profile lookup', () => {
   it('uses that same longer budget for profile statuses', async () => {
     const get = vi.spyOn(client, 'get').mockResolvedValue({ data: [], headers: {} })
     await userApi.getStatuses('1538', { limit: 20 })
-    expect(get.mock.calls[0]?.[1]?.timeout).toBeGreaterThan(15_000)
+    expect(get.mock.calls[0]![1]!.timeout).toBeGreaterThan(15_000)
   })
 
   it('does not hide 410 or drop a timeout into the missing-user path', async () => {
