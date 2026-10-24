@@ -635,7 +635,8 @@
       "twoFactorOn": "Activée",
       "twoFactorOff": "Désactivée",
       "twoFactorReset": "Réinitialiser la double authentification",
-      "twoFactorResetConfirm": "Désactiver la double authentification de {'@'}{0} et supprimer ses codes de secours ? Vérifiez d’abord l’identité de la personne."
+      "twoFactorResetConfirm": "Désactiver la double authentification de {'@'}{0} et supprimer ses codes de secours ? Vérifiez d’abord l’identité de la personne.",
+      "close": "Fermer"
     },
     "AnnouncementsAdminPage": {
       "s1": "Annonces",
