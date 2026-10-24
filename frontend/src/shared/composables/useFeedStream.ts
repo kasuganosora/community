@@ -6,8 +6,12 @@ import { sessionEpoch } from '@/shared/api/sessionScope'
  * Feed streams carry invalidation hints only; authorization and content
  * always come from HTTP. WebSocket is preferred (an SSE response through
  * Cloudflare is sometimes reset right after connect); SSE is the fallback
- * after repeated WebSocket failures. Every confirmed (re)connect triggers a
- * resync through `revalidate`, so events missed during a gap still show up.
+ * after repeated WebSocket failures. A confirmed connect resyncs through
+ * `revalidate`, so events missed during a gap still show up. Public timelines
+ * are a firehose (one revision per status, including fast reconnects): those
+ * HTTP reads share one quiet window and still land on the new-posts pill.
+ * Home and notification streams stay immediate. A real tab resume and the 60s
+ * poll are not held back by that window.
  */
 export interface FeedStreamOptions {
   /** false: no periodic fallback; revalidate only on connect/reconnect, hints, and window focus. */
@@ -20,6 +24,15 @@ export const STREAM_MAX_DELAY_MS = 30_000
 export const STREAM_HEALTHY_MS = 10_000
 /** No bytes/messages for this long (server heartbeats every 15s): reconnect. */
 export const STREAM_STALL_MS = 45_000
+/**
+ * Minimum gap between public-timeline HTTP revalidations while hints or fast
+ * reconnects keep arriving. The 60s poll still runs, and a real tab resume
+ * still reads immediately.
+ */
+export const PUBLIC_REVALIDATE_MIN_MS = 15_000
+/** Visibility blips shorter than this do not drop the socket or refetch. */
+export const STREAM_VISIBILITY_GRACE_MS = 1_000
+const HINT_DEBOUNCE_MS = 250
 const WS_FAILURE_LIMIT = 3
 const SSE_FALLBACK_MS = 5 * 60_000
 
@@ -34,6 +47,12 @@ export function backoffDelay(attempt: number, random: () => number = Math.random
 
 export function chooseTransport(now = Date.now()): 'ws' | 'sse' {
   return typeof WebSocket !== 'undefined' && now >= streamTransport.sseUntil ? 'ws' : 'sse'
+}
+
+/** Global and local public timelines are the status firehose. */
+export function isPublicFeed(query: string): boolean {
+  const stream = new URLSearchParams(query).get('stream') ?? ''
+  return stream === 'public' || stream.startsWith('public:')
 }
 
 function recordWebSocketResult(ok: boolean) {
@@ -70,24 +89,41 @@ export function useFeedStream(target: Ref<string>, revalidate: () => Promise<boo
   let dirty = false
   let revision = ''
   let failures = 0
+  /** When the last public HTTP revalidation finished; 0 until the first one does. */
+  let lastRevalidated = 0
+  let hideTimer: ReturnType<typeof setTimeout> | undefined
+  let onlineAt = 0
 
-  function schedule() {
+  function revalidateDelay(gap: boolean): number {
+    if (gap || !isPublicFeed(target.value) || !lastRevalidated) return HINT_DEBOUNCE_MS
+    const remain = PUBLIC_REVALIDATE_MIN_MS - (Date.now() - lastRevalidated)
+    return remain > HINT_DEBOUNCE_MS ? remain : HINT_DEBOUNCE_MS
+  }
+  function schedule(options?: { gap?: boolean, soon?: boolean }) {
     dirty = true
-    if (!mounted || document.hidden || running || debounce) return
-    debounce = setTimeout(() => { debounce = undefined; void refresh() }, 250)
+    if (!mounted || document.hidden || running) return
+    const gap = options?.gap === true
+    const soon = options?.soon === true
+    if (debounce && !gap && !soon) return
+    if (debounce) { clearTimeout(debounce); debounce = undefined }
+    debounce = setTimeout(() => { debounce = undefined; void refresh() }, soon ? HINT_DEBOUNCE_MS : revalidateDelay(gap))
   }
   async function refresh() {
     if (!mounted || document.hidden || running || !dirty) return
     const mine = generation
     running = true
     dirty = false
+    let retrySoon = false
     try {
-      if (await revalidate() === false && mine === generation) dirty = true
+      if (await revalidate() === false && mine === generation) { dirty = true; retrySoon = true }
     } catch {
       // Keep stale data visible on transport failures; retry at the bounded fallback.
     } finally {
       running = false
-      if (dirty) schedule()
+      // Quiet window starts when the read finishes, so a slow public timeline
+      // cannot be followed immediately by another full-window read.
+      if (!retrySoon && mine === generation && isPublicFeed(target.value)) lastRevalidated = Date.now()
+      if (dirty) schedule(retrySoon ? { soon: true } : undefined)
     }
   }
 
@@ -113,7 +149,7 @@ export function useFeedStream(target: Ref<string>, revalidate: () => Promise<boo
       if (confirmedAt !== null) return
       confirmedAt = Date.now()
       if (kind === 'ws') recordWebSocketResult(true)
-      schedule() // resync: anything published during the gap is refetched over HTTP
+      schedule() // resync once; a public firehose then waits out the quiet window
     }
     const finish = () => {
       if (finished) return
@@ -189,32 +225,50 @@ export function useFeedStream(target: Ref<string>, revalidate: () => Promise<boo
       reconnect = setTimeout(() => { reconnect = undefined; if (mine === generation) connect(mine) }, backoffDelay(failures - 1))
     })
   }
-  function restart() {
+  function restart(options?: { gap?: boolean }) {
     ++generation
     const previous = stop
     stop = undefined
     previous?.()
     clearTimeout(reconnect); reconnect = undefined
     clearTimeout(debounce); debounce = undefined
+    clearTimeout(hideTimer); hideTimer = undefined
     revision = ''; dirty = false; failures = 0
     if (!mounted || document.hidden) return
-    schedule()
+    schedule(options?.gap ? { gap: true } : undefined)
     const mine = generation
     void Promise.resolve().then(() => { if (mine === generation && mounted && !document.hidden) connect(mine) })
   }
-  watch([target, sessionEpoch], restart, { flush: 'sync' })
+  function onVisibility() {
+    if (document.hidden) {
+      clearTimeout(hideTimer)
+      hideTimer = setTimeout(() => { hideTimer = undefined; if (mounted && document.hidden) restart() }, STREAM_VISIBILITY_GRACE_MS)
+      return
+    }
+    // A blip (toolbar, DevTools, mobile chrome) never closes the socket.
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = undefined; return }
+    restart({ gap: true })
+  }
+  function onOnline() {
+    const now = Date.now()
+    if (isPublicFeed(target.value) && onlineAt && now - onlineAt < PUBLIC_REVALIDATE_MIN_MS) return
+    onlineAt = now
+    restart({ gap: true })
+  }
+  function onFocus() { schedule({ gap: true }) }
+  watch([target, sessionEpoch], () => { lastRevalidated = 0; restart() }, { flush: 'sync' })
   onMounted(() => {
     mounted = true
-    document.addEventListener('visibilitychange', restart)
-    window.addEventListener('online', restart)
-    if (poll) fallback = setInterval(schedule, 60_000)
-    else window.addEventListener('focus', schedule)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('online', onOnline)
+    if (poll) fallback = setInterval(() => schedule(), 60_000)
+    else window.addEventListener('focus', onFocus)
     restart()
   })
   onBeforeUnmount(() => {
-    mounted = false; restart(); clearInterval(fallback)
-    document.removeEventListener('visibilitychange', restart)
-    window.removeEventListener('online', restart)
-    window.removeEventListener('focus', schedule)
+    mounted = false; clearTimeout(hideTimer); restart(); clearInterval(fallback)
+    document.removeEventListener('visibilitychange', onVisibility)
+    window.removeEventListener('online', onOnline)
+    window.removeEventListener('focus', onFocus)
   })
 }
