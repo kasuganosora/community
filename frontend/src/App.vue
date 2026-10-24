@@ -4,6 +4,7 @@ import { defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import { accountHover } from '@/shared/composables/useAccountHover'
 const AccountHoverCard = defineAsyncComponent(() => import('@/shared/components/common/AccountHoverCard.vue'))
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { useEmojiStore } from '@/domains/emoji/presentation/stores/emojiStore'
 import { navigationPending } from '@/shared/router/navigationFeedback'
 
 import { t } from '@/shared/i18n'
@@ -33,7 +34,12 @@ async function retryInit() {
     initializing.value = false
   }
 }
-onMounted(retryInit)
+onMounted(() => {
+  // Catalogue is shared by reaction pills and the emoji picker. Start it with
+  // auth init so both can render images as soon as the timeline appears.
+  void useEmojiStore().load()
+  void retryInit()
+})
 onBeforeUnmount(() => { clearTimeout(slowTimer) })
 </script>
 

@@ -10,16 +10,34 @@ export const useEmojiStore = defineStore('custom-emojis', () => {
   const error = ref<string | null>(null)
   let loaded = false
   let pending: Promise<void> | null = null
+  let generation = 0
   function load(force = false): Promise<void> {
-    if (pending) return pending
+    // A refresh must not join an in-flight request: that request may never
+    // settle, and its finally would otherwise clear a newer attempt.
+    if (pending && !force) return pending
     if (loaded && !force) return Promise.resolve()
+    const mine = ++generation
     loading.value = true
     error.value = null
-    pending = client.get<MastodonEmoji[]>('/api/v1/custom_emojis').then(({ data }) => {
-      emojis.value = data
-      loaded = true
-    }).catch(() => { error.value = t('emoji.emojiStore.s1') }).finally(() => { loading.value = false; pending = null })
-    return pending
+    const run = Promise.resolve()
+      .then(() => client.get<MastodonEmoji[]>('/api/v1/custom_emojis'))
+      .then(({ data }) => {
+        if (mine !== generation) return
+        if (!Array.isArray(data)) throw new Error('invalid emoji catalogue')
+        emojis.value = data
+        loaded = true
+      })
+      .catch(() => {
+        if (mine !== generation) return
+        error.value = t('emoji.emojiStore.s1')
+      })
+      .finally(() => {
+        if (mine !== generation) return
+        loading.value = false
+        pending = null
+      })
+    pending = run
+    return run
   }
   return { emojis, loading, error, load }
 })

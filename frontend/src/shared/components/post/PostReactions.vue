@@ -7,7 +7,8 @@ import { useTimelineRowPin } from '@/shared/composables/useTimelineRow'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { markStatusEdited } from '@/domains/post/presentation/composables/useStatusActions'
-import { emojiUrl } from '@/domains/emoji/domain/emoji'
+import { emojiForReaction, emojiUrl } from '@/domains/emoji/domain/emoji'
+import { useEmojiStore } from '@/domains/emoji/presentation/stores/emojiStore'
 import type { MastodonEmoji, MastodonEmojiReaction, MastodonStatus } from '@/shared/types/mastodon'
 import EmojiPicker from './EmojiPicker.vue'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
@@ -16,6 +17,8 @@ import ReactionLabel from './ReactionLabel.vue'
 import { t } from '@/shared/i18n'
 const props = defineProps<{ status: MastodonStatus }>()
 const auth = useAuthStore()
+const emojiStore = useEmojiStore()
+void emojiStore.load()
 const pending = ref(false)
 const choosing = ref(false)
 const error = ref('')
@@ -47,9 +50,16 @@ watch(details, open => {
 }, { flush: 'sync' })
 onBeforeUnmount(() => { ++reactionGeneration; ++detailsGeneration })
 function image(reaction: MastodonEmojiReaction) {
-  return reaction.url && !reaction.is_sensitive ? emojiUrl({ shortcode: '', url: reaction.url, static_url: reaction.static_url || '', visible_in_picker: true }) : null
+  const emoji = emojiForReaction(reaction, emojiStore.emojis)
+  if (!emoji || emoji.is_sensitive) return null
+  return emojiUrl(emoji)
 }
-async function toggle(name: string) {
+function withPicture(name: string, source?: MastodonEmoji): Pick<MastodonEmojiReaction, 'url' | 'static_url' | 'is_sensitive'> {
+  const emoji = source?.url || source?.static_url ? source : emojiForReaction({ name }, emojiStore.emojis)
+  if (!emoji?.url && !emoji?.static_url) return {}
+  return { url: emoji.url, static_url: emoji.static_url, is_sensitive: emoji.is_sensitive }
+}
+async function toggle(name: string, source?: MastodonEmoji) {
   if (!auth.currentUser || pending.value) return
   const id = props.status.id
   const epoch = sessionEpoch.value
@@ -59,8 +69,11 @@ async function toggle(name: string) {
   const next = reactions.value.map(r => ({ ...r, count: r.count - (r.me ? 1 : 0), me: false })).filter(r => r.count > 0)
   if (!remove) {
     const existing = next.find(r => r.name === name)
-    if (existing) { existing.count++; existing.me = true }
-    else next.push({ name, count: 1, me: true })
+    if (existing) {
+      existing.count++
+      existing.me = true
+      if (!existing.url && !existing.static_url) Object.assign(existing, withPicture(name, source))
+    } else next.push({ name, count: 1, me: true, ...withPicture(name, source) })
   }
   optimistic.value = next
   pending.value = true
@@ -70,7 +83,7 @@ async function toggle(name: string) {
   catch { if (current()) error.value = t('shared.PostReactions.s18') }
   finally { if (current()) { optimistic.value = null; pending.value = false } }
 }
-function choose(emoji: MastodonEmoji) { toggle(`:${emoji.shortcode}:`) }
+function choose(emoji: MastodonEmoji) { toggle(`:${emoji.shortcode}:`, emoji) }
 async function showResponders() {
   const id = props.status.id
   const epoch = sessionEpoch.value

@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import EmojiPicker from '../EmojiPicker.vue'
 import { useEmojiStore } from '@/domains/emoji/presentation/stores/emojiStore'
+import client from '@/shared/api/client'
 import type { MastodonEmoji } from '@/shared/types/mastodon'
 const base: MastodonEmoji = { shortcode: 'wave', url: 'https://images.test/wave.png', static_url: '', visible_in_picker: true, aliases: ['hello', '你好'], category: '问候' }
 function setup() {
@@ -43,6 +44,30 @@ describe('custom emoji picker', () => {
     await wrapper.get('input[type=checkbox]').setValue(true)
     expect(wrapper.findAll('img')).toHaveLength(2)
     expect(wrapper.get('button[aria-label="插入 :secret:"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+})
+
+describe('emoji picker catalogue loading', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('shows the fetched emojis once loading finishes', async () => {
+    vi.spyOn(client, 'get').mockResolvedValue({ data: [base, { ...base, shortcode: 'blob', aliases: [], category: '其他' }] })
+    const wrapper = mount(EmojiPicker, { global: { plugins: [createPinia()] } })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('正在加载表情')
+    expect(wrapper.findAll('.emoji-picker__grid button')).toHaveLength(2)
+    expect(wrapper.text()).toContain('2 个表情')
+    wrapper.unmount()
+  })
+
+  it('shows an error instead of spinning forever when the catalogue request fails', async () => {
+    vi.spyOn(client, 'get').mockRejectedValue(new Error('offline'))
+    const wrapper = mount(EmojiPicker, { global: { plugins: [createPinia()] } })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('正在加载表情')
+    expect(wrapper.text()).toContain('暂时无法加载')
+    expect(wrapper.text()).toContain('表情加载失败')
     wrapper.unmount()
   })
 })

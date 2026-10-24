@@ -68,7 +68,7 @@ onMounted(() => { void store.load(); searchInput.value?.focus({ preventScroll: t
   <section class="emoji-picker" :aria-label="$t('shared.EmojiPicker.s1')" @keydown="onKeydown">
     <header class="emoji-picker__header">
       <div class="emoji-picker__heading"><span class="emoji-picker__mark"><AppIcon name="happy" /></span><div><strong>{{ $t('shared.EmojiPicker.s2') }}</strong><span>{{ $t('shared.EmojiPicker.s3') }}</span></div></div>
-      <div class="emoji-picker__tools"><button type="button" class="icon-button" :aria-label="$t('shared.EmojiPicker.s4')" :disabled="store.loading" @click="store.load(true)"><AppIcon name="refresh" /></button><button type="button" class="icon-button" :aria-label="$t('shared.EmojiPicker.s5')" @click="emit('close')"><AppIcon name="close" /></button></div>
+      <div class="emoji-picker__tools"><button type="button" class="icon-button" :aria-label="$t('shared.EmojiPicker.s4')" @click="store.load(true)"><AppIcon name="refresh" /></button><button type="button" class="icon-button" :aria-label="$t('shared.EmojiPicker.s5')" @click="emit('close')"><AppIcon name="close" /></button></div>
     </header>
     <div class="emoji-picker__search"><AppIcon name="search" /><input ref="searchInput" v-model="query" type="search" :aria-label="$t('shared.EmojiPicker.s6')" :placeholder="$t('shared.EmojiPicker.s7')" /><button v-if="query" type="button" class="icon-button" :aria-label="$t('shared.EmojiPicker.s8')" @click="query = ''; searchInput?.focus()"><AppIcon name="close" /></button></div>
     <div class="emoji-picker__filters">
@@ -78,7 +78,7 @@ onMounted(() => { void store.load(); searchInput.value?.focus({ preventScroll: t
       </div>
       <select :value="category === '__recent' ? '' : category" :aria-label="$t('shared.EmojiPicker.s12')" @change="category = ($event.target as HTMLSelectElement).value"><option value="">{{ $t('shared.EmojiPicker.s13') }}</option><option v-for="c in categories" :key="c">{{ c }}</option></select>
     </div>
-    <div v-if="store.loading" class="emoji-picker__empty" role="status"><AppIcon name="refresh" /><strong>{{ $t('shared.EmojiPicker.s14') }}</strong><span>{{ $t('shared.EmojiPicker.s15') }}</span></div>
+    <div v-if="store.loading && !matches.length" class="emoji-picker__empty" role="status"><AppIcon name="refresh" /><strong>{{ $t('shared.EmojiPicker.s14') }}</strong><span>{{ $t('shared.EmojiPicker.s15') }}</span></div>
     <div v-else-if="store.error" class="emoji-picker__empty" role="alert"><AppIcon name="error-circle" /><strong>{{ $t('shared.EmojiPicker.s16') }}</strong><span>{{ store.error }}</span><button type="button" class="retry-button" @click="store.load(true)">{{ $t('shared.EmojiPicker.s17') }}</button></div>
     <div v-else-if="!matches.length" class="emoji-picker__empty"><AppIcon name="search" /><strong>{{ category === '__recent' ? $t('shared.EmojiPicker.s18') : $t('shared.EmojiPicker.s19') }}</strong><span>{{ query ? $t('shared.EmojiPicker.s20') : $t('shared.EmojiPicker.s21') }}</span></div>
     <div v-else ref="grid" class="emoji-picker__grid">
