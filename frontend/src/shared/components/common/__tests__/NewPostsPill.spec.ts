@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import NewPostsPill from '../NewPostsPill.vue'
 
 function deferred<T = void>() {
@@ -10,6 +10,41 @@ function deferred<T = void>() {
 }
 
 describe('NewPostsPill', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it.each([-500, 200])('preserves reading position only when the changing row is above the viewport (%i)', async top => {
+    let scroll = 800
+    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation((options: ScrollToOptions | number) => {
+      if (typeof options === 'object') scroll = options.top ?? scroll
+    })
+    vi.spyOn(window, 'scrollY', 'get').mockImplementation(() => scroll)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return { top, height: this.querySelector('button') ? 56 : 0 } as DOMRect
+    })
+    const wrapper = mount(NewPostsPill, { props: { show: false, layout: 'row', reveal: () => {} } })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect(scroll).toBe(top < 0 ? 856 : 800)
+    await wrapper.setProps({ show: false })
+    await flushPromises()
+    expect(scroll).toBe(800)
+    expect(scrollTo).toHaveBeenCalledTimes(top < 0 ? 2 : 0)
+    wrapper.unmount()
+  })
+
+  it('collapses a revealed row before the navigation callback finishes, without a second layout shift', async () => {
+    const pending = deferred()
+    const wrapper = mount(NewPostsPill, { props: { show: true, layout: 'row', reveal: () => pending.promise } })
+    await wrapper.get('button').trigger('click')
+    expect(wrapper.get('button').attributes('aria-busy')).toBe('true')
+    await wrapper.setProps({ show: false })
+    expect(wrapper.find('button').exists()).toBe(false)
+    pending.resolve()
+    await flushPromises()
+    expect(wrapper.find('button').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('shows loading feedback immediately and ignores clicks until the refresh settles', async () => {
     const pending = deferred()
     let calls = 0

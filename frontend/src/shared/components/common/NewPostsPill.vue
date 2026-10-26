@@ -1,20 +1,37 @@
 <script setup lang="ts">
-// Lives in the sticky page header so it never covers a post or shifts the feed.
-import { onBeforeUnmount, ref, watch } from 'vue'
+// Either a header action or an in-flow row, never an overlay on post content.
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { MessagePlugin } from '@/shared/ui/feedback'
 import { t } from '@/shared/i18n'
 
 const props = defineProps<{
   show: boolean
+  layout?: 'header' | 'row'
   reveal: () => Promise<unknown> | unknown
 }>()
 const busy = ref(false)
 const failed = ref(false)
 const slow = ref(false)
+const control = ref<HTMLElement>()
+// A row must collapse as the head is committed, before reveal positions the
+// first post. Keeping it until the callback settles would shift that post again.
+const visible = computed(() => props.show || (busy.value && props.layout !== 'row'))
 let disposed = false
 let timer: ReturnType<typeof setTimeout> | undefined
 watch(() => props.show, show => { if (!show) failed.value = false })
 onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
+watch(visible, async () => {
+  const element = control.value
+  if (props.layout !== 'row' || !element || element.getBoundingClientRect().top >= 0) return
+  const height = element.getBoundingClientRect().height
+  const scroll = window.scrollY
+  await nextTick()
+  if (disposed || control.value !== element || window.scrollY !== scroll) return
+  // When the row changes above the viewport, keep the post being read at its
+  // current position. An explicit/user scroll already takes precedence.
+  const delta = element.getBoundingClientRect().height - height
+  if (delta) window.scrollTo({ top: Math.max(0, scroll + delta), behavior: 'instant' })
+})
 
 async function onClick() {
   if (busy.value) return
@@ -37,10 +54,10 @@ async function onClick() {
 </script>
 
 <template>
-  <div class="new-posts-control">
+  <div ref="control" class="new-posts-control" :class="{ 'new-posts-control--row': layout === 'row' }">
     <span class="sr-only" role="status" aria-live="polite" aria-atomic="true">{{ slow ? $t('shared.NewPostsPill.s4') : show ? $t('shared.NewPostsPill.s5') : '' }}</span>
     <button
-      v-if="show || busy"
+      v-if="visible"
       type="button"
       class="new-posts-pill"
       data-testid="new-posts-pill"
@@ -58,6 +75,14 @@ async function onClick() {
 
 <style scoped>
 .new-posts-control { flex: none; margin-inline-start: auto; }
+.new-posts-control--row { display: flex; margin: 0; padding: 0 var(--gutter); overflow-anchor: none; }
+.new-posts-control--row .new-posts-pill {
+  width: 100%;
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+}
 .new-posts-pill {
   display: inline-flex;
   align-items: center;

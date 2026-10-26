@@ -150,7 +150,6 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
     <div ref="timelineHeader" class="home-header">
       <div class="home-title-row">
         <h1 class="page-header__title">{{ $t('timeline.HomePage.s1') }}</h1>
-        <NewPostsPill :key="`${sessionEpoch}:${activeTab}`" :show="!isDiscovery && chronologicalTimeline.newer.length > 0" :reveal="revealNewerPosts" />
       </div>
       <TabBar :model-value="activeTab" :options="tabs" :label="$t('timeline.HomePage.s2')" @update:model-value="onTabChange" />
     </div>
@@ -159,6 +158,7 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
       {{ $t('timeline.HomePage.s3') }}
       <button type="button" @click="onTabChange('global')">{{ $t('timeline.HomePage.s4') }}</button>
     </div>
+    <NewPostsPill :key="`${sessionEpoch}:${activeTab}`" layout="row" :show="!isDiscovery && chronologicalTimeline.newer.length > 0" :reveal="revealNewerPosts" />
     <TimelineFeed
       ref="timelineView"
       :statuses="statuses" :scope-key="isDiscovery ? `discovery:${sessionEpoch}:${discovery.generation.value}` : chronologicalType"

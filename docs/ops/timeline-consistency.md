@@ -49,8 +49,11 @@ Regression coverage:
 - Existing feed SQL/Redis and stream tests cover publication ordering,
   pagination, cache rebuilding and content-free stream forwarding.
 
-The new-post action lives in the sticky navigation header. It does not overlay
-post content or add/remove vertical space in the feed. Reveal returns whether a
+The home new-post action is an in-flow row below the composer and above the
+feed. Other timeline pages keep their navigation-header action. Neither overlays
+post content. If the home row appears or disappears above the viewport, its
+height change is compensated to preserve the reading position. The row collapses
+before a successful reveal positions the new head. Reveal returns whether a
 new head was committed; only a successful current-scope commit navigates to the
 first post, after Vue renders it. Explicit navigation cancels virtual-window
 anchor compensation and clears the old eviction spacer. Failures leave the
