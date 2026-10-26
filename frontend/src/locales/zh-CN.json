@@ -70,8 +70,11 @@
       "s22": "无法读取图片"
     },
     "NewPostsPill": {
-      "s1": "有新帖子，点击查看",
-      "s2": "加载中…"
+      "s1": "查看新帖",
+      "s2": "加载中…",
+      "s3": "重试加载",
+      "s4": "新帖加载较慢，你可以继续阅读。",
+      "s5": "有新帖子，可以查看。"
     },
     "NotFoundPage": {
       "s1": "这个页面不存在。",
@@ -200,6 +203,14 @@
       "s25": "知道了"
     },
     "PostComposer": {
+      "uploadComplete": "已上传",
+      "uploadError": "上传失败",
+      "uploadProcessing": "处理中…",
+      "uploadPercent": "上传中 {0}%",
+      "uploadQueued": "待上传",
+      "uploadFile": "{0} 上传进度",
+      "uploadSummary": "已上传 {0}/{1}",
+      "uploadTotal": "附件上传总进度",
       "s1": "投票截止时间保持不变。",
       "s2": "可见范围",
       "s3": "取消",

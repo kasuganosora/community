@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import NewPostsPill from '@/shared/components/common/NewPostsPill.vue'
+import { useTimelineReveal } from '@/shared/composables/useTimelineReveal'
 import { computed, onMounted, onBeforeUnmount, watch, ref, nextTick } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
@@ -96,10 +97,9 @@ function onTabChange(value: TabType) {
   activeTab.value = value
   void openTimeline()
 }
-function revealNewer() {
-  window.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
-  return timelineStore.revealNewer(chronologicalType.value)
-}
+const { reveal: revealNewerPosts } = useTimelineReveal(
+  () => timelineStore.revealNewer(chronologicalType.value), () => activeTab.value, () => error.value,
+)
 async function reloadHead() {
   if (isDiscovery.value) { discovery.clear(); await openTimeline() }
   else await fetchChronological()
@@ -147,8 +147,11 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
 
 <template>
   <div class="home-page">
-    <div class="home-header">
-      <h1 class="page-header__title">{{ $t('timeline.HomePage.s1') }}</h1>
+    <div ref="timelineHeader" class="home-header">
+      <div class="home-title-row">
+        <h1 class="page-header__title">{{ $t('timeline.HomePage.s1') }}</h1>
+        <NewPostsPill :key="`${sessionEpoch}:${activeTab}`" :show="!isDiscovery && chronologicalTimeline.newer.length > 0" :reveal="revealNewerPosts" />
+      </div>
       <TabBar :model-value="activeTab" :options="tabs" :label="$t('timeline.HomePage.s2')" @update:model-value="onTabChange" />
     </div>
     <PostComposer @posted="handlePosted" />
@@ -156,8 +159,8 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
       {{ $t('timeline.HomePage.s3') }}
       <button type="button" @click="onTabChange('global')">{{ $t('timeline.HomePage.s4') }}</button>
     </div>
-    <NewPostsPill :show="!isDiscovery && chronologicalTimeline.newer.length > 0" top="6.5rem" :reveal="revealNewer" />
     <TimelineFeed
+      ref="timelineView"
       :statuses="statuses" :scope-key="isDiscovery ? `discovery:${sessionEpoch}:${discovery.generation.value}` : chronologicalType"
       :has-previous="!isDiscovery && chronologicalTimeline.hasPrevious"
       :loading="loading" :has-more="hasMore" :error="error"
@@ -204,8 +207,9 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
   transition: box-shadow var(--duration-fast) var(--ease-out);
 }
 
+.home-title-row { display: flex; align-items: center; gap: var(--space-2); min-height: var(--bar-height); padding: 0 var(--gutter); }
 .home-header :deep(.page-header__title) {
-  padding: var(--space-3) var(--gutter) var(--space-1);
+  padding: var(--space-2) 0;
   font-size: var(--text-title-3);
   line-height: var(--leading-title-3);
   letter-spacing: var(--tracking-title-3);

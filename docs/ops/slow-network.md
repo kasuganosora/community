@@ -62,3 +62,22 @@ Slow 3G, then repeat after a normal visit with the cache enabled:
 Automated coverage lives in `stallRetry.spec.ts`, `authStoreAccounts.spec.ts`,
 `AppStartup.spec.ts`, `lazyRoute.spec.ts`, `useVersionSyncKill.spec.ts`,
 `UserAvatar.spec.ts`, `PostMedia.spec.ts` and `serviceWorker.spec.ts`.
+
+
+## Publishing attachments
+
+Selecting, pasting or dropping media creates local previews only. The publish
+button accepts attachment-only drafts and begins the uploads when activated.
+Two workers upload at a time, with queued/uploading/processing/completed/failed
+states on each thumbnail. Native upload byte progress drives per-file bars and
+the size-weighted total bar below the composer. Upload completion is confirmed
+only by the attachment response, not by sending the last byte.
+
+All attachments must succeed before creating the post. A failed upload or post
+request retains the draft and selected files; another publish attempt reuses
+completed attachment IDs and preserves selection order. Duplicate submit is
+blocked. Session changes, reset and unmount abort outstanding uploads and
+invalidate late results so they cannot start a post under another account.
+Local previews remain until the draft is cleared, avoiding a second thumbnail
+request after each upload. Selected local files are kept in memory; automatic
+update reloads remain deferred by the existing unsaved-work guard.

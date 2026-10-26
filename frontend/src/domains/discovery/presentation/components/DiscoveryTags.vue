@@ -15,28 +15,33 @@ const items = ref<TagItem[]>([]), page = ref<TagsPage | null>(null)
 const loading = ref(false), error = ref(''), reset = ref(false)
 const title = computed(() => page.value?.kind === 'recent' ? t('discovery.DiscoveryTags.s17') : t('discovery.DiscoveryTags.s18'))
 let version = 0, controller: AbortController | undefined
+let loadedAt = 0
+let failedMore = false
 async function load(more = false) {
   if (more && (loading.value || !page.value?.next_cursor || reset.value)) return
   const mine = ++version, epoch = sessionEpoch.value
   controller?.abort(); controller = new AbortController()
   loading.value = true; error.value = ''; reset.value = false
   const cursor = more ? page.value?.next_cursor ?? undefined : undefined
-  if (!more) { items.value = []; page.value = null }
+
   try {
     const value = await discoveryApi.tags({ window: windowSize.value, scope: 'federated', limit: props.compact ? 5 : 20, cursor }, controller.signal)
     if (mine !== version || epoch !== sessionEpoch.value) return
     if (value.disabled) { page.value = value; items.value = []; return }
     if (cursor && value.next_cursor === cursor) throw new Error(t('discovery.DiscoveryTags.s19'))
-    const names = new Set(items.value.map(item => item.name))
-    items.value = [...items.value, ...value.items.filter(item => {
+    const previous = more ? items.value : []
+    const names = new Set(previous.map(item => item.name))
+    items.value = [...previous, ...value.items.filter(item => {
       if (names.has(item.name)) return false
       names.add(item.name)
       return true
     })].slice(0, 200)
     if (items.value.length >= 200) value.next_cursor = null
     page.value = value
+    loadedAt = Date.now()
   } catch (e) {
     if (mine !== version || epoch !== sessionEpoch.value) return
+    failedMore = more
     if (isDiscoveryReset(e)) reset.value = true
     else error.value = e instanceof Error ? e.message : t('discovery.DiscoveryTags.s20')
   } finally { if (mine === version) loading.value = false }
@@ -51,8 +56,15 @@ async function hideTag(tag: TagItem) {
     MessagePlugin.success(t('discovery.DiscoveryTags.s21'))
   } catch (e) { MessagePlugin.error(e instanceof Error ? e.message : t('discovery.DiscoveryTags.s22')) }
 }
-function resume() { if (!document.hidden) void load() }
-watch([windowSize, sessionEpoch, discoveryInvalidation], () => { void load() }, { flush: 'sync' })
+function resume() {
+  if (!document.hidden && !loading.value && Date.now() - loadedAt >= 60_000) void load()
+}
+watch(sessionEpoch, () => {
+  ++version; controller?.abort(); items.value = []; page.value = null
+  loading.value = false; error.value = ''; reset.value = false; loadedAt = 0
+}, { flush: 'sync' })
+// Coalesce preference/session changes in one tick into one refresh.
+watch([windowSize, sessionEpoch, discoveryInvalidation], () => { void load() })
 onMounted(() => { void load(); document.addEventListener('visibilitychange', resume) })
 onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventListener('visibilitychange', resume) })
 </script>
@@ -74,9 +86,9 @@ onBeforeUnmount(() => { ++version; controller?.abort(); document.removeEventList
         <button v-if="auth.currentUser && !compact" type="button" class="discovery-tags__hide" :aria-label="$t('discovery.DiscoveryTags.s7', [tag.name])" @click="hideTag(tag)"><t-icon name="close" :size="16" /></button>
       </li>
     </ul>
-    <p v-if="error" class="discovery-tags__message discovery-tags__error" role="alert">{{ error }} <button type="button" :disabled="loading" @click="load(!!items.length)">{{ $t('discovery.DiscoveryTags.s8') }}</button></p>
-    <p v-if="loading" class="discovery-tags__message" role="status">{{ $t('discovery.DiscoveryTags.s9') }}</p>
-    <p v-else-if="!items.length && !error && !page?.disabled && !reset" class="discovery-tags__message">{{ $t('discovery.DiscoveryTags.s10') }}</p>
+    <p v-if="error && (!compact || !items.length)" class="discovery-tags__message discovery-tags__error" role="alert">{{ error }} <button type="button" :disabled="loading" @click="load(failedMore)">{{ $t('discovery.DiscoveryTags.s8') }}</button></p>
+    <p v-if="loading && !page" class="discovery-tags__message" role="status">{{ $t('discovery.DiscoveryTags.s9') }}</p>
+    <p v-else-if="!items.length && !error && !page?.disabled && !reset && !loading" class="discovery-tags__message">{{ $t('discovery.DiscoveryTags.s10') }}</p>
     <p v-if="reset" class="discovery-tags__message" role="status">{{ $t('discovery.DiscoveryTags.s11') }} <button type="button" @click="load()">{{ $t('discovery.DiscoveryTags.s12') }}</button></p>
     <div v-if="!compact && page && !page.disabled" class="discovery-tags__footer">
       <p v-if="!page.coverage_complete">{{ $t('discovery.DiscoveryTags.s13') }}</p>

@@ -76,6 +76,6 @@ describe('list timeline scope isolation', () => {
     const w=mount(ListTimelinePage,{global});await flushPromises()
     vi.mocked(listApi.getTimeline).mockResolvedValueOnce([{id:'20'},{id:'10'}] as MastodonStatus[]).mockResolvedValueOnce([{id:'10'}] as MastodonStatus[])
     await refresh();await flushPromises()
-    expect(w.text()).toContain('有新帖子，点击查看');expect(w.find('[data-testid="new-posts-pill"]').exists()).toBe(true);expect(w.get('[data-feed]').text()).toBe('10');w.unmount()
+    expect(w.text()).toContain('查看新帖');expect(w.find('[data-testid="new-posts-pill"]').exists()).toBe(true);expect(w.get('[data-feed]').text()).toBe('10');w.unmount()
   })
 })

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import NewPostsPill from '@/shared/components/common/NewPostsPill.vue'
+import { useTimelineReveal } from '@/shared/composables/useTimelineReveal'
 import { computed, ref, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
@@ -67,12 +68,9 @@ useFeedStream(streamTarget, async (reason) => reason === 'poll' ? feed.catchUpHe
   onStatus: (status) => feed.applyStreamed(status),
 })
 async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
-function revealNewerPosts() {
-  const pending = feed.revealNewer()
-  const scroll = () => { if (!error.value) window.scrollTo(0, 0) }
-  if (pending) return pending.then(scroll)
-  scroll()
-}
+const { reveal: revealNewerPosts } = useTimelineReveal(
+  feed.revealNewer, () => streamTarget.value, () => error.value,
+)
 
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
@@ -85,17 +83,18 @@ onMounted(() => { feed.refresh(); void loadFollow() })
 
 <template>
   <div class="tag-page">
-    <div class="page-header page-header--with-back">
+    <div ref="timelineHeader" class="page-header page-header--with-back">
       <button class="page-header__back-btn" type="button" :aria-label="$t('timeline.TagTimelinePage.s1')" @click="$router.back()">
         <t-icon name="chevron-left" :size="20" />
       </button>
       <h1 class="page-header__title">#{{ displayTag }}</h1>
+      <NewPostsPill :key="`${sessionEpoch}:${streamTarget}`" :show="newer.length > 0" :reveal="revealNewerPosts" />
       <button v-if="authStore.currentUser" type="button" class="btn btn--secondary btn--sm tag-follow" :disabled="followBusy" @click="toggleFollow">
         {{ following ? $t('timeline.TagTimelinePage.s2') : $t('timeline.TagTimelinePage.s3') }}
       </button>
     </div>
-    <NewPostsPill :show="newer.length > 0" :reveal="revealNewerPosts" />
     <TimelineFeed
+      ref="timelineView"
       :statuses="statuses"
       :scope-key="streamTarget"
       :has-previous="hasPrevious"

@@ -72,13 +72,18 @@ export const postApi = {
    * processed attachment (url/preview_url) right away; /api/v2/media returns
    * an empty url that would have to be polled.
    */
-  async uploadMedia(file: File, description?: string): Promise<MastodonAttachment> {
+  async uploadMedia(file: File, description?: string, options?: { signal?: AbortSignal; onProgress?: (percent: number) => void }): Promise<MastodonAttachment> {
     const form = new FormData()
     form.append('file', file)
     if (description) form.append('description', description)
     const { data } = await client.post<MastodonAttachment>('/api/v1/media', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000,
+      signal: options?.signal,
+      onUploadProgress: options?.onProgress ? event => {
+        const total = event.total || file.size
+        if (total > 0) options.onProgress!(Math.min(100, Math.round(event.loaded / total * 100)))
+      } : undefined,
     })
     return data
   },

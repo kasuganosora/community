@@ -190,3 +190,18 @@ describe('variable height timeline window', () => {
     expect(second.find('[data-card="50"]').exists()).toBe(true)
   })
 })
+
+it('explicitly reveals the new head without restoring an old reading anchor or spacer', async () => {
+  const wrapper = feed(160)
+  await flush()
+  await scrollTo(100 * 240)
+  await wrapper.setProps({ statuses: statuses(160, 20), hasPrevious: true })
+  await flush()
+  expect(scroll).toBe(100 * 240)
+  await wrapper.setProps({ statuses: statuses(20, 19), hasPrevious: false })
+  await wrapper.vm.revealHead(100, true)
+  await flush()
+  expect(scroll).toBe(0)
+  expect(wrapper.find('[data-card="19"]').exists()).toBe(true)
+  expect(document.activeElement).toBe(wrapper.get('[role="feed"]').element)
+})

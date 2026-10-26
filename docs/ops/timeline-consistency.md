@@ -48,3 +48,23 @@ Regression coverage:
   account changes, pending actions and retained tag/list cards.
 - Existing feed SQL/Redis and stream tests cover publication ordering,
   pagination, cache rebuilding and content-free stream forwarding.
+
+The new-post action lives in the sticky navigation header. It does not overlay
+post content or add/remove vertical space in the feed. Reveal returns whether a
+new head was committed; only a successful current-scope commit navigates to the
+first post, after Vue renders it. Explicit navigation cancels virtual-window
+anchor compensation and clears the old eviction spacer. Failures leave the
+reading position unchanged and expose a retry; keyboard activation transfers
+focus to the feed. A ready cache does not flash a network spinner.
+
+A clicked head read acknowledges hints present when that request began. Hints
+arriving later remain pending unless represented in the response. The bounded
+hint buffer retains the most recent arrivals even when full, invalidating an
+older cache key. A reveal waiting on prefetch or HTTP is abandoned on scope or
+account change, including after the old page is unmounted.
+
+Sidebar topic and follow suggestion refreshes retain their current DOM until a
+replacement is ready (including relationship hydration). Failed background
+refreshes retain the last successful result. Account changes still clear it
+immediately. Visibility-triggered topic refreshes reuse results less than one
+minute old and do not restart active requests.

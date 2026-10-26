@@ -42,6 +42,7 @@ const windowed = useTimelineWindow(
   ids => emit('pinnedIds', ids),
 )
 const { visible, tail, prefix, scrollTop, renderVersion } = windowed
+defineExpose({ revealHead: windowed.revealHead })
 const distantHistory = computed(() => !!props.hasPrevious && scrollTop.value < prefix.value - 6000)
 // Re-read an evicted page using its API cursor, never a pixel-derived ID.
 watch([scrollTop, () => props.loading, () => props.hasPrevious], () => {
@@ -75,7 +76,7 @@ onUnmounted(() => {
 <template>
   <div class="timeline-feed">
     <button v-if="hasPrevious" type="button" class="timeline-previous btn btn--secondary btn--sm" :disabled="loading" @click="emit('loadPrevious')">{{ $t('timeline.TimelineFeed.s1') }}</button>
-    <div ref="region" class="timeline-window" role="feed" :aria-label="$t('timeline.TimelineFeed.s2')" :aria-busy="loading">
+    <div ref="region" class="timeline-window" role="feed" tabindex="-1" :aria-label="$t('timeline.TimelineFeed.s2')" :aria-busy="loading">
       <div v-if="distantHistory" class="timeline-released" role="status">
         <div><p>{{ $t('timeline.TimelineFeed.s3') }}</p><button type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="emit('reloadHead')">{{ $t('timeline.TimelineFeed.s4') }}</button></div>
       </div>

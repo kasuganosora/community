@@ -33,6 +33,7 @@ export function useTimelineWindow(
   let disposed = false
   let restoring = false
   let generation = 0
+  let navigation = 0
   const key = () => `${sessionEpoch.value}:${scope()}`
   let activeKey = key()
   const ids = computed(() => statuses().map(status => status.id))
@@ -96,13 +97,27 @@ export function useTimelineWindow(
   }
   async function restore(point: ReturnType<typeof anchor>) {
     const expected = generation
+    const expectedNavigation = navigation
     await nextTick()
-    if (disposed || expected !== generation || !point.id) return
+    if (disposed || expected !== generation || expectedNavigation !== navigation || !point.id) return
     const index = ids.value.indexOf(point.id)
     if (index < 0) return
     const desired = origin() + prefix.value + offsets.value[index]! - point.top
     if (Math.abs(window.scrollY - desired) > 0.5) window.scrollTo({ top: Math.max(0, desired), behavior: 'instant' })
     readScroll()
+  }
+  async function revealHead(headerHeight: number, focus: boolean) {
+    const expected = generation
+    navigation++
+    // A deliberate jump to a freshly committed head supersedes compensation
+    // for the old reading anchor, including the evicted-page spacer.
+    prefix.value = 0
+    scrollTop.value = 0
+    await nextTick()
+    if (disposed || expected !== generation) return
+    window.scrollTo({ top: Math.max(0, origin() - headerHeight), behavior: 'instant' })
+    readScroll()
+    if (focus) region.value?.focus({ preventScroll: true })
   }
   function trimMetadata() {
     // Current eight-page content normally fits entirely. For external callers with
@@ -228,5 +243,5 @@ export function useTimelineWindow(
     if (frame) cancelAnimationFrame(frame)
     onPins([])
   })
-  return { visible, tail, prefix, bind, rowFlags, pin, scrollTop, totalHeight, renderVersion }
+  return { visible, tail, prefix, bind, rowFlags, pin, scrollTop, totalHeight, renderVersion, revealHead }
 }

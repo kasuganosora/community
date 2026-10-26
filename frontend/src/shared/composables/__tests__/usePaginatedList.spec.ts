@@ -444,3 +444,52 @@ describe('bounded bidirectional timeline pages', () => {
     expect(list.items.value).toEqual([]); expect(list.newer.value).toEqual([])
   })
 })
+
+
+describe('revealing a snapshot', () => {
+  it('retains hints that arrive during the clicked head read, even beyond the hint cap', async () => {
+    let finish!: (rows: { id: string }[]) => void
+    const fetcher = vi.fn().mockResolvedValueOnce([{ id: '1' }]).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const list = usePaginatedList(fetcher, 2, 8, { prefetchNewer: true })
+    await list.refresh()
+    list.applyStreamed({ event: 'update', id: '2' })
+    const reveal = list.revealNewer()
+    await Promise.resolve()
+    for (const id of ['3', '4', '5']) list.applyStreamed({ event: 'update', id })
+    finish([{ id: '2' }, { id: '1' }])
+    expect(await reveal).toBe(true)
+    expect(list.items.value.map(row => row.id)).toEqual(['2', '1'])
+    expect(list.newer.value).toEqual([{ id: '4' }, { id: '5' }])
+  })
+  it('does not apply a previous scope prefetch or consume the new scope hints', async () => {
+    let finish!: (rows: { id: string }[]) => void
+    const fetcher = vi.fn().mockResolvedValueOnce([{ id: '1' }]).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const list = usePaginatedList(fetcher, 2, 8, { prefetchNewer: true })
+    await list.refresh()
+    list.newer.value = [{ id: '2' }]
+    const reveal = list.revealNewer()
+    list.reset()
+    list.hydrate([{ id: '10' }], false)
+    list.applyStreamed({ event: 'update', id: '11' })
+    finish([{ id: '2' }, { id: '1' }])
+    expect(await reveal).toBe(false)
+    expect(list.items.value).toEqual([{ id: '10' }])
+    expect(list.newer.value).toEqual([{ id: '11' }])
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+it('invalidates a ready head when an edited post is only in that pending page', async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce([{ id: '1', content: 'old' }])
+    .mockResolvedValueOnce([{ id: '2', content: 'before edit' }])
+    .mockResolvedValueOnce([{ id: '2', content: 'after edit' }])
+  const list = usePaginatedList(fetcher, 20, 8, { prefetchNewer: true })
+  await list.refresh()
+  list.newer.value = [{ id: '2' }]
+  await Promise.resolve(); await Promise.resolve()
+  list.applyStreamed({ event: 'status.update', id: '2' })
+  await list.revealNewer()
+  expect(list.items.value).toEqual([{ id: '2', content: 'after edit' }])
+  expect(fetcher).toHaveBeenCalledTimes(3)
+})

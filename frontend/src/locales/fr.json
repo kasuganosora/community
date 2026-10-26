@@ -70,8 +70,11 @@
       "s22": "Impossible de lire l’image"
     },
     "NewPostsPill": {
-      "s1": "Nouveaux posts — touchez pour voir",
-      "s2": "Chargement…"
+      "s1": "Nouveaux posts",
+      "s2": "Chargement…",
+      "s3": "Réessayer",
+      "s4": "Le chargement prend plus de temps. Vous pouvez continuer à lire.",
+      "s5": "De nouveaux posts sont disponibles."
     },
     "NotFoundPage": {
       "s1": "Cette page n’existe pas.",
@@ -200,6 +203,14 @@
       "s25": "Compris"
     },
     "PostComposer": {
+      "uploadComplete": "Envoyé",
+      "uploadError": "Échec de l’envoi",
+      "uploadProcessing": "Traitement…",
+      "uploadPercent": "Envoi {0}%",
+      "uploadQueued": "En attente",
+      "uploadFile": "Progression de l’envoi de {0}",
+      "uploadSummary": "Envoyés : {0}/{1}",
+      "uploadTotal": "Progression totale des pièces jointes",
       "s1": "La date de fin du sondage reste inchangée.",
       "s2": "Visibilité",
       "s3": "Annuler",

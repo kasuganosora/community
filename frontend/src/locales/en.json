@@ -70,8 +70,11 @@
       "s22": "Can’t read image"
     },
     "NewPostsPill": {
-      "s1": "New posts — tap to view",
-      "s2": "Loading…"
+      "s1": "New posts",
+      "s2": "Loading…",
+      "s3": "Try again",
+      "s4": "New posts are taking longer to load. You can keep reading.",
+      "s5": "New posts are available."
     },
     "NotFoundPage": {
       "s1": "This page doesn’t exist.",
@@ -200,6 +203,14 @@
       "s25": "Got it"
     },
     "PostComposer": {
+      "uploadComplete": "Uploaded",
+      "uploadError": "Upload failed",
+      "uploadProcessing": "Processing…",
+      "uploadPercent": "Uploading {0}%",
+      "uploadQueued": "Queued",
+      "uploadFile": "Upload progress for {0}",
+      "uploadSummary": "Uploaded {0}/{1}",
+      "uploadTotal": "Overall attachment upload progress",
       "s1": "The poll deadline stays the same.",
       "s2": "Visibility",
       "s3": "Cancel",

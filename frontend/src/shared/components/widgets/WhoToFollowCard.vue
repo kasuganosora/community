@@ -17,6 +17,7 @@ import { t } from '@/shared/i18n'
 const authStore = useAuthStore()
 const suggestions = ref<MastodonAccount[]>([])
 const loading = ref(true)
+const ready = ref(false)
 const error = ref<string | null>(null)
 const relationships = useRelationships()
 let cancelled = false
@@ -24,7 +25,6 @@ let version = 0
 
 async function loadSuggestions() {
   const mine = ++version, epoch = sessionEpoch.value
-  suggestions.value = []
   try {
     loading.value = true
     error.value = null
@@ -34,6 +34,7 @@ async function loadSuggestions() {
     if (mine !== version || epoch !== sessionEpoch.value || cancelled) return
     await relationships.load(candidates.map(a => a.id))
     if (!cancelled && mine === version && epoch === sessionEpoch.value) {
+      ready.value = true
       suggestions.value = candidates
         .filter(a => relationships.state(a.id) === 'none' || relationships.state(a.id) === 'unknown')
         .slice(0, SUGGESTIONS_LIMIT)
@@ -50,7 +51,10 @@ async function loadSuggestions() {
   }
 }
 
-watch([sessionEpoch, discoveryInvalidation], () => { ++version; suggestions.value = []; void loadSuggestions() }, { flush: 'sync' })
+watch(sessionEpoch, () => {
+  ++version; suggestions.value = []; ready.value = false; error.value = null
+}, { flush: 'sync' })
+watch([sessionEpoch, discoveryInvalidation], () => { void loadSuggestions() })
 onMounted(() => {
   loadSuggestions()
 })
@@ -81,7 +85,7 @@ async function handleFollow(user: MastodonAccount) {
 </script>
 
 <template>
-  <div class="follow-card" v-if="loading">
+  <div class="follow-card" v-if="loading && !ready">
     <h2 class="follow-card__title">{{ $t('shared.WhoToFollowCard.s1') }}</h2>
     <div class="follow-card__loading">
       <t-loading size="small" />

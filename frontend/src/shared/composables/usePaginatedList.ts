@@ -19,7 +19,7 @@ export interface PaginatedList<T> {
   catchUpHead: () => Promise<boolean>
   /** Apply a streamed status id without fetching the timeline. */
   applyStreamed: (status: { event: 'update' | 'delete' | 'status.update', id: string }) => void
-  revealNewer: () => Promise<void> | void
+  revealNewer: () => Promise<boolean> | boolean
   setPinnedIds: (ids: string[]) => void
   loading: Ref<boolean>
   error: Ref<string | null>
@@ -59,6 +59,7 @@ export function usePaginatedList<T extends { id: string }>(
   const error = ref<string | null>(null)
   const hasMore = ref(true)
   let version = 0
+  let scopeVersion = 0
   let flight: Promise<unknown> | undefined
   let nextCursor: string | undefined
   // Exclusive boundary immediately before the retained window. An empty
@@ -105,6 +106,7 @@ export function usePaginatedList<T extends { id: string }>(
   }
 
   function reset() {
+    ++scopeVersion
     ++version
     // Old scope requests still finish under their version guard. They must
     // not occupy the new filter/account's flight slot or cached head.
@@ -123,21 +125,28 @@ export function usePaginatedList<T extends { id: string }>(
     if (paused && !items.value.slice(0, pageSize).some(item => pinned.has(item.id))) { paused = false; hasMore.value = true; error.value = null }
   }
 
-  async function run(append: boolean) {
-    if (!append && pinned.size) { error.value = t('shared.usePaginatedList.s1'); return }
+  async function run(append: boolean): Promise<boolean> {
+    if (!append && pinned.size) { error.value = t('shared.usePaginatedList.s1'); return false }
     if (append && items.value.length >= maxPages * pageSize && items.value.slice(0, pageSize).some(item => pinned.has(item.id))) {
-      paused = true; hasMore.value = false; error.value = t('shared.usePaginatedList.s1'); return
+      paused = true; hasMore.value = false; error.value = t('shared.usePaginatedList.s1'); return false
     }
     const my = ++version
     const maxId = append ? nextCursor : undefined
     loading.value = true
     error.value = null
     const read = readGuard.begin()
+    const hintsAtStart = new Set(newer.value.map(row => row.id))
     try {
       const result = await fetchPage(maxId, pageSize)
-      if (my !== version) return
+      if (my !== version) return false
       const page = Array.isArray(result) ? result : result.items
-      if (!append) { knownHead = page.map(row => row.id); headCursor = undefined; history.length = 0; droppedHistory = false; hasPrevious.value = false; newer.value = [] }
+      if (!append) { knownHead = page.map(row => row.id); headCursor = undefined; history.length = 0; droppedHistory = false; hasPrevious.value = false
+        const shown = representedStatusIDs(page)
+        streamedNewer = true
+        newer.value = newer.value.filter(row => !hintsAtStart.has(row.id) && !shown.has(row.id))
+        streamedNewer = false
+        prefetch?.clear()
+      }
       const before = append ? items.value.length : 0
       nextCursor = Array.isArray(result) ? page[page.length - 1]?.id : result.nextCursor
       items.value = mergeById(append ? items.value : [], read.filter(page))
@@ -153,9 +162,11 @@ export function usePaginatedList<T extends { id: string }>(
       hasMore.value = (Array.isArray(result) ? hasMoreAfter(page.length, pageSize) : !!nextCursor)
         && (!append || nextCursor !== maxId)
         && (!append || grew)
+      return true
     } catch (e) {
-      if (my !== version) return
+      if (my !== version) return false
       error.value = e instanceof Error ? e.message : t('shared.usePaginatedList.s2')
+      return false
     } finally {
       read.close()
       if (my === version) loading.value = false
@@ -280,8 +291,8 @@ export function usePaginatedList<T extends { id: string }>(
       return
     }
     if (status.event === 'status.update') {
+      prefetch?.clear()
       if (items.value.some(visible)) {
-        prefetch?.clear()
         const scope = version
         void refreshStreamedStatus(id, (target, updates) => {
           if (scope !== version) return
@@ -296,46 +307,40 @@ export function usePaginatedList<T extends { id: string }>(
     }
     if (status.event !== 'update') return
     if (representedStatusIDs(items.value).has(id) || newer.value.some(row => row.id === id) || knownHead?.includes(id)) return
-    if (newer.value.length >= pageSize) return
     streamedNewer = true
-    newer.value = [...newer.value, { id }]
+    newer.value = [...newer.value.slice(-(pageSize - 1)), { id }].slice(-pageSize)
     streamedNewer = false
   }
-  function revealNewer(): Promise<void> | void {
-    if (!newer.value.length) return
+  function revealNewer(): Promise<boolean> | boolean {
+    if (!newer.value.length) return false
     if (flight) {
-      const scope = version
-      return flight.catch(() => {}).then(() => { if (scope === version) return revealNewer() })
+      const scope = scopeVersion
+      return flight.catch(() => {}).then(() => scope === scopeVersion ? revealNewer() : false)
     }
-    if (!prefetch) {
-      ++version
-      // A fresh first page restores a continuous cursor window, including any gap.
-      return run(false)
-    }
-    if (!newer.value.length) return
-    if (pinned.size) return run(false)
-    const token = prefetchToken()
-    const cached = prefetch.ready(token)
+    if (pinned.size) { error.value = t('shared.usePaginatedList.s1'); return false }
+    const cached = prefetch?.ready(prefetchToken())
     if (cached) {
       commitFreshPage(cached)
-      return
+      return true
     }
     return revealPrefetchOrFetch()
   }
 
-  async function revealPrefetchOrFetch() {
-    if (!prefetch) return run(false)
-    const rows = await prefetch.consume()
+  async function revealPrefetchOrFetch(): Promise<boolean> {
+    const scope = scopeVersion
+    const rows = await prefetch?.consume()
+    if (scope !== scopeVersion || !newer.value.length) return false
     const token = prefetchToken()
-    if (!newer.value.length) return
-    if (rows && token && prefetch.ready(token) === rows && !pinned.size) {
+    if (rows && token && prefetch?.ready(token) === rows && !pinned.size) {
       commitFreshPage(rows)
-      return
+      return true
     }
-    await run(false)
+    if (flight) return revealNewer()
+    return startFlight(() => run(false))
   }
 
   function hydrate(next: T[], more: boolean, window?: PaginationWindow) {
+    ++scopeVersion
     flight = undefined
     prefetch?.clear()
     history.splice(0, history.length, ...(window?.previousCursors ?? []).slice(-128))

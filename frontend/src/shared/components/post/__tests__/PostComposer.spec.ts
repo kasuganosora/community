@@ -3,28 +3,112 @@ import { shallowMount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import PostComposer from '../PostComposer.vue'
 import EmojiPicker from '../EmojiPicker.vue'
+import { sessionEpoch } from '@/shared/api/sessionScope'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import type { MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
 
 describe('PostComposer media upload', () => {
-  it('blocks the keyboard shortcut until uploaded media can be included', async () => {
+  it('uploads only after publish and submits once after the attachment is ready', async () => {
     let finishUpload!: (value: MastodonAttachment) => void
-    vi.spyOn(postApi, 'uploadMedia').mockImplementation(() => new Promise(resolve => { finishUpload = resolve }))
+    const upload = vi.spyOn(postApi, 'uploadMedia').mockImplementation(() => new Promise(resolve => { finishUpload = resolve }))
     const create = vi.spyOn(postApi, 'create').mockResolvedValue({ id: 'new' } as MastodonStatus)
     const wrapper = shallowMount(PostComposer, { global: { plugins: [createPinia()], renderStubDefaultSlot: true } })
     await wrapper.get('textarea').setValue('With a picture')
     const input = wrapper.find('input[type="file"]')
     Object.defineProperty(input.element, 'files', { value: [new File(['image'], 'test.png', { type: 'image/png' })] })
     await input.trigger('change')
+    expect(upload).not.toHaveBeenCalled()
+    expect(wrapper.get('.composer__submit').attributes('disabled')).toBe('false')
     await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
     expect(create).not.toHaveBeenCalled()
+    expect(upload).toHaveBeenCalledTimes(1)
+    await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
+    expect(upload).toHaveBeenCalledTimes(1)
     finishUpload({ id: 'media-1', type: 'image', url: '/image.png' } as MastodonAttachment)
     await flushPromises()
-    await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
+    expect(create).toHaveBeenCalledTimes(1)
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ media_ids: ['media-1'] }))
     wrapper.unmount()
   })
+  async function selectFiles(wrapper: ReturnType<typeof shallowMount>, count: number) {
+    const input = wrapper.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', { configurable: true, value: Array.from({ length: count }, (_, i) => new File(['image'], `image-${i}.png`, { type: 'image/png' })) })
+    await input.trigger('change')
+  }
+
+  it('supports image-only posts, bounds upload concurrency, shows individual progress and preserves selection order', async () => {
+    const pending: { finish: (value: MastodonAttachment) => void; progress?: (value: number) => void }[] = []
+    const upload = vi.spyOn(postApi, 'uploadMedia').mockImplementation((_file, _description, options) => new Promise(resolve => {
+      pending.push({ finish: resolve, progress: options?.onProgress })
+    }))
+    const create = vi.spyOn(postApi, 'create').mockResolvedValue({ id: 'new' } as MastodonStatus)
+    const wrapper = shallowMount(PostComposer, { global: { plugins: [createPinia()], renderStubDefaultSlot: true } })
+    await selectFiles(wrapper, 3)
+    expect(upload).not.toHaveBeenCalled()
+    expect(wrapper.get('.composer__submit').attributes('disabled')).toBe('false')
+    await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
+    expect(upload).toHaveBeenCalledTimes(2)
+    expect(wrapper.findAll('.composer__media-progress').map(row => row.text())).toEqual(['上传中 0%', '上传中 0%', '待上传'])
+    pending[0]!.progress?.(50)
+    await flushPromises()
+    expect(wrapper.get('.composer__media-progress progress').attributes('value')).toBe('50')
+    expect(wrapper.get('[data-testid="composer-upload-progress"] progress').attributes('value')).toBe('16')
+    pending[1]!.finish({ id: 'second' } as MastodonAttachment)
+    await flushPromises()
+    expect(upload).toHaveBeenCalledTimes(3)
+    expect(create).not.toHaveBeenCalled()
+    pending[0]!.finish({ id: 'first' } as MastodonAttachment)
+    pending[2]!.finish({ id: 'third' } as MastodonAttachment)
+    await flushPromises()
+    expect(create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ media_ids: ['first', 'second', 'third'] }))
+    expect(wrapper.find('.composer__media').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the draft and successful uploads after a partial failure, retrying only the failed file', async () => {
+    const upload = vi.spyOn(postApi, 'uploadMedia').mockResolvedValueOnce({ id: 'first' } as MastodonAttachment)
+      .mockRejectedValueOnce(new Error('Connection lost')).mockResolvedValueOnce({ id: 'second' } as MastodonAttachment)
+    const create = vi.spyOn(postApi, 'create').mockResolvedValue({ id: 'new' } as MastodonStatus)
+    const wrapper = shallowMount(PostComposer, { global: { plugins: [createPinia()], renderStubDefaultSlot: true } })
+    await wrapper.get('textarea').setValue('Keep this draft')
+    await selectFiles(wrapper, 2)
+    await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
+    await flushPromises()
+    expect(create).not.toHaveBeenCalled()
+    expect(wrapper.get('textarea').element.value).toBe('Keep this draft')
+    expect(wrapper.findAll('.composer__media-item')).toHaveLength(2)
+    expect(wrapper.get('[role="alert"]').text()).toContain('Connection lost')
+    expect(wrapper.get('.composer__submit').attributes('disabled')).toBe('false')
+    await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
+    await flushPromises()
+    expect(upload).toHaveBeenCalledTimes(3)
+    expect(upload.mock.calls[2]![0].name).toBe('image-1.png')
+    expect(create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ status: 'Keep this draft', media_ids: ['first', 'second'] }))
+    wrapper.unmount()
+  })
+
+  it.each(['unmount', 'session'])('cancels uploads on %s and never publishes a late result', async action => {
+    let finish!: (value: MastodonAttachment) => void
+    let signal: AbortSignal | undefined
+    vi.spyOn(postApi, 'uploadMedia').mockImplementation((_file, _description, options) => {
+      signal = options?.signal
+      return new Promise(resolve => { finish = resolve })
+    })
+    const create = vi.spyOn(postApi, 'create')
+    const wrapper = shallowMount(PostComposer, { global: { plugins: [createPinia()] } })
+    await selectFiles(wrapper, 1)
+    await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
+    if (action === 'unmount') wrapper.unmount()
+    else sessionEpoch.value++
+    expect(signal?.aborted).toBe(true)
+    finish({ id: 'late' } as MastodonAttachment)
+    await flushPromises()
+    expect(create).not.toHaveBeenCalled()
+    expect(wrapper.emitted('posted')).toBeUndefined()
+    if (action !== 'unmount') wrapper.unmount()
+  })
+
 })
 
 

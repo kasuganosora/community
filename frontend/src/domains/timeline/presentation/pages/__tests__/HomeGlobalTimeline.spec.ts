@@ -204,7 +204,7 @@ it('keeps following posts when a tab return re-reads a publication-ordered home 
   expect(shown).toEqual(['240737', '240700'])
   expect(feed().props('loading')).toBe(false)
   expect(feed().props('error')).toBeNull()
-  expect(wrapper.get('[data-testid="new-posts-pill"]').text()).toContain('有新帖子，点击查看')
+  expect(wrapper.get('[data-testid="new-posts-pill"]').text()).toContain('查看新帖')
   expect(shown).not.toContain('240800')
 })
 

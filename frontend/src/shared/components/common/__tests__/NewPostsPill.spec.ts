@@ -17,7 +17,7 @@ describe('NewPostsPill', () => {
       props: { show: true, reveal: () => { calls += 1; return pending.promise } },
     })
     const button = wrapper.get('[data-testid="new-posts-pill"]')
-    expect(button.text()).toContain('有新帖子，点击查看')
+    expect(button.text()).toContain('查看新帖')
     expect(button.attributes('disabled')).toBeUndefined()
     expect(wrapper.find('.app-loading').exists()).toBe(false)
 
@@ -27,7 +27,7 @@ describe('NewPostsPill', () => {
     expect(button.attributes('aria-busy')).toBe('true')
     expect(button.text()).toContain('加载中…')
     expect(wrapper.find('.app-loading').exists()).toBe(true)
-    expect(button.text()).not.toContain('有新帖子，点击查看')
+    expect(button.text()).not.toContain('查看新帖')
 
     await button.trigger('click')
     expect(calls).toBe(1)
@@ -36,7 +36,7 @@ describe('NewPostsPill', () => {
     await flushPromises()
     expect(button.attributes('disabled')).toBeUndefined()
     expect(button.attributes('aria-busy')).toBeUndefined()
-    expect(button.text()).toContain('有新帖子，点击查看')
+    expect(button.text()).toContain('查看新帖')
     expect(wrapper.find('.app-loading').exists()).toBe(false)
   })
 
@@ -50,7 +50,7 @@ describe('NewPostsPill', () => {
     expect(calls).toBe(1)
     expect(button.attributes('disabled')).toBeUndefined()
     expect(button.attributes('aria-busy')).toBeUndefined()
-    expect(button.text()).toContain('有新帖子，点击查看')
+    expect(button.text()).toContain('查看新帖')
     expect(wrapper.find('.app-loading').exists()).toBe(false)
   })
 
@@ -68,7 +68,7 @@ describe('NewPostsPill', () => {
     await flushPromises()
     expect(button.attributes('disabled')).toBeUndefined()
     expect(button.attributes('aria-busy')).toBeUndefined()
-    expect(button.text()).toContain('有新帖子，点击查看')
+    expect(button.text()).toContain('重试加载')
     expect(wrapper.find('.app-loading').exists()).toBe(false)
   })
 })

@@ -309,3 +309,39 @@ describe('timeline account and cursor isolation', () => {
     expect(store.homeTimeline.isLoading).toBe(false)
   })
 })
+
+
+describe('explicit head refresh isolation', () => {
+  beforeEach(() => { setActivePinia(createPinia()); vi.resetAllMocks() })
+  it('keeps updates received during reveal after the snapshot is installed', async () => {
+    let finish!: (rows: MastodonStatus[]) => void
+    const api = vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([{ id: '1' }] as MastodonStatus[])
+      .mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+    store.applyStreamed('home', { event: 'update', id: '2' })
+    const reveal = store.revealNewer('home')
+    await Promise.resolve()
+    for (let i = 3; i < 25; i++) store.applyStreamed('home', { event: 'update', id: String(i) })
+    finish([{ id: '2' }, { id: '1' }] as MastodonStatus[])
+    expect(await reveal).toBe(true)
+    expect(store.homeTimeline.newer).toHaveLength(20)
+    expect(store.homeTimeline.newer.at(-1)?.id).toBe('24')
+    expect(api).toHaveBeenCalledTimes(2)
+  })
+  it('does not replace retained rows after leaving the page while reveal is loading', async () => {
+    let finish!: (rows: MastodonStatus[]) => void
+    vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([{ id: '1' }] as MastodonStatus[])
+      .mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+    store.applyStreamed('home', { event: 'update', id: '2' })
+    const reveal = store.revealNewer('home')
+    await Promise.resolve()
+    store.cancelRevalidation()
+    finish([{ id: '2' }, { id: '1' }] as MastodonStatus[])
+    expect(await reveal).toBe(false)
+    expect(store.homeStatuses.map(row => row.id)).toEqual(['1'])
+    expect(store.homeTimeline.newer).toEqual([{ id: '2' }])
+  })
+})

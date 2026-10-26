@@ -70,8 +70,11 @@
       "s22": "無法讀取圖片"
     },
     "NewPostsPill": {
-      "s1": "有新帖子，點選檢視",
-      "s2": "載入中…"
+      "s1": "查看新貼文",
+      "s2": "載入中…",
+      "s3": "重試載入",
+      "s4": "新貼文載入較慢，你可以繼續閱讀。",
+      "s5": "有新貼文，可以查看。"
     },
     "NotFoundPage": {
       "s1": "這個頁面不存在。",
@@ -200,6 +203,14 @@
       "s25": "知道了"
     },
     "PostComposer": {
+      "uploadComplete": "已上傳",
+      "uploadError": "上傳失敗",
+      "uploadProcessing": "處理中…",
+      "uploadPercent": "上傳中 {0}%",
+      "uploadQueued": "等待上傳",
+      "uploadFile": "{0} 上傳進度",
+      "uploadSummary": "已上傳 {0}/{1}",
+      "uploadTotal": "附件上傳總進度",
       "s1": "投票截止時間保持不變。",
       "s2": "可見範圍",
       "s3": "取消",

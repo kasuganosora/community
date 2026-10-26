@@ -70,8 +70,11 @@
       "s22": "Bild kann nicht gelesen werden"
     },
     "NewPostsPill": {
-      "s1": "Neue Beiträge – tippen zum Anzeigen",
-      "s2": "Wird geladen…"
+      "s1": "Neue Beiträge",
+      "s2": "Lädt…",
+      "s3": "Erneut versuchen",
+      "s4": "Das Laden neuer Beiträge dauert länger. Du kannst weiterlesen.",
+      "s5": "Neue Beiträge sind verfügbar."
     },
     "NotFoundPage": {
       "s1": "Diese Seite existiert nicht.",
@@ -200,6 +203,14 @@
       "s25": "Verstanden"
     },
     "PostComposer": {
+      "uploadComplete": "Hochgeladen",
+      "uploadError": "Upload fehlgeschlagen",
+      "uploadProcessing": "Verarbeitung…",
+      "uploadPercent": "Upload {0}%",
+      "uploadQueued": "Wartet",
+      "uploadFile": "Upload-Fortschritt für {0}",
+      "uploadSummary": "Hochgeladen: {0}/{1}",
+      "uploadTotal": "Gesamter Upload-Fortschritt",
       "s1": "Das Umfrageende bleibt unverändert.",
       "s2": "Sichtbarkeit",
       "s3": "Abbrechen",

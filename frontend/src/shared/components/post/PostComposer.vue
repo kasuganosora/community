@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { sessionEpoch } from '@/shared/api/sessionScope'
 import { useUnsavedWork } from '@/shared/composables/useUnsavedWork'
 import { useDismiss } from '@/shared/composables/useDismiss'
 import { displayAccount } from '@/shared/utils/accountDisplay'
-import { ref, computed, reactive, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, reactive, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { mentionAtCaret } from '@/domains/post/domain/mentionQuery'
@@ -186,9 +187,23 @@ useDismiss(pickerOpen, () => [emojiPickerEl.value?.$el as HTMLElement | undefine
 const poll = ref<PollDraft | null>(null)
 const pollLimits = usePollLimits()
 const pollOptionLength = (value: string) => Array.from(value).length
-interface MediaItem { key: string; name: string; uploading: boolean; preview: string; attachment?: MastodonAttachment; error?: string; file?: File }
+interface MediaItem { key: string; name: string; uploading: boolean; preview: string; attachment?: MastodonAttachment; error?: string; file?: File; progress?: number }
 const media = reactive<MediaItem[]>([])
 const posting = ref(false)
+const uploadStarted = ref(false)
+let postVersion = 0
+let uploadController: AbortController | undefined
+function cancelPendingPost() { postVersion++; uploadController?.abort(); uploadController = undefined; posting.value = false }
+onBeforeUnmount(() => {
+  cancelPendingPost()
+  for (const item of media) if (item.preview) URL.revokeObjectURL(item.preview)
+})
+watch(sessionEpoch, () => { cancelPendingPost(); reset() }, { flush: 'sync' })
+const uploadedCount = computed(() => media.filter(item => item.attachment).length)
+const uploadProgress = computed(() => {
+  const bytes = media.reduce((sum, item) => sum + Math.max(1, item.file?.size ?? 1), 0)
+  return bytes ? Math.floor(media.reduce((sum, item) => sum + Math.max(1, item.file?.size ?? 1) * (item.attachment ? 100 : Math.min(99, item.progress ?? 0)), 0) / bytes) : 0
+})
 const loadingSource = ref(!!props.editStatus)
 const sourceUnavailable = ref(false)
 const error = ref<string | null>(null)
@@ -204,7 +219,6 @@ function fitDraft() {
 const isEdit = computed(() => !!props.editStatus)
 const mediaIds = computed(() => media.filter(m => m.attachment).map(m => m.attachment!.id))
 const uploading = computed(() => media.some(m => m.uploading))
-const uploadFailed = computed(() => media.some(m => !!m.error && !m.uploading))
 
 // Unsent work survives a deploy auto-reload (see useVersionSync).
 interface PersistedPost { text: string; spoilerEnabled: boolean; spoilerText: string; visibility: Visibility; attachments: MastodonAttachment[] }
@@ -250,12 +264,17 @@ const draft = computed<ComposeDraft>(() => ({
 }))
 const charCount = computed(() => composeLength(draft.value))
 const isOverLimit = computed(() => charCount.value > MAX_POST_LENGTH)
-const validationError = computed(() => validateDraft(draft.value, MAX_POST_LENGTH, pollLimits.value))
-const canPost = computed(() => !validationError.value && !posting.value && !uploading.value && !uploadFailed.value && !loadingSource.value && !sourceUnavailable.value)
+const validationError = computed(() => validateDraft({ ...draft.value,
+  // Local files count as attachments for validation, but only server IDs may
+  // ever enter the create request after every upload succeeds.
+  mediaIds: isEdit.value ? draft.value.mediaIds : media.map(item => item.attachment?.id ?? item.key),
+}, MAX_POST_LENGTH, pollLimits.value))
+const canPost = computed(() => !validationError.value && !posting.value && !uploading.value && !loadingSource.value && !sourceUnavailable.value)
 const placeholderText = computed(() => props.placeholder
   || (props.replyTo ? t('shared.PostComposer.s26', [displayAccount(props.replyTo.account.acct)]) : t('shared.PostComposer.s27')))
 const currentVisibility = computed(() => choices.value.find(v => v.value === draft.value.visibility) ?? choices.value[0]!)
 const submitLabel = computed(() => {
+  if (uploading.value) return t('shared.PostComposer.s8')
   if (posting.value) return isEdit.value ? t('shared.PostComposer.s28') : draft.value.visibility === 'direct' ? t('shared.PostComposer.s29') : t('shared.PostComposer.s30')
   if (isEdit.value) return REPLACE_ACTION
   if (props.replyTo) return t('shared.PostComposer.s31')
@@ -326,6 +345,7 @@ function removePollOption(i: number) {
 }
 
 function mediaPreview(item: MediaItem) {
+  if (item.preview) return item.preview
   if (item.attachment?.type === 'image') return sameOriginMediaUrl(item.attachment.preview_url || item.attachment.url) || item.preview
   return item.preview
 }
@@ -348,43 +368,50 @@ async function addFiles(files: File[]) {
   if (!files.length || !mediaEnabled()) return
   const room = MAX_MEDIA_ATTACHMENTS - media.length
   if (files.length > room) error.value = t('shared.PostComposer.s37', [MAX_MEDIA_ATTACHMENTS])
-  await Promise.all(files.slice(0, Math.max(0, room)).map(async (file) => {
+  for (const file of files.slice(0, Math.max(0, room))) {
     const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : ''
-    const item = reactive<MediaItem>({ key: `${Date.now()}-${Math.random()}`, name: file.name || t('shared.PostComposer.pastedImage'), uploading: true, preview, file })
-    media.push(item)
-    await uploadItem(item)
-  }))
-}
-
-async function uploadItem(item: MediaItem) {
-  if (!item.file) return
-  item.uploading = true
-  item.error = undefined
-  try {
-    item.attachment = await postApi.uploadMedia(item.file)
-  } catch (err) {
-    // Keep the item (and its preview) so the upload can be retried.
-    item.error = err instanceof Error ? err.message : t('shared.PostComposer.s38')
-    error.value = t('shared.PostComposer.s39', [item.name, item.error])
-  } finally {
-    item.uploading = false
+    media.push({ key: `${Date.now()}-${Math.random()}`, name: file.name || t('shared.PostComposer.pastedImage'), uploading: false, preview, file, progress: 0 })
   }
 }
 
-function retryMedia(item: MediaItem) {
-  error.value = null
-  void uploadItem(item)
+async function uploadItem(item: MediaItem, signal: AbortSignal, current: () => boolean) {
+  if (!item.file || item.attachment || !current()) return
+  item.uploading = true
+  item.progress = 0
+  item.error = undefined
+  try {
+    const attachment = await postApi.uploadMedia(item.file, undefined, {
+      signal,
+      onProgress: percent => { if (current()) item.progress = Math.max(item.progress ?? 0, percent) },
+    })
+    if (current()) { item.attachment = attachment; item.progress = 100 }
+  } catch (err) {
+    if (!current()) return
+    item.error = err instanceof Error ? err.message : t('shared.PostComposer.s38')
+    error.value = t('shared.PostComposer.s39', [item.name, item.error])
+  } finally { item.uploading = false }
+}
+
+function mediaProgressLabel(item: MediaItem) {
+  if (item.attachment) return t('shared.PostComposer.uploadComplete')
+  if (item.error) return t('shared.PostComposer.uploadError')
+  if (item.uploading) return (item.progress ?? 0) >= 100
+    ? t('shared.PostComposer.uploadProcessing') : t('shared.PostComposer.uploadPercent', [item.progress ?? 0])
+  return t('shared.PostComposer.uploadQueued')
 }
 
 const { dragging: mediaDragging } = useMediaDrop(composerRoot, { onFiles: files => { void addFiles(files) }, enabled: mediaEnabled, accept: acceptMedia })
 
 function removeMedia(i: number) {
+  if (posting.value) return
   const item = media[i]
   if (item?.preview) URL.revokeObjectURL(item.preview)
   media.splice(i, 1)
 }
 
 function reset() {
+  cancelPendingPost()
+  uploadStarted.value = false
   for (const item of media) if (item.preview) URL.revokeObjectURL(item.preview)
   content.value = ''
   spoilerEnabled.value = false
@@ -404,6 +431,11 @@ async function handlePost() {
   }
   posting.value = true
   error.value = null
+  visibilityOpen.value = false
+  pickerOpen.value = false
+  const mine = ++postVersion, epoch = sessionEpoch.value
+  const current = () => mine === postVersion && epoch === sessionEpoch.value
+  const submitted = { ...draft.value, poll: draft.value.poll ? { ...draft.value.poll, options: [...draft.value.poll.options] } : null }
   try {
     let status: MastodonStatus
     if (props.editStatus) {
@@ -413,16 +445,36 @@ async function handlePost() {
         sensitive: spoilerEnabled.value && !!spoilerText.value.trim(),
       })
     } else {
-      status = await postApi.create(buildCreateParams(draft.value))
+      const pending = media.filter(item => !item.attachment)
+      if (pending.length) {
+        uploadStarted.value = true
+        const controller = new AbortController()
+        uploadController = controller
+        // Two uploads at a time keep slow links usable while each thumbnail
+        // shows whether it is queued, uploading, processing or complete.
+        let cursor = 0
+        const worker = async () => {
+          while (current() && cursor < pending.length) {
+            const item = pending[cursor++]!
+            await uploadItem(item, controller.signal, current)
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(2, pending.length) }, worker))
+        if (!current() || media.some(item => !item.attachment)) return
+      }
+      if (!current()) return
+      status = await postApi.create(buildCreateParams({ ...submitted, mediaIds: [...mediaIds.value] }))
     }
+    if (!current()) return
     emit('posted', status)
     if (!props.editStatus) reset()
   } catch (e) {
+    if (!current()) return
     console.error('Failed to post status:', e)
     const reason = e instanceof Error && e.message ? `：${e.message}` : t('shared.PostComposer.s40')
     error.value = `${isEdit.value ? REPLACE_FAILED : draft.value.visibility === 'direct' ? t('shared.PostComposer.s41') : t('shared.PostComposer.s42')}${reason}`
   } finally {
-    posting.value = false
+    if (current()) { posting.value = false; uploadController = undefined }
   }
 }
 
@@ -610,6 +662,7 @@ defineExpose({ focus, reset })
           v-if="spoilerEnabled"
           v-model="spoilerText"
           class="composer__spoiler"
+          :disabled="posting"
           type="text"
           dir="auto"
           :placeholder="$t('shared.PostComposer.s4')"
@@ -655,20 +708,12 @@ defineExpose({ focus, reset })
           <li v-for="(m, i) in media" :key="m.key" class="composer__media-item">
             <img v-if="mediaPreview(m)" :src="mediaPreview(m)" alt="" />
             <span v-else class="composer__media-name">{{ m.uploading ? $t('shared.PostComposer.s8') : m.name }}</span>
-            <t-loading v-if="m.uploading" size="small" class="composer__media-spinner" />
+            <div class="composer__media-progress" :class="{ 'composer__media-progress--error': m.error }" :title="m.error || m.name">
+              <span>{{ mediaProgressLabel(m) }}</span>
+              <progress v-if="m.uploading" max="100" :value="Math.min(99, m.progress ?? 0)" :aria-label="$t('shared.PostComposer.uploadFile', [m.name])" />
+            </div>
             <button
-              v-else-if="m.error"
-              type="button"
-              class="composer__media-retry"
-              data-testid="composer-media-retry"
-              :aria-label="$t('shared.PostComposer.retryUpload', [m.name])"
-              :title="m.error"
-              @click="retryMedia(m)"
-            >
-              <t-icon name="refresh" :size="16" /><span>{{ $t('shared.PostComposer.retry') }}</span>
-            </button>
-            <button
-              v-if="!m.uploading"
+              v-if="!posting"
               type="button"
               class="composer__media-remove"
               :aria-label="$t('shared.PostComposer.s9', [m.name])"
@@ -679,7 +724,7 @@ defineExpose({ focus, reset })
           </li>
         </ul>
 
-        <fieldset v-if="poll" class="composer__poll">
+        <fieldset v-if="poll" class="composer__poll" :disabled="posting">
           <legend class="composer__poll-legend">{{ $t('shared.PostComposer.s10') }}</legend>
           <div v-for="(_, i) in poll.options" :key="i" class="composer__poll-option">
             <div class="composer__poll-input">
@@ -737,9 +782,9 @@ defineExpose({ focus, reset })
         <div v-if="quote && !isEdit" class="composer__quote">
           <span class="composer__quote-who">{{ $t('shared.PostComposer.s17', [displayAccount(quote.account.acct)]) }}</span>
           <p>{{ quote.spoiler_text ? $t('shared.PostComposer.s18', [quote.spoiler_text]) : (stripHtml(quote.content || '').replace(/\s+/g, ' ').trim() || $t('shared.PostComposer.s19')) }}</p>
-          <button type="button" class="composer__link-btn" @click="quote = null">{{ $t('shared.PostComposer.s20') }}</button>
+          <button type="button" class="composer__link-btn" :disabled="posting" @click="quote = null">{{ $t('shared.PostComposer.s20') }}</button>
         </div>
-        <p v-if="posting" class="composer__status" role="status">{{ postingLabel }}</p>
+        <p v-if="posting && !uploading" class="composer__status" role="status">{{ postingLabel }}</p>
         <div v-else-if="error" class="composer__error" role="alert">
           <span>{{ error }}</span>
           <button v-if="!sourceUnavailable" type="button" class="composer__retry" :disabled="!canPost" @click="handlePost">{{ $t('shared.PostComposer.s21') }}</button>
@@ -808,6 +853,10 @@ defineExpose({ focus, reset })
           </div>
         </div>
       </div>
+    </div>
+    <div v-if="uploadStarted && media.length" class="composer__upload-progress" data-testid="composer-upload-progress">
+      <div class="composer__upload-summary" role="status">{{ $t('shared.PostComposer.uploadSummary', [uploadedCount, media.length]) }}</div>
+      <progress max="100" :value="uploadProgress" :aria-label="$t('shared.PostComposer.uploadTotal')" />
     </div>
   </div>
 </template>
@@ -1151,22 +1200,6 @@ textarea.composer__textarea::placeholder {
   overflow-wrap: anywhere;
 }
 
-/* Small glyph on a dark translucent disc, 44pt hit area. */
-.composer__media-retry {
-  position: absolute;
-  inset: auto var(--space-1) var(--space-1) var(--space-1);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-height: 1.75rem;
-  border-radius: var(--radius-full);
-  background: rgba(0, 0, 0, 0.65);
-  color: #fff;
-  font-size: 0.75rem;
-  font-weight: var(--weight-semibold);
-}
-.composer__media-retry:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .composer--dropping { outline: 2px dashed var(--color-accent); outline-offset: -2px; background: color-mix(in srgb, var(--color-accent) 6%, transparent); }
 .composer__media-remove {
   position: absolute;
@@ -1193,10 +1226,6 @@ textarea.composer__textarea::placeholder {
 .composer__media-remove:active {
   transform: scale(var(--press-scale-small));
   transition-duration: var(--duration-press);
-}
-
-.composer__media-spinner {
-  position: absolute;
 }
 
 .composer__poll {
@@ -1466,4 +1495,13 @@ textarea.composer__textarea::placeholder {
     transform: none;
   }
 }
+
+.composer__upload-progress { padding: 0 var(--gutter) var(--space-3); }
+.composer__upload-summary { margin-bottom: var(--space-1); font-size: var(--text-footnote); color: var(--color-label-secondary); }
+.composer__media-progress { position: absolute; inset: auto 0 0; display: grid; gap: .25rem; padding: .35rem .5rem; color: #fff; background: #000b; font-size: var(--text-caption); }
+.composer__media-progress--error { background: var(--color-danger); }
+.composer progress { display: block; appearance: none; width: 100%; height: .25rem; border: 0; border-radius: var(--radius-full); overflow: hidden; background: var(--color-fill); accent-color: var(--color-accent); }
+.composer progress::-webkit-progress-bar { background: var(--color-fill); }
+.composer progress::-webkit-progress-value { background: var(--color-accent); }
+.composer progress::-moz-progress-bar { background: var(--color-accent); }
 </style>

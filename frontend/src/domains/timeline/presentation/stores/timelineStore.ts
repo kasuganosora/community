@@ -70,6 +70,8 @@ export const useTimelineStore = defineStore('timeline', () => {
     ++revealVersion
     homeTab.value = 'following'
     for (const type of ['home', 'public'] as const) {
+      delete flight[type]
+      prefetchedNewer[type].clear()
       delete headCursor[type]
       ++requestVersionMap[type]
       ++listGeneration[type]
@@ -116,23 +118,24 @@ export const useTimelineStore = defineStore('timeline', () => {
     return startFlight(type, () => fetchTimelineNow(type)).then(() => undefined)
   }
 
-  async function fetchTimelineNow(type: ManagedTimelineType) {
+  async function fetchTimelineNow(type: ManagedTimelineType, current = () => true): Promise<boolean> {
     const timeline = getTimeline(type)
-    if (pinned[type].size) { timeline.error = t('timeline.timelineStore.s1'); return }
+    if (pinned[type].size) { timeline.error = t('timeline.timelineStore.s1'); return false }
     const myVersion = ++requestVersionMap[type]
     timeline.isLoading = true
     timeline.error = null
     failedRequest[type] = null
     const read = readGuards[type].begin()
+    const hintsAtStart = new Set(timeline.newer.map(row => row.id))
     
     try {
       if (USE_MOCK) {
         const { mockStatuses } = await import('@/shared/api/mockData')
         // Discard stale response — a newer request superseded this one
-        if (myVersion !== requestVersionMap[type]) return
+        if (myVersion !== requestVersionMap[type] || !current()) return false
         timeline.statuses = mockStatuses
         timeline.hasMore = false
-        return
+        return true
       }
       
       const data = type === 'home'
@@ -140,14 +143,16 @@ export const useTimelineStore = defineStore('timeline', () => {
         : await timelineApi.getPublicTimeline({ limit: TIMELINE_PAGE_SIZE })
         
       // Discard stale response — a newer request superseded this one
-      if (myVersion !== requestVersionMap[type]) return
-      commitHead(type, read.filter(data))
+      if (myVersion !== requestVersionMap[type] || !current()) return false
+      commitHead(type, read.filter(data), hintsAtStart)
+      return true
     } catch (e) {
       // Only set error if this is still the latest request
-      if (myVersion !== requestVersionMap[type]) return
+      if (myVersion !== requestVersionMap[type] || !current()) return false
       timeline.error = e instanceof Error ? e.message : t('timeline.timelineStore.s2')
       failedRequest[type] = 'head'
       console.error(`Failed to fetch ${type} timeline:`, e)
+      return false
     } finally {
       read.close()
       // Only clear loading state if this is still the latest request
@@ -315,7 +320,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     delete flight.public
   }
 
-  function commitHead(type: ManagedTimelineType, data: MastodonStatus[]) {
+  function commitHead(type: ManagedTimelineType, data: MastodonStatus[], hintsAtStart?: Set<string>) {
     const timeline = getTimeline(type)
     ++listGeneration[type]
     delete headCursor[type]
@@ -324,7 +329,11 @@ export const useTimelineStore = defineStore('timeline', () => {
     timeline.hasPrevious = false
     knownHead[type] = data.map(row => row.id)
     timeline.statuses = mergeById([], data)
-    timeline.newer = []
+    const shown = representedStatusIDs(data)
+    streamedNewer = true
+    timeline.newer = hintsAtStart ? timeline.newer.filter(row => !hintsAtStart.has(row.id) && !shown.has(row.id)) : []
+    streamedNewer = false
+    prefetchedNewer[type].clear()
     timeline.hasMore = data.length >= TIMELINE_PAGE_SIZE
     timeline.error = null
     failedRequest[type] = null
@@ -426,10 +435,8 @@ export const useTimelineStore = defineStore('timeline', () => {
     return startFlight(type, () => readTimeline(type, scope)).then(() => true)
   }
 
-  function refreshEdited(type: ManagedTimelineType, id: string) {
+  function refreshEdited(id: string) {
     void refreshStreamedStatus(id, updateStatus)
-    // Any already-fetched head is stale after this event.
-    prefetchedNewer[type].clear()
   }
 
   /** Apply one streamed status id. New posts stay behind the pill; this does not fetch the timeline. */
@@ -450,47 +457,52 @@ export const useTimelineStore = defineStore('timeline', () => {
       return
     }
     if (status.event === 'status.update') {
-      if (timeline.statuses.some(displayed)) refreshEdited(type, id)
+      // The edited card may only exist in the pending head, outside the
+      // retained reading window. Do not reveal its old cached body.
+      prefetchedNewer[type].clear()
+      if (timeline.statuses.some(displayed)) refreshEdited(id)
       return
     }
     if (representedStatusIDs(timeline.statuses).has(id) || timeline.newer.some(row => row.id === id) || knownHead[type]?.includes(id)) return
-    if (timeline.newer.length >= TIMELINE_PAGE_SIZE) return
     streamedNewer = true
-    timeline.newer = [...timeline.newer, { id }]
+    timeline.newer = [...timeline.newer.slice(-(TIMELINE_PAGE_SIZE - 1)), { id }]
     streamedNewer = false
   }
 
-  function revealNewer(type: ManagedTimelineType): Promise<void> | void {
+  function revealNewer(type: ManagedTimelineType): Promise<boolean> | boolean {
     const timeline = getTimeline(type)
-    if (!timeline.newer.length) return
+    if (!timeline.newer.length) return false
+    const epoch = sessionEpoch.value, scope = revealVersion
+    const current = () => epoch === sessionEpoch.value && scope === revealVersion
     const pending = flight[type]
     if (pending) {
-      const epoch = sessionEpoch.value, scope = revealVersion
-      return pending.catch(() => {}).then(() => {
-        if (epoch === sessionEpoch.value && scope === revealVersion) return revealNewer(type)
-      })
+      return pending.catch(() => {}).then(() => current() ? revealNewer(type) : false)
     }
-    if (pinned[type].size) return fetchTimeline(type)
+    if (pinned[type].size) { timeline.error = t('timeline.timelineStore.s1'); return false }
     const token = newerPrefetchKey(timeline.newer)
     const cached = prefetchedNewer[type].ready(token)
     if (cached) {
       applyPrefetchedHead(type, cached)
-      return
+      return true
     }
-    return revealPrefetchOrFetch(type)
+    return revealPrefetchOrFetch(type, current)
   }
 
-  async function revealPrefetchOrFetch(type: ManagedTimelineType) {
+  async function revealPrefetchOrFetch(type: ManagedTimelineType, current: () => boolean): Promise<boolean> {
     const prefetch = prefetchedNewer[type]
     const rows = await prefetch.consume()
+    if (!current()) return false
     const timeline = getTimeline(type)
     const token = newerPrefetchKey(timeline.newer)
-    if (!timeline.newer.length) return
+    if (!timeline.newer.length) return false
     if (rows && token && prefetch.ready(token) === rows && !pinned[type].size) {
       applyPrefetchedHead(type, rows)
-      return
+      return true
     }
-    await fetchTimeline(type)
+    // Another read may have started while waiting for the prefetch. Queue the
+    // reveal behind it rather than treating that unrelated read as a success.
+    if (flight[type]) return revealNewer(type)
+    return startFlight(type, () => fetchTimelineNow(type, current)) as Promise<boolean>
   }
 
   function updateStatus(statusId: string, updates: Partial<MastodonStatus>) {
