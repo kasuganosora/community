@@ -7,11 +7,15 @@ async function readTimelinePage<T>(
   fetchPage: (maxId: string | undefined, limit: number) => Promise<T[]>,
   cursor: string | undefined,
   limit: number,
+  inaccessible?: () => void,
 ) {
   try { return await fetchPage(cursor, limit) }
   catch (error) {
     // A deleted list or revoked scope must not leave its last private cards on screen.
-    if (axios.isAxiosError(error) && [401, 403, 404].includes(error.response?.status ?? 0)) return [] as T[]
+    if (axios.isAxiosError(error) && [401, 403, 404].includes(error.response?.status ?? 0)) {
+      inaccessible?.()
+      return [] as T[]
+    }
     throw error
   }
 }
@@ -53,10 +57,14 @@ export function representedStatusIDs<T extends { id: string }>(rows: readonly T[
   return seen
 }
 
-export interface TimelineHead<T> {
-  /** Loaded rows, with any that also appear in the fresh head replaced. Nothing is removed. */
+export interface TimelineResult<T> {
+  /** Retained rows after reconciling the HTTP response. */
   statuses: T[]
   newer: { id: string }[]
+  inaccessible?: true
+}
+
+export interface TimelineHead<T> extends TimelineResult<T> {
   head: T[]
 }
 
@@ -71,8 +79,10 @@ export async function refreshTimelineHead<T extends { id: string }>(
   knownHead?: readonly string[],
 ): Promise<TimelineHead<T> | null> {
   const edits = captureEdits()
-  const head = await readTimelinePage(fetchPage, undefined, TIMELINE_PAGE_SIZE)
+  let inaccessible = false
+  const head = await readTimelinePage(fetchPage, undefined, TIMELINE_PAGE_SIZE, () => { inaccessible = true })
   if (!valid()) return null
+  if (inaccessible) return { statuses: [], newer: [], head: [], inaccessible: true }
   settleAuthoritativeEdits(head, edits)
   if (!current.length) return { statuses: head, newer: [], head }
   const seen = representedStatusIDs(current)
@@ -97,14 +107,14 @@ function publicationOrdered(rows: PublishedRow[]): boolean {
   return rows.every(row => publishedAt(row) !== null && /^\d+$/.test(row.id))
 }
 
-/** Negative when `a` is strictly older than `b` (publication time, then id). */
+/** Compare the time visible in the API. Its millisecond timestamps cannot
+ * resolve SQL's microsecond order, so equal times must not use id to guess. */
 function publicationCompare(a: PublishedRow, b: PublishedRow): number | null {
   const left = publishedAt(a)
   const right = publishedAt(b)
   if (left === null || right === null || !/^\d+$/.test(a.id) || !/^\d+$/.test(b.id)) return null
   if (left !== right) return left < right ? -1 : 1
-  if (a.id === b.id) return 0
-  return BigInt(a.id) < BigInt(b.id) ? -1 : 1
+  return 0
 }
 
 /**
@@ -122,10 +132,11 @@ async function revalidateByPublication<T extends PublishedRow>(
   edits: ReturnType<typeof captureEdits>,
 ) {
   const old = new Set(current.map(row => row.id))
+  const represented = representedStatusIDs(current)
   const oldest = current[current.length - 1]!
   const pending = new Map<string, { id: string }>()
   const addPending = (id: string) => {
-    if (!old.has(id) && !knownHead?.includes(id) && pending.size < TIMELINE_PAGE_SIZE) pending.set(id, { id })
+    if (!represented.has(id) && !knownHead?.includes(id) && pending.size < TIMELINE_PAGE_SIZE) pending.set(id, { id })
   }
   const found = new Map<string, T>()
   let page = head
@@ -146,7 +157,7 @@ async function revalidateByPublication<T extends PublishedRow>(
     }
     const tail = page.at(-1)
     const order = tail ? publicationCompare(tail, oldest) : null
-    if (current.every(row => found.has(row.id)) || page.length < TIMELINE_PAGE_SIZE || (order !== null && order <= 0)) {
+    if (current.every(row => found.has(row.id)) || page.length < TIMELINE_PAGE_SIZE || (order !== null && (order < 0 || tail?.id === oldest.id))) {
       confirmed = comparable
       break
     }
@@ -168,16 +179,20 @@ export async function revalidateTimeline<T extends { id: string }>(
   fetchPage: (maxId: string | undefined, limit: number) => Promise<T[]>,
   valid: () => boolean,
   knownHead?: readonly string[],
-) {
+): Promise<TimelineResult<T> | null> {
+  let inaccessible = false
   async function read(cursor: string | undefined, limit: number) {
-    return readTimelinePage(fetchPage, cursor, limit)
+    return readTimelinePage(fetchPage, cursor, limit, () => { inaccessible = true })
   }
   const edits = captureEdits()
   const head = await read(undefined, TIMELINE_PAGE_SIZE)
   if (!valid()) return null
+  if (inaccessible) return { statuses: [], newer: [], inaccessible: true }
   if (!current.length) { settleAuthoritativeEdits(head, edits); return { statuses: head, newer: [] as T[] } }
   if (publicationOrdered(current) && (head.length === 0 || publicationOrdered(head))) {
-    return revalidateByPublication(current, head, read, valid, knownHead, edits)
+    const result = await revalidateByPublication(current, head, read, valid, knownHead, edits)
+    if (!valid()) return null
+    return inaccessible ? { statuses: [], newer: [], inaccessible: true } : result
   }
   const first = current[0]!.id
   const last = current[current.length - 1]!.id
@@ -199,6 +214,7 @@ export async function revalidateTimeline<T extends { id: string }>(
     const cursor = (BigInt(current[index]!.id) + 1n).toString()
     const data = await read(cursor, TIMELINE_PAGE_SIZE)
     if (!valid()) return null
+    if (inaccessible) return { statuses: [], newer: [], inaccessible: true }
     for (const status of data) {
       if (!/^\d+$/.test(status.id) || BigInt(status.id) < BigInt(last)) continue
       if (shown.has(status.id)) rows.push(status)

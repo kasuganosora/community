@@ -82,7 +82,54 @@ const updaters = new Set<StatusUpdater>()
 /** Keys currently awaiting the server (reactive, for callers that want to show it). */
 export const pendingActions = reactive(new Set<string>())
 
-watch(sessionEpoch, () => { toggleStates.clear(); pendingActions.clear() }, { flush: 'sync' })
+interface StreamedRefresh {
+  dirty: boolean
+  updaters: Set<StatusUpdater>
+  promise: Promise<void>
+}
+const streamedRefreshes = new Map<string, StreamedRefresh>()
+
+watch(sessionEpoch, () => { toggleStates.clear(); pendingActions.clear(); streamedRefreshes.clear() }, { flush: 'sync' })
+
+/** Fetch an edited visible object, including old posts outside the head page.
+ * Share one flight per id across feeds and reconcile another edit arriving
+ * during it. Never let an old account's response populate the new session. */
+export function refreshStreamedStatus(id: string, update?: StatusUpdater): Promise<void> {
+  const current = streamedRefreshes.get(id)
+  if (current) {
+    current.dirty = true
+    if (update) current.updaters.add(update)
+    return current.promise
+  }
+  const epoch = sessionEpoch.value
+  const state: StreamedRefresh = { dirty: true, updaters: new Set(update ? [update] : []), promise: Promise.resolve() }
+  streamedRefreshes.set(id, state)
+  const active = () => sessionEpoch.value === epoch && streamedRefreshes.get(id) === state && !deletedStatusIds.has(id)
+  state.promise = (async () => {
+    while (state.dirty && active()) {
+      state.dirty = false
+      try {
+        const status = await postApi.getStatus(id)
+        if (!active()) return
+        if (state.dirty) continue
+        // An edit fetch must not undo a like/boost/bookmark still being sent.
+        for (const [kind, spec] of Object.entries(SPECS)) {
+          const pending = toggleStates.get(`${kind}:${id}`)
+          if (!pending?.inFlight || pending.epoch !== epoch) continue
+          status[spec.flag] = pending.desired
+          if (spec.count && pending.confirmedCount !== undefined) {
+            status[spec.count] = Math.max(0, pending.confirmedCount + (pending.desired === pending.confirmed ? 0 : pending.desired ? 1 : -1))
+          }
+        }
+        markStatusEdited(status)
+        for (const updater of new Set([...state.updaters, ...updaters])) updater(id, status)
+      } catch {
+        // Keep the current card on a network failure. A later edit/read retries.
+      }
+    }
+  })().finally(() => { if (streamedRefreshes.get(id) === state) streamedRefreshes.delete(id) })
+  return state.promise
+}
 
 function broadcast(own: StatusUpdater, id: string, updates: Partial<MastodonStatus>) {
   own(id, updates)

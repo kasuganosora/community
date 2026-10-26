@@ -20,7 +20,7 @@ export function saveListSnapshot<T>(key: string, items: T[], hasMore: boolean, w
   memory.set(key, {
     items: bounded,
     hasMore,
-    window: windowState ? { previousCursors: windowState.previousCursors.slice(-128), droppedHistory: windowState.droppedHistory, knownHead: windowState.knownHead?.slice(0, 20) } : undefined,
+    window: windowState ? { previousCursors: windowState.previousCursors.slice(-128), droppedHistory: windowState.droppedHistory, knownHead: windowState.knownHead?.slice(0, 20), headCursor: windowState.headCursor } : undefined,
     scroll: typeof window === 'undefined' || items.length > bounded.length ? 0 : window.scrollY,
   })
   // Eight route snapshots, and at most eight pages of cached bodies in total.

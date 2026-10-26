@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { usePaginatedList } from '../usePaginatedList'
 import { mergeById, hasMoreAfter } from '@/shared/utils/pagination'
+import { readListSnapshot, saveListSnapshot } from '@/shared/utils/listMemory'
 
 const page = (...ids: number[]) => ids.map(id => ({ id: String(id) }))
 
@@ -22,6 +23,127 @@ describe('hasMoreAfter', () => {
 })
 
 describe('usePaginatedList', () => {
+  it('clears retained rows and cached new-post hints when a head poll is forbidden', async () => {
+    const fetcher = vi.fn().mockResolvedValue(page(20, 19))
+    const list = usePaginatedList(fetcher, 20, 8, { prefetchNewer: true })
+    await list.refresh()
+    list.applyStreamed({ event: 'update', id: '21' })
+    fetcher.mockRejectedValue({ isAxiosError: true, response: { status: 403 } })
+    await list.catchUpHead()
+    expect(list.items.value).toEqual([])
+    expect(list.newer.value).toEqual([])
+    expect(list.hasMore.value).toBe(false)
+  })
+  it('starts the new scope immediately while its previous request is still pending', async () => {
+    let old!: (rows: { id: string }[]) => void
+    let fresh!: (rows: { id: string }[]) => void
+    const fetcher = vi.fn().mockImplementationOnce(() => new Promise(resolve => { old = resolve }))
+      .mockImplementationOnce(() => new Promise(resolve => { fresh = resolve }))
+    const list = usePaginatedList(fetcher)
+    const previous = list.refresh()
+    list.reset()
+    const current = list.refresh()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    old(page(1)); await previous
+    expect(list.items.value).toEqual([])
+    expect(list.loading.value).toBe(true)
+    const joined = list.refresh()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    fresh(page(2)); await current; await joined
+    expect(list.items.value).toEqual(page(2))
+    expect(list.loading.value).toBe(false)
+  })
+  it('abandons a queued reveal when the list scope changes', async () => {
+    const fetcher = vi.fn().mockResolvedValue(page(20))
+    const list = usePaginatedList(fetcher, 20, 8, { prefetchNewer: true })
+    await list.refresh()
+    let finish!: (rows: { id: string }[]) => void
+    fetcher.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const read = list.revalidate()
+    list.applyStreamed({ event: 'update', id: '21' })
+    const reveal = list.revealNewer()
+    list.reset()
+    finish(page(21, 20))
+    await read; await reveal
+    expect(list.items.value).toEqual([])
+    expect(list.newer.value).toEqual([])
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+  it('reveals new posts after the current window read without a parallel fetch', async () => {
+    const old = { id: '20', created_at: '2026-10-26T12:00:00.000Z' }
+    const fresh = { id: '21', created_at: '2026-10-26T13:00:00.000Z' }
+    const fetcher = vi.fn().mockResolvedValue([old])
+    const list = usePaginatedList(fetcher, 20, 8, { prefetchNewer: true })
+    await list.refresh()
+    let finish!: (rows: typeof old[]) => void
+    fetcher.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const read = list.revalidate()
+    list.applyStreamed({ event: 'update', id: '21' })
+    const reveal = list.revealNewer()
+    finish([fresh, old])
+    await read; await reveal
+    expect(list.items.value.map(row => row.id)).toEqual(['21', '20'])
+    expect(list.newer.value).toEqual([])
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+  it('keeps deletes and live new-post hints received during a window read', async () => {
+    const rows = [
+      { id: '20', created_at: '2026-10-26T12:00:00.000Z' },
+      { id: '19', created_at: '2026-10-26T11:00:00.000Z' },
+    ]
+    const fetcher = vi.fn().mockResolvedValue(rows)
+    const list = usePaginatedList(fetcher)
+    await list.refresh()
+    let finish!: (rows: { id: string; created_at: string }[]) => void
+    fetcher.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const pending = list.revalidate()
+    list.applyStreamed({ event: 'delete', id: '19' })
+    list.applyStreamed({ event: 'update', id: '21' })
+    finish(rows)
+    await pending
+    expect(list.items.value.map(row => row.id)).toEqual(['20'])
+    expect(list.newer.value).toEqual([{ id: '21' }])
+    await list.refresh()
+    expect(list.items.value.map(row => row.id)).toEqual(['20', '19'])
+  })
+
+  it('invalidates a cached new-post page when a streamed deletion arrives', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(page(20, 19)).mockResolvedValueOnce(page(21, 20, 19)).mockResolvedValueOnce(page(21, 19))
+    const list = usePaginatedList(fetcher, 20, 8, { prefetchNewer: true })
+    await list.refresh()
+    list.newer.value = [{ id: '21' }]
+    await Promise.resolve(); await Promise.resolve()
+    list.applyStreamed({ event: 'delete', id: '20' })
+    await list.revealNewer()
+    expect(list.items.value.map(row => row.id)).toEqual(['21', '19'])
+  })
+  it('restores publication-ordered pages after eviction and snapshot hydration', async () => {
+    const at = Date.parse('2026-10-26T12:00:00.000Z')
+    const rows = Array.from({ length: 100 }, (_, i) => ({ id: String(400 - i * 2), created_at: new Date(at - i * 60000).toISOString() }))
+    rows.push({ id: '401', created_at: '2026-10-25T12:00:00.000Z' })
+    const fetcher = vi.fn(async (cursor: string | undefined, limit: number) => {
+      const start = cursor ? rows.findIndex(row => row.id === cursor) + 1 : 0
+      return rows.slice(start, start + limit)
+    })
+    const list = usePaginatedList(fetcher, 20, 2)
+    await list.refresh()
+    for (let i = 0; i < 3; i++) await list.loadMore()
+    expect(list.items.value).toEqual(rows.slice(40, 80))
+    saveListSnapshot('publication-page-review', list.items.value, list.hasMore.value, list.windowState())
+    const snapshot = readListSnapshot<(typeof rows)[number]>('publication-page-review')!
+    const restored = usePaginatedList(fetcher, 20, 2)
+    restored.hydrate(snapshot.items, snapshot.hasMore, snapshot.window)
+    await restored.loadPrevious()
+    expect(restored.items.value).toEqual(rows.slice(20, 60))
+    await restored.loadPrevious()
+    expect(restored.items.value).toEqual(rows.slice(0, 40))
+    expect(restored.hasPrevious.value).toBe(false)
+    await restored.loadMore()
+    expect(restored.items.value).toEqual(rows.slice(20, 60))
+    await restored.loadPrevious()
+    expect(restored.items.value).toEqual(rows.slice(0, 40))
+    expect(fetcher.mock.calls.some(([cursor]) => cursor === '401')).toBe(false)
+  })
   it('loads first page then the next with max_id', async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce(page(5, 4))

@@ -1,11 +1,13 @@
 import { refreshTimelineHead, representedStatusIDs, revalidateTimeline } from '@/shared/utils/revalidateTimeline'
 import { sessionEpoch } from '@/shared/api/sessionScope'
+import { createTimelineReadGuard } from '@/shared/utils/timelineReadGuard'
+import { refreshStreamedStatus } from '@/domains/post/presentation/composables/useStatusActions'
 import { createNewerPrefetch, newerPrefetchKey } from '@/shared/utils/newerPrefetch'
 import { ref, watch, getCurrentScope, onScopeDispose, type Ref } from 'vue'
 import { mergeById, hasMoreAfter, type CursorPage } from '@/shared/utils/pagination'
 
 import { t } from '@/shared/i18n'
-export interface PaginationWindow { previousCursors: string[]; droppedHistory: boolean; knownHead?: string[] }
+export interface PaginationWindow { previousCursors: string[]; droppedHistory: boolean; knownHead?: string[]; headCursor?: string }
 
 export interface PaginatedList<T> {
   items: Ref<T[]>
@@ -57,7 +59,12 @@ export function usePaginatedList<T extends { id: string }>(
   const error = ref<string | null>(null)
   const hasMore = ref(true)
   let version = 0
+  let flight: Promise<unknown> | undefined
   let nextCursor: string | undefined
+  // Exclusive boundary immediately before the retained window. An empty
+  // history entry represents the first page, fetched without max_id.
+  let headCursor: string | undefined
+  const readGuard = createTimelineReadGuard()
   const prefetch = options?.prefetchNewer ? createNewerPrefetch<T[] | CursorPage<T>>() : undefined
   let streamedNewer = false
 
@@ -84,6 +91,7 @@ export function usePaginatedList<T extends { id: string }>(
     ++version
     const page = Array.isArray(result) ? result : result.items
     knownHead = page.map(row => row.id)
+    headCursor = undefined
     history.length = 0
     droppedHistory = false
     hasPrevious.value = false
@@ -98,6 +106,11 @@ export function usePaginatedList<T extends { id: string }>(
 
   function reset() {
     ++version
+    // Old scope requests still finish under their version guard. They must
+    // not occupy the new filter/account's flight slot or cached head.
+    flight = undefined
+    prefetch?.clear()
+    headCursor = undefined
     knownHead = undefined; history.length = 0; droppedHistory = false; hasPrevious.value = false; newer.value = []; pinned.clear(); paused = false
     items.value = []; loading.value = false; error.value = null; hasMore.value = true; nextCursor = undefined
   }
@@ -119,18 +132,19 @@ export function usePaginatedList<T extends { id: string }>(
     const maxId = append ? nextCursor : undefined
     loading.value = true
     error.value = null
+    const read = readGuard.begin()
     try {
       const result = await fetchPage(maxId, pageSize)
       if (my !== version) return
       const page = Array.isArray(result) ? result : result.items
-      if (!append) { knownHead = page.map(row => row.id); history.length = 0; droppedHistory = false; hasPrevious.value = false; newer.value = [] }
+      if (!append) { knownHead = page.map(row => row.id); headCursor = undefined; history.length = 0; droppedHistory = false; hasPrevious.value = false; newer.value = [] }
       const before = append ? items.value.length : 0
       nextCursor = Array.isArray(result) ? page[page.length - 1]?.id : result.nextCursor
-      items.value = mergeById(append ? items.value : [], page)
+      items.value = mergeById(append ? items.value : [], read.filter(page))
       const grew = items.value.length > before
       while (items.value.length > maxPages * pageSize) {
-        const id = items.value[0]!.id
-        if (/^\d+$/.test(id)) history.push((BigInt(id) + 1n).toString())
+        history.push(headCursor ?? '')
+        headCursor = items.value[pageSize - 1]!.id
         if (history.length > 128) { history.shift(); droppedHistory = true }
         items.value.splice(0, pageSize)
       }
@@ -143,6 +157,7 @@ export function usePaginatedList<T extends { id: string }>(
       if (my !== version) return
       error.value = e instanceof Error ? e.message : t('shared.usePaginatedList.s2')
     } finally {
+      read.close()
       if (my === version) loading.value = false
     }
   }
@@ -153,24 +168,25 @@ export function usePaginatedList<T extends { id: string }>(
   }
   async function loadPreviousNow() {
     const cursor = history.at(-1)
-    if (!cursor) { await run(false); return }
+    if (cursor === undefined) { await run(false); return }
     if (items.value.slice(-pageSize).some(item => pinned.has(item.id))) { error.value = t('shared.usePaginatedList.s1'); return }
     const my = ++version
     loading.value = true
+    const read = readGuard.begin()
     try {
-      const result = await fetchPage(cursor, pageSize)
+      const result = await fetchPage(cursor || undefined, pageSize)
       if (my !== version) return
       const page = Array.isArray(result) ? result : result.items
       history.pop()
-      items.value = mergeById(page, items.value).slice(0, maxPages * pageSize)
+      headCursor = cursor || undefined
+      items.value = mergeById(read.filter(page), items.value).slice(0, maxPages * pageSize)
       hasPrevious.value = history.length > 0 || droppedHistory
       nextCursor = items.value.at(-1)?.id
       hasMore.value = true
     } catch (e) { if (my === version) error.value = e instanceof Error ? e.message : t('shared.usePaginatedList.s2') }
-    finally { if (my === version) loading.value = false }
+    finally { read.close(); if (my === version) loading.value = false }
   }
 
-  let flight: Promise<unknown> | undefined
   function startFlight<T>(work: () => Promise<T>): Promise<T> {
     const existing = flight
     if (existing) return existing as Promise<T>
@@ -190,48 +206,62 @@ export function usePaginatedList<T extends { id: string }>(
   }
   async function readWindow() {
     const my = ++version
-    let seenHead: T[] | undefined
-    const result = await revalidateTimeline(items.value.slice(), async (cursor, limit) => {
-      const page = await readRows(cursor, limit)
-      if (cursor === undefined) seenHead = page
-      return page
-    }, () => my === version, knownHead)
-    if (result && my === version) {
-      if (!knownHead) knownHead = result.statuses.slice(0, pageSize).map(row => row.id)
-      items.value = result.statuses
-      const newerRows = result.newer.map(({ id }) => ({ id }))
-      const key = newerPrefetchKey(newerRows)
-      if (seenHead && key && newerRows.every(item => seenHead!.some(row => row.id === item.id))) prefetch?.adopt(key, seenHead)
-      streamedNewer = true
-      newer.value = newerRows
-      streamedNewer = false
-      nextCursor = items.value.at(-1)?.id
-    }
-    return true
+    const read = readGuard.begin()
+    try {
+      let seenHead: T[] | undefined
+      const result = await revalidateTimeline(items.value.slice(), async (cursor, limit) => {
+        const page = read.filter(await readRows(cursor, limit))
+        if (cursor === undefined) seenHead = page
+        return page
+      }, () => my === version, knownHead)
+      if (result?.inaccessible && my === version) { commitFreshPage([]); return true }
+      if (result && my === version) {
+        if (!knownHead) knownHead = result.statuses.slice(0, pageSize).map(row => row.id)
+        items.value = read.filter(result.statuses)
+        const newerRows = mergeNewer(result.newer.filter(row => !read.wasRemoved(row.id)))
+        const key = newerPrefetchKey(newerRows)
+        if (seenHead && key && newerRows.every(item => seenHead!.some(row => row.id === item.id))) prefetch?.adopt(key, read.filter(seenHead))
+        streamedNewer = true
+        newer.value = newerRows
+        streamedNewer = false
+        nextCursor = items.value.at(-1)?.id
+      }
+      return true
+    } finally { read.close() }
   }
+
+  function mergeNewer(incoming: { id: string }[]) {
+    const shown = representedStatusIDs(items.value)
+    const seen = new Set<string>()
+    const merged: { id: string }[] = []
+    for (const item of [...incoming, ...newer.value]) {
+      if (shown.has(item.id) || seen.has(item.id) || merged.length >= pageSize) continue
+      seen.add(item.id)
+      merged.push({ id: item.id })
+    }
+    return merged
+  }
+
   async function readHead() {
     const my = ++version
-    const result = await refreshTimelineHead(items.value.slice(), readRows, () => my === version, knownHead)
-    if (result && my === version) {
-      if (!knownHead) knownHead = result.statuses.slice(0, pageSize).map(row => row.id)
-      items.value = result.statuses
-      const shown = representedStatusIDs(result.statuses)
-      const seen = new Set<string>()
-      const merged: { id: string }[] = []
-      for (const item of [...result.newer, ...newer.value]) {
-        if (shown.has(item.id) || seen.has(item.id) || merged.length >= pageSize) continue
-        seen.add(item.id)
-        merged.push({ id: item.id })
+    const read = readGuard.begin()
+    try {
+      const result = await refreshTimelineHead(items.value.slice(), async (cursor, limit) => read.filter(await readRows(cursor, limit)), () => my === version, knownHead)
+      if (result?.inaccessible && my === version) { commitFreshPage([]); return true }
+      if (result && my === version) {
+        if (!knownHead) knownHead = result.statuses.slice(0, pageSize).map(row => row.id)
+        items.value = read.filter(result.statuses)
+        const merged = mergeNewer(result.newer.filter(row => !read.wasRemoved(row.id)))
+        const key = newerPrefetchKey(merged)
+        const headIds = new Set(result.head.map(row => row.id))
+        if (key && merged.every(item => headIds.has(item.id))) prefetch?.adopt(key, read.filter(result.head))
+        streamedNewer = true
+        newer.value = merged
+        streamedNewer = false
+        nextCursor = items.value.at(-1)?.id
       }
-      const key = newerPrefetchKey(merged)
-      const headIds = new Set(result.head.map(row => row.id))
-      if (key && merged.every(item => headIds.has(item.id))) prefetch?.adopt(key, result.head)
-      streamedNewer = true
-      newer.value = merged
-      streamedNewer = false
-      nextCursor = items.value.at(-1)?.id
-    }
-    return true
+      return true
+    } finally { read.close() }
   }
   function revalidate() { return begin('window') }
   function catchUpHead() { return begin('head') }
@@ -240,11 +270,28 @@ export function usePaginatedList<T extends { id: string }>(
     if (!/^\d+$/.test(id)) return
     const visible = (row: { id: string, reblog?: { id?: string } | null }) => row.id === id || row.reblog?.id === id
     if (status.event === 'delete') {
+      readGuard.remove(id)
+      prefetch?.clear()
       items.value = items.value.filter(row => !visible(row))
       streamedNewer = true
       newer.value = newer.value.filter(row => row.id !== id)
       streamedNewer = false
       if (nextCursor && !items.value.some(row => row.id === nextCursor)) nextCursor = items.value.at(-1)?.id
+      return
+    }
+    if (status.event === 'status.update') {
+      if (items.value.some(visible)) {
+        prefetch?.clear()
+        const scope = version
+        void refreshStreamedStatus(id, (target, updates) => {
+          if (scope !== version) return
+          for (const row of items.value) {
+            if (row.id === target) Object.assign(row, updates)
+            const reblog = (row as { reblog?: { id: string } | null }).reblog
+            if (reblog?.id === target) Object.assign(reblog, updates)
+          }
+        })
+      }
       return
     }
     if (status.event !== 'update') return
@@ -255,6 +302,11 @@ export function usePaginatedList<T extends { id: string }>(
     streamedNewer = false
   }
   function revealNewer(): Promise<void> | void {
+    if (!newer.value.length) return
+    if (flight) {
+      const scope = version
+      return flight.catch(() => {}).then(() => { if (scope === version) return revealNewer() })
+    }
     if (!prefetch) {
       ++version
       // A fresh first page restores a continuous cursor window, including any gap.
@@ -284,8 +336,11 @@ export function usePaginatedList<T extends { id: string }>(
   }
 
   function hydrate(next: T[], more: boolean, window?: PaginationWindow) {
+    flight = undefined
+    prefetch?.clear()
     history.splice(0, history.length, ...(window?.previousCursors ?? []).slice(-128))
     droppedHistory = window?.droppedHistory ?? false
+    headCursor = window?.headCursor
     knownHead = window?.knownHead?.slice() ?? next.slice(0, pageSize).map(row => row.id)
     hasPrevious.value = history.length > 0 || droppedHistory
     newer.value = []; pinned.clear(); paused = false
@@ -313,7 +368,7 @@ export function usePaginatedList<T extends { id: string }>(
     refresh: () => flight ? flight.then(() => undefined) : startFlight(() => run(false)).then(() => undefined),
     reset,
     hydrate,
-    windowState: () => ({ previousCursors: history.slice(), droppedHistory, knownHead: knownHead?.slice() }),
+    windowState: () => ({ previousCursors: history.slice(), droppedHistory, knownHead: knownHead?.slice(), headCursor }),
     loadMore: async () => {
       if (flight || loading.value || !hasMore.value || items.value.length === 0) return
       await startFlight(() => run(true))

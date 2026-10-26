@@ -26,7 +26,7 @@ describe('HTTP-authoritative timeline windows', () => {
 it('clears private cached cards when a list becomes forbidden instead of treating it as an offline gap', async () => {
   const forbidden = { isAxiosError: true, response: { status: 403 } }
   const result = await revalidateTimeline(rows(20, 19), vi.fn().mockRejectedValue(forbidden), () => true)
-  expect(result).toEqual({ statuses: [], newer: [] })
+  expect(result).toEqual({ statuses: [], newer: [], inaccessible: true })
 })
 
 it('does not label previously read, evicted head pages as new posts while browsing a deep window', async () => {
@@ -128,4 +128,33 @@ it('drops a row the publication-ordered pages no longer contain without blanking
   const result = await revalidateTimeline(current, fetcher, () => true, current.map(row => row.id))
   expect(result?.statuses.map(row => row.id)).toEqual(['50', '30'])
   expect(result?.newer).toEqual([])
+})
+
+it('does not queue embedded statuses in real publication-ordered pages', async () => {
+  const created_at = '2026-10-26T10:00:00.000Z'
+  const current = [
+    { id: '20', created_at, content: 'reply', reply: { id: '13' } },
+    { id: '19', created_at, content: 'boost', reblog: { id: '18' } },
+    { id: '17', created_at, content: 'quote', quote: { id: '16' } },
+  ]
+  const head = [
+    { id: '21', created_at, content: 'new' }, current[0], current[1],
+    { id: '18', created_at, content: 'original' }, current[2],
+    { id: '16', created_at, content: 'quoted' }, { id: '13', created_at, content: 'parent' },
+  ]
+  const result = await revalidateTimeline(current, vi.fn().mockResolvedValue(head), () => true, current.map(row => row.id))
+  expect(result?.statuses.map(row => row.id)).toEqual(['20', '19', '17'])
+  expect(result?.newer).toEqual([{ id: '21' }])
+})
+
+it('does not evict a valid row when API timestamps hide database microsecond order', async () => {
+  // SQL orders by full created_at, while Mastodon-compatible APITime emits
+  // milliseconds. The smaller ids can therefore precede id 500 in the API.
+  const created_at = '2026-10-26T12:00:00.000Z'
+  const retained = { id: '500', created_at }
+  const head = Array.from({ length: 20 }, (_, i) => ({ id: String(20 - i), created_at }))
+  const fetcher = vi.fn().mockResolvedValueOnce(head).mockResolvedValueOnce([retained])
+  const result = await revalidateTimeline([retained], fetcher, () => true)
+  expect(result?.statuses).toEqual([retained])
+  expect(fetcher).toHaveBeenLastCalledWith('1', 20)
 })

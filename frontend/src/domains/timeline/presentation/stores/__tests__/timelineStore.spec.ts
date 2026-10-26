@@ -37,7 +37,88 @@ describe('new posts in timelines', () => {
 
 
 describe('timeline account and cursor isolation', () => {
-  beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
+  beforeEach(() => { setActivePinia(createPinia()); vi.resetAllMocks() })
+  it('honors a new-post click queued behind load-more rather than treating it as navigation', async () => {
+    const first = Array.from({ length: 20 }, (_, i) => ({ id: String(100 - i) })) as MastodonStatus[]
+    const fresh = [{ id: '101' }, ...first.slice(0, 19)] as MastodonStatus[]
+    const api = vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce(first)
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+    let finish!: (rows: MastodonStatus[]) => void
+    api.mockImplementationOnce(() => new Promise(resolve => { finish = resolve })).mockResolvedValue(fresh)
+    const more = store.loadMoreHome()
+    store.applyStreamed('home', { event: 'update', id: '101' })
+    const reveal = store.revealNewer('home')
+    finish([{ id: '80' }] as MastodonStatus[])
+    await more; await reveal
+    expect(store.homeStatuses).toEqual(fresh)
+    expect(store.homeTimeline.newer).toEqual([])
+    expect(api).toHaveBeenCalledTimes(3)
+  })
+  it('reveals new posts on the first click while a window read is in flight', async () => {
+    const old = { id: '20', created_at: '2026-10-26T12:00:00.000Z' } as MastodonStatus
+    const fresh = { id: '21', created_at: '2026-10-26T13:00:00.000Z' } as MastodonStatus
+    const api = vi.mocked(timelineApi.getHomeTimeline).mockResolvedValue([old])
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+    let finish!: (rows: MastodonStatus[]) => void
+    api.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const read = store.checkNewer('home')
+    store.applyStreamed('home', { event: 'update', id: '21' })
+    const reveal = store.revealNewer('home')
+    finish([fresh, old])
+    await read; await reveal
+    expect(store.homeStatuses.map(row => row.id)).toEqual(['21', '20'])
+    expect(store.homeTimeline.newer).toEqual([])
+    expect(api).toHaveBeenCalledTimes(2)
+  })
+  it('keeps streamed deletions and new-post hints when an older HTTP window finishes', async () => {
+    const rows = [
+      { id: '20', created_at: '2026-10-26T12:00:00.000Z' },
+      { id: '19', created_at: '2026-10-26T11:00:00.000Z' },
+    ] as MastodonStatus[]
+    const api = vi.mocked(timelineApi.getHomeTimeline).mockResolvedValue(rows)
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+    let finish!: (rows: MastodonStatus[]) => void
+    api.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const pending = store.checkNewer('home')
+    store.applyStreamed('home', { event: 'delete', id: '19' })
+    store.applyStreamed('home', { event: 'update', id: '21' })
+    finish(rows)
+    await pending
+    expect(store.homeStatuses.map(row => row.id)).toEqual(['20'])
+    expect(store.homeTimeline.newer).toEqual([{ id: '21' }])
+    // A stream delete removes this timeline's membership; the object can
+    // legitimately return in a later authoritative read (e.g. after following).
+    await store.fetchHomeTimeline()
+    expect(store.homeStatuses.map(row => row.id)).toEqual(['20', '19'])
+  })
+  it.each(['home', 'public'] as const)('restores evicted %s pages using real publication boundaries', async type => {
+    const at = Date.parse('2026-10-26T12:00:00.000Z')
+    const rows = Array.from({ length: 220 }, (_, i) => ({ id: String(1000 - i * 2), created_at: new Date(at - i * 60000).toISOString() })) as MastodonStatus[]
+    rows.push({ id: '1001', created_at: '2026-10-25T12:00:00.000Z' } as MastodonStatus)
+    const api = vi.mocked(type === 'home' ? timelineApi.getHomeTimeline : timelineApi.getPublicTimeline)
+    api.mockImplementation(async params => {
+      const start = params?.max_id ? rows.findIndex(row => row.id === params.max_id) + 1 : 0
+      return rows.slice(start, start + (params?.limit ?? 20))
+    })
+    const store = useTimelineStore()
+    if (type === 'home') await store.fetchHomeTimeline()
+    else await store.fetchPublicTimeline()
+    for (let i = 0; i < 9; i++) {
+      if (type === 'home') await store.loadMoreHome()
+      else await store.loadMorePublic()
+    }
+    const state = type === 'home' ? store.homeTimeline : store.publicTimeline
+    expect(state.statuses).toEqual(rows.slice(40, 200))
+    await store.loadPrevious(type)
+    expect(state.statuses).toEqual(rows.slice(20, 180))
+    await store.loadPrevious(type)
+    expect(state.statuses).toEqual(rows.slice(0, 160))
+    expect(state.hasPrevious).toBe(false)
+    expect(api.mock.calls.some(([params]) => params?.max_id === '1001')).toBe(false)
+  })
   it.each(['for-you', 'global'] as const)('retains the %s tab across navigation and resets it synchronously for another session', tab => {
     const store = useTimelineStore()
     store.homeTab = tab

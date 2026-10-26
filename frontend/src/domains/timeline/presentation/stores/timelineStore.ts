@@ -1,4 +1,5 @@
 import { sessionEpoch } from '@/shared/api/sessionScope'
+import { createTimelineReadGuard } from '@/shared/utils/timelineReadGuard'
 import { refreshTimelineHead, representedStatusIDs, revalidateTimeline } from '@/shared/utils/revalidateTimeline'
 import { mergeById } from '@/shared/utils/pagination'
 import { createNewerPrefetch, newerPrefetchKey } from '@/shared/utils/newerPrefetch'
@@ -7,7 +8,7 @@ import { defineStore } from 'pinia'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import type { ManagedTimelineType } from '../../domain/entities'
 import { timelineApi } from '../../infrastructure/timelineApi'
-import { postApi } from '@/domains/post/infrastructure/postApi'
+import { refreshStreamedStatus } from '@/domains/post/presentation/composables/useStatusActions'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 
@@ -52,10 +53,13 @@ export const useTimelineStore = defineStore('timeline', () => {
   const failedRequest: Record<ManagedTimelineType, 'head' | 'more' | 'previous' | null> = { home: null, public: null }
   const knownHead: Partial<Record<ManagedTimelineType, string[]>> = {}
   const previousCursors: Record<ManagedTimelineType, string[]> = { home: [], public: [] }
+  const headCursor: Partial<Record<ManagedTimelineType, string>> = {}
+  const readGuards = { home: createTimelineReadGuard(), public: createTimelineReadGuard() }
   const droppedHistory: Record<ManagedTimelineType, boolean> = { home: false, public: false }
   const pinned: Record<ManagedTimelineType, Set<string>> = { home: new Set(), public: new Set() }
   const paused: Record<ManagedTimelineType, boolean> = { home: false, public: false }
   const listGeneration: Record<ManagedTimelineType, number> = { home: 0, public: 0 }
+  let revealVersion = 0
   // Head page for the new-posts pill. Click applies it; it does not insert early.
   const prefetchedNewer = {
     home: createNewerPrefetch<MastodonStatus[]>(),
@@ -63,8 +67,10 @@ export const useTimelineStore = defineStore('timeline', () => {
   }
   
   watch(sessionEpoch, () => {
+    ++revealVersion
     homeTab.value = 'following'
     for (const type of ['home', 'public'] as const) {
+      delete headCursor[type]
       ++requestVersionMap[type]
       ++listGeneration[type]
       failedRequest[type] = null
@@ -117,6 +123,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     timeline.isLoading = true
     timeline.error = null
     failedRequest[type] = null
+    const read = readGuards[type].begin()
     
     try {
       if (USE_MOCK) {
@@ -134,7 +141,7 @@ export const useTimelineStore = defineStore('timeline', () => {
         
       // Discard stale response — a newer request superseded this one
       if (myVersion !== requestVersionMap[type]) return
-      commitHead(type, data)
+      commitHead(type, read.filter(data))
     } catch (e) {
       // Only set error if this is still the latest request
       if (myVersion !== requestVersionMap[type]) return
@@ -142,6 +149,7 @@ export const useTimelineStore = defineStore('timeline', () => {
       failedRequest[type] = 'head'
       console.error(`Failed to fetch ${type} timeline:`, e)
     } finally {
+      read.close()
       // Only clear loading state if this is still the latest request
       if (myVersion === requestVersionMap[type]) {
         timeline.isLoading = false
@@ -178,6 +186,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     timeline.isLoading = true
     timeline.error = null
     failedRequest[type] = null
+    const read = readGuards[type].begin()
     
     try {
       const data = type === 'home'
@@ -187,7 +196,7 @@ export const useTimelineStore = defineStore('timeline', () => {
       // Discard stale response — a newer fetch replaced the timeline
       if (myVersion !== requestVersionMap[type]) return
       const before = timeline.statuses.length
-      timeline.statuses = mergeById(timeline.statuses, data)
+      timeline.statuses = mergeById(timeline.statuses, read.filter(data))
       const grew = timeline.statuses.length > before
       trimWindow(type)
       ++listGeneration[type]
@@ -198,6 +207,7 @@ export const useTimelineStore = defineStore('timeline', () => {
       failedRequest[type] = 'more'
       console.error(`Failed to load more ${type} timeline:`, e)
     } finally {
+      read.close()
       if (myVersion === requestVersionMap[type]) {
         timeline.isLoading = false
       }
@@ -239,8 +249,10 @@ export const useTimelineStore = defineStore('timeline', () => {
   function trimWindow(type: ManagedTimelineType) {
     const timeline = getTimeline(type)
     while (timeline.statuses.length > TIMELINE_PAGE_SIZE * 8) {
-      const first = timeline.statuses[0]!.id
-      if (/^\d+$/.test(first)) previousCursors[type].push((BigInt(first) + 1n).toString())
+      // Keep the actual preceding page boundary. Serial id+1 may identify a
+      // backdated remote post and is unrelated to publication order.
+      previousCursors[type].push(headCursor[type] ?? '')
+      headCursor[type] = timeline.statuses[TIMELINE_PAGE_SIZE - 1]!.id
       if (previousCursors[type].length > 128) { previousCursors[type].shift(); droppedHistory[type] = true }
       timeline.statuses.splice(0, TIMELINE_PAGE_SIZE)
     }
@@ -258,19 +270,22 @@ export const useTimelineStore = defineStore('timeline', () => {
     if (timeline.isLoading || !timeline.hasPrevious) return
     if (timeline.statuses.slice(-TIMELINE_PAGE_SIZE).some(item => pinned[type].has(item.id))) { timeline.error = t('timeline.timelineStore.s1'); return }
     const cursor = previousCursors[type].at(-1)
-    if (!cursor) { await fetchTimelineNow(type); return }
+    if (cursor === undefined) { await fetchTimelineNow(type); return }
     const version = ++requestVersionMap[type]
     ++listGeneration[type]
     timeline.isLoading = true
     timeline.error = null
     failedRequest[type] = null
+    const read = readGuards[type].begin()
     try {
+      const params = { ...(cursor ? { max_id: cursor } : {}), limit: TIMELINE_PAGE_SIZE }
       const data = type === 'home'
-        ? await timelineApi.getHomeTimeline({ max_id: cursor, limit: TIMELINE_PAGE_SIZE })
-        : await timelineApi.getPublicTimeline({ max_id: cursor, limit: TIMELINE_PAGE_SIZE })
+        ? await timelineApi.getHomeTimeline(params)
+        : await timelineApi.getPublicTimeline(params)
       if (version !== requestVersionMap[type]) return
       previousCursors[type].pop()
-      timeline.statuses = mergeById(data, timeline.statuses).slice(0, TIMELINE_PAGE_SIZE * 8)
+      headCursor[type] = cursor || undefined
+      timeline.statuses = mergeById(read.filter(data), timeline.statuses).slice(0, TIMELINE_PAGE_SIZE * 8)
       timeline.hasPrevious = previousCursors[type].length > 0 || droppedHistory[type]
       timeline.hasMore = true
     } catch (e) {
@@ -279,7 +294,7 @@ export const useTimelineStore = defineStore('timeline', () => {
         failedRequest[type] = 'previous'
       }
     }
-    finally { if (version === requestVersionMap[type]) timeline.isLoading = false }
+    finally { read.close(); if (version === requestVersionMap[type]) timeline.isLoading = false }
   }
 
   function retryTimeline(type: ManagedTimelineType) {
@@ -290,6 +305,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   }
 
   function cancelRevalidation() {
+    ++revealVersion
     // The in-flight walk is stale. Drop its flight slot so the tab we just
     // opened starts its own read; joining the cancelled one throws the
     // successful page away and leaves the empty list on screen.
@@ -302,6 +318,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   function commitHead(type: ManagedTimelineType, data: MastodonStatus[]) {
     const timeline = getTimeline(type)
     ++listGeneration[type]
+    delete headCursor[type]
     previousCursors[type] = []
     droppedHistory[type] = false
     timeline.hasPrevious = false
@@ -341,8 +358,6 @@ export const useTimelineStore = defineStore('timeline', () => {
   watch(() => newerPrefetchKey(homeTimeline.value.newer), () => { if (!streamedNewer) scheduleNewerPrefetch('home') }, { flush: 'sync' })
   watch(() => newerPrefetchKey(publicTimeline.value.newer), () => { if (!streamedNewer) scheduleNewerPrefetch('public') }, { flush: 'sync' })
 
-  let editFlight: Promise<void> | undefined
-
   function fetchPage(type: ManagedTimelineType, maxId: string | undefined, limit: number) {
     const cursor = maxId ? { max_id: maxId, limit } : { limit }
     return type === 'home' ? timelineApi.getHomeTimeline(cursor) : timelineApi.getPublicTimeline(cursor)
@@ -367,38 +382,43 @@ export const useTimelineStore = defineStore('timeline', () => {
     const generation = ++listGeneration[type]
     const version = requestVersionMap[type]
     const valid = () => generation === listGeneration[type] && version === requestVersionMap[type]
-    if (scope === 'head') {
-      const result = await refreshTimelineHead(timeline.statuses.slice(), (maxId, limit) => fetchPage(type, maxId, limit), valid, knownHead[type])
+    const read = readGuards[type].begin()
+    try {
+      if (scope === 'head') {
+        const result = await refreshTimelineHead(timeline.statuses.slice(), async (maxId, limit) => read.filter(await fetchPage(type, maxId, limit)), valid, knownHead[type])
+        if (result?.inaccessible && valid()) { commitHead(type, []); prefetchedNewer[type].clear(); return true }
+        if (result && valid()) {
+          if (!knownHead[type]) knownHead[type] = result.statuses.slice(0, TIMELINE_PAGE_SIZE).map(row => row.id)
+          timeline.statuses = read.filter(result.statuses)
+          const newer = mergePill(type, result.newer.filter(row => !read.wasRemoved(row.id)), timeline.statuses)
+          const key = newerPrefetchKey(newer)
+          const headIds = new Set(result.head.map(row => row.id))
+          if (key && newer.every(item => headIds.has(item.id))) prefetchedNewer[type].adopt(key, read.filter(result.head))
+          streamedNewer = true
+          timeline.newer = newer
+          streamedNewer = false
+        }
+        return true
+      }
+      let seenHead: MastodonStatus[] | undefined
+      const result = await revalidateTimeline(timeline.statuses.slice(), async (maxId, limit) => {
+        const page = read.filter(await fetchPage(type, maxId, limit))
+        if (maxId === undefined) seenHead = page
+        return page
+      }, valid, knownHead[type])
+      if (result?.inaccessible && valid()) { commitHead(type, []); prefetchedNewer[type].clear(); return true }
       if (result && valid()) {
         if (!knownHead[type]) knownHead[type] = result.statuses.slice(0, TIMELINE_PAGE_SIZE).map(row => row.id)
-        timeline.statuses = result.statuses
-        const newer = mergePill(type, result.newer, result.statuses)
+        timeline.statuses = read.filter(result.statuses)
+        const newer = mergePill(type, result.newer.filter(row => !read.wasRemoved(row.id)), timeline.statuses)
         const key = newerPrefetchKey(newer)
-        const headIds = new Set(result.head.map(row => row.id))
-        if (key && newer.every(item => headIds.has(item.id))) prefetchedNewer[type].adopt(key, result.head)
+        if (seenHead && key && newer.every(item => seenHead!.some(row => row.id === item.id))) prefetchedNewer[type].adopt(key, read.filter(seenHead))
         streamedNewer = true
         timeline.newer = newer
         streamedNewer = false
       }
       return true
-    }
-    let seenHead: MastodonStatus[] | undefined
-    const result = await revalidateTimeline(timeline.statuses.slice(), async (maxId, limit) => {
-      const page = await fetchPage(type, maxId, limit)
-      if (maxId === undefined) seenHead = page
-      return page
-    }, valid, knownHead[type])
-    if (result && valid()) {
-      if (!knownHead[type]) knownHead[type] = result.statuses.slice(0, TIMELINE_PAGE_SIZE).map(row => row.id)
-      timeline.statuses = result.statuses
-      const newer = result.newer.map(({ id }) => ({ id }))
-      const key = newerPrefetchKey(newer)
-      if (seenHead && key && newer.every(item => seenHead!.some(row => row.id === item.id))) prefetchedNewer[type].adopt(key, seenHead)
-      streamedNewer = true
-      timeline.newer = newer
-      streamedNewer = false
-    }
-    return true
+    } finally { read.close() }
   }
 
   /** One home or public read at a time. A second caller waits on that read instead of starting another walk. */
@@ -407,9 +427,9 @@ export const useTimelineStore = defineStore('timeline', () => {
   }
 
   function refreshEdited(type: ManagedTimelineType, id: string) {
-    // The in-flight head or window already replaces visible rows. A second GET would stack on a slow link.
-    if (editFlight || flight[type]) return
-    editFlight = postApi.getStatus(id).then(status => { updateStatus(id, status) }).catch(() => { /* the safety read reconciles */ }).finally(() => { editFlight = undefined })
+    void refreshStreamedStatus(id, updateStatus)
+    // Any already-fetched head is stale after this event.
+    prefetchedNewer[type].clear()
   }
 
   /** Apply one streamed status id. New posts stay behind the pill; this does not fetch the timeline. */
@@ -421,6 +441,8 @@ export const useTimelineStore = defineStore('timeline', () => {
     // A reply parent or quote that is only previewed inside another card stays put.
     const displayed = (row: { id: string, reblog?: { id?: string } | null }) => row.id === id || row.reblog?.id === id
     if (status.event === 'delete') {
+      readGuards[type].remove(id)
+      prefetchedNewer[type].clear()
       timeline.statuses = timeline.statuses.filter(row => !displayed(row))
       streamedNewer = true
       timeline.newer = timeline.newer.filter(row => row.id !== id)
@@ -441,6 +463,13 @@ export const useTimelineStore = defineStore('timeline', () => {
   function revealNewer(type: ManagedTimelineType): Promise<void> | void {
     const timeline = getTimeline(type)
     if (!timeline.newer.length) return
+    const pending = flight[type]
+    if (pending) {
+      const epoch = sessionEpoch.value, scope = revealVersion
+      return pending.catch(() => {}).then(() => {
+        if (epoch === sessionEpoch.value && scope === revealVersion) return revealNewer(type)
+      })
+    }
     if (pinned[type].size) return fetchTimeline(type)
     const token = newerPrefetchKey(timeline.newer)
     const cached = prefetchedNewer[type].ready(token)
