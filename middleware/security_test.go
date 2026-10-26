@@ -212,6 +212,27 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 		assert.NotEmpty(t, w.Header().Get("Permissions-Policy"))
 	})
 
+	t.Run("allows Cloudflare Turnstile script and frame", func(t *testing.T) {
+		router := gin.New()
+		router.Use(SecurityHeadersMiddleware())
+		router.GET("/login", func(c *gin.Context) {
+			c.String(http.StatusOK, "ok")
+		})
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/login", nil) //nolint:noctx
+		router.ServeHTTP(w, req)
+
+		csp := w.Header().Get("Content-Security-Policy")
+		// Login captcha loads https://challenges.cloudflare.com/turnstile/v0/api.js
+		// and renders its widget in an iframe. default-src 'self' blocks that frame
+		// unless frame-src names the host. Keep 'self' so the new directive does
+		// not drop the previous default-src fallback for same-origin frames.
+		assert.Contains(t, csp, "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com")
+		assert.Regexp(t, `(^|; )frame-src 'self' https://challenges\.cloudflare\.com(;|$)`, csp)
+		assert.Contains(t, csp, "frame-ancestors 'none'")
+	})
+
 	t.Run("sets cross-origin isolation headers", func(t *testing.T) {
 		router := gin.New()
 		router.Use(SecurityHeadersMiddleware())
