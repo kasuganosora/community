@@ -3,7 +3,7 @@ module github.com/kasuganosora/community
 go 1.27.1
 
 require (
-	github.com/alicebob/miniredis/v2 v2.39.0
+	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/andybalholm/brotli v1.2.6
 	github.com/awnumar/memguard v0.23.0
 	github.com/bbrks/go-blurhash v1.2.0
