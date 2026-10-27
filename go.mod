@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
-	github.com/andybalholm/brotli v1.2.6
+	github.com/andybalholm/brotli v1.2.7
 	github.com/awnumar/memguard v0.23.0
 	github.com/bbrks/go-blurhash v1.2.0
 	github.com/gin-contrib/cors v1.7.9
