@@ -51,8 +51,9 @@ Regression coverage:
 
 The home new-post action is an in-flow row below the composer and above the
 feed. Other timeline pages keep their navigation-header action. Neither overlays
-post content. If the home row appears or disappears above the viewport, its
-height change is compensated to preserve the reading position. The row collapses
+post content. If the home row appears or disappears above the visible feed,
+including underneath the sticky navigation header, its height change is
+compensated to preserve the reading position. The row collapses
 before a successful reveal positions the new head. Reveal returns whether a
 new head was committed; only a successful current-scope commit navigates to the
 first post, after Vue renders it. Explicit navigation cancels virtual-window
