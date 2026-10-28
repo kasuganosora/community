@@ -216,6 +216,71 @@ func localReblogAnnounce(c *gin.Context, account *models.Account, id uint64) boo
 	return true
 }
 
+// OutboxActivity serves {actor}/activities/{outboxID}, the id stamped on
+// Create, Update and Delete deliveries. Remotes refetch that URL; a 404
+// drops the activity even after the inbox accepted the POST.
+func OutboxActivity(c *gin.Context) {
+	c.Header("Vary", "Accept")
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	var account models.Account
+	if err != nil || id == 0 || localActorRouteQuery(db.GetDB(), c).First(&account).Error != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	var event models.FederationOutbox
+	if err = db.GetDB().Where("id = ? AND account_id = ?", id, account.Id).First(&event).Error; err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	if event.Kind != "Create" && event.Kind != "Update" && event.Kind != "Delete" {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	base := systemsettings.GetBaseURL()
+	actorURI := accountActorURI(&account, base)
+	activityID := actorURI + "/activities/" + strconv.FormatUint(event.ID, 10)
+	payload, snapshot, err := statusOutboxPayload(&event, &account, actorURI, activityID)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+	if payload == nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	if _, ok := payload["@context"]; !ok {
+		payload["@context"] = "https://www.w3.org/ns/activitystreams"
+	}
+	payload = stripPrivacyFields(payload)
+	if !signedFetchAllowed(c, &account) {
+		return
+	}
+	if snapshot.Visibility != models.StatusVisibilityPublic && snapshot.Visibility != models.StatusVisibilityUnlisted {
+		c.Header("Cache-Control", "private, no-store")
+		actor, verifyErr := VerifyActivitySignature(c, nil)
+		if verifyErr != nil {
+			c.Status(http.StatusUnauthorized)
+			return
+		}
+		var viewer models.Account
+		if db.GetDB().Where("origin_id = ? AND domain IS NOT NULL", actor).First(&viewer).Error != nil {
+			c.Status(http.StatusForbidden)
+			return
+		}
+		visible, checkErr := snapshot.CanViewEx(db.GetDB(), &viewer)
+		if checkErr != nil {
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+		if !visible {
+			c.Status(http.StatusForbidden)
+			return
+		}
+	}
+	c.Header("Content-Type", "application/activity+json")
+	c.JSON(http.StatusOK, payload)
+}
+
 // LocalStatusActivity serves <actor>/statuses/<id>/activity: the Announce of
 // a local boost (the id its delivery used). Other statuses are not served here.
 func LocalStatusActivity(c *gin.Context) {
