@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
+	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 )
 
@@ -85,14 +87,18 @@ func (w *OutboundWorker) process(e models.FederationOutbox) {
 	if claim.Error != nil || claim.RowsAffected != 1 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-	var deliveries []Delivery
+	mctx, mcancel := context.WithTimeout(context.Background(), 30*time.Second)
 	// A vote's deferred poll Update gets its snapshot and recipients here,
 	// outside the vote transaction (models.QueuePollUpdate).
-	send, err := models.MaterializePollUpdate(db.GetDB().WithContext(ctx), &e)
+	send, err := models.MaterializePollUpdate(db.GetDB().WithContext(mctx), &e)
+	mcancel()
+	var deliveries []Delivery
 	if err == nil && send {
-		deliveries, err = w.expand(ctx, &e)
+		// Actor lookups run concurrently and can outlast the initial lease
+		// when many peers are slow. Keep the claim until the rows commit.
+		stopLease := refreshOutboxLease(e.ID)
+		deliveries, err = w.expand(context.Background(), &e)
+		stopLease()
 	}
 	if err == nil {
 		err = db.GetDB().Transaction(func(tx *gorm.DB) error {
@@ -114,6 +120,68 @@ func (w *OutboundWorker) process(e models.FederationOutbox) {
 		db.GetDB().Model(&models.FederationOutbox{}).Where("id = ?", e.ID).Updates(map[string]any{"state": state, "attempts": attempts, "last_error": err.Error(), "next_attempt_at": next})
 		log.Warn("Federation outbox %d: %v", e.ID, err)
 	}
+}
+
+// outboxExpandConcurrency is how many actor documents are fetched at once.
+// errgroup still starts one goroutine per recipient; SetLimit caps the
+// number of those goroutines that run together.
+var outboxExpandConcurrency = 8
+
+// outboxRecipientTimeout bounds one actor lookup. It is not a deadline for
+// the rest of the fanout: that peer is recorded as a failed delivery and
+// every other recipient still resolves.
+var outboxRecipientTimeout = 20 * time.Second
+
+// refreshOutboxLease extends a processing claim while concurrent lookups run.
+// The initial lease is two minutes; a few hundred slow peers can take longer,
+// and an expired lease would let a second worker expand the same event.
+func refreshOutboxLease(id uint64) func() {
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				_ = db.GetDB().Model(&models.FederationOutbox{}).Where("id = ? AND state = ?", id, "processing").Update("next_attempt_at", time.Now().Add(2*time.Minute)).Error
+			}
+		}
+	}()
+	return func() { close(stop) }
+}
+
+// actorInbox is the result of resolving one remote account's inbox.
+type actorInbox struct {
+	inbox string
+	err   error
+}
+
+// resolveActorInboxes fetches each actor on its own timeout. A 502, a
+// timeout, or any other per-recipient error stays on that result; it does
+// not cancel the group or discard inboxes that already resolved.
+func resolveActorInboxes(ctx context.Context, accounts []models.Account) ([]actorInbox, error) {
+	results := make([]actorInbox, len(accounts))
+	if len(accounts) == 0 {
+		return results, nil
+	}
+	group := new(errgroup.Group)
+	limit := outboxExpandConcurrency
+	if limit < 1 {
+		limit = 1
+	}
+	group.SetLimit(limit)
+	for i := range accounts {
+		group.Go(func() error {
+			fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outboxRecipientTimeout)
+			defer cancel()
+			inbox, err := remoteActorInbox(fetchCtx, &accounts[i])
+			results[i] = actorInbox{inbox: inbox, err: err}
+			return nil
+		})
+	}
+	return results, group.Wait()
 }
 
 // failedRecipientDelivery records one inbox that could not be resolved.
@@ -249,71 +317,75 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 	}
 	var targets []models.Account
 	if len(e.RecipientIDs) > 0 {
-		if err = db.GetDB().Where("id IN ? AND domain IS NOT NULL", e.RecipientIDs).Find(&targets).Error; err != nil {
+		if err = db.GetDB().Where("id IN ? AND domain IS NOT NULL", e.RecipientIDs).Order("id ASC").Find(&targets).Error; err != nil {
 			return nil, err
 		}
 	}
 	deliveries := make([]Delivery, 0, len(targets))
 	seen := map[string]bool{}
 	authorizedIDs := map[uint64]bool{}
-	for _, target := range targets {
-		allowed, err := outboundRecipientAllowed(snapshot, &author, &target)
+	pending := make([]models.Account, 0, len(targets))
+	for i := range targets {
+		target := &targets[i]
+		allowed, allowErr := outboundRecipientAllowed(snapshot, &author, target)
 		if e.Kind == "ProfileUpdate" {
-			allowed, err = profileRecipientAllowed(&author, &target)
+			allowed, allowErr = profileRecipientAllowed(&author, target)
 		}
 		if e.Kind == "Move" || e.Kind == "AccountDelete" || e.Kind == "ReactionUndo" || e.Kind == "Undo" || e.Kind == "Delete" || e.Kind == "Reject" || e.Kind == "AnnounceUndo" {
 			allowed = true
-			err = nil
+			allowErr = nil
 		}
-		if err != nil {
-			return nil, err
+		if allowErr != nil {
+			return nil, allowErr
 		}
 		if !allowed {
 			continue
 		}
 		authorizedIDs[target.Id] = true
-		inbox, err := remoteActorInbox(ctx, &target)
-		if err != nil {
-			// One unreachable inbox must not fail the whole fanout. The
-			// worker context ending still retries the event with nothing
-			// committed; a per-recipient 502/530 (or any other fetch
-			// failure) is recorded on that delivery and the rest continue.
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			deliveries = append(deliveries, failedRecipientDelivery(e, activityID, string(encoded), &target, snapshot, target.OriginId, err))
+		pending = append(pending, *target)
+	}
+	// Lookups run together, one goroutine per recipient, capped by the
+	// errgroup limit. Results are applied in recipient order so a shared
+	// inbox still keeps every actor on a single delivery.
+	resolved, err := resolveActorInboxes(ctx, pending)
+	if err != nil {
+		return nil, err
+	}
+	for i, target := range pending {
+		result := resolved[i]
+		if result.err != nil {
+			deliveries = append(deliveries, failedRecipientDelivery(e, activityID, string(encoded), &target, snapshot, target.OriginId, result.err))
 			continue
 		}
-		// Several actors may share an inbox. Keep every intended actor for
-		// send-time authorization; do not silently lose recipients on dedup.
+		inbox := result.inbox
 		auth := DeliveryAuthorization{AccountID: author.Id, RecipientIDs: []uint64{target.Id}, Kind: e.Kind}
 		if snapshot != nil {
 			auth.StatusID = snapshot.Id
 			auth.Visibility = snapshot.Visibility
 		}
 		if seen[inbox] {
-			for i := range deliveries {
-				if deliveries[i].TargetInbox == inbox {
+			for j := range deliveries {
+				if deliveries[j].TargetInbox == inbox {
 					var existing DeliveryAuthorization
-					_ = json.Unmarshal([]byte(deliveries[i].Authorization), &existing)
+					_ = json.Unmarshal([]byte(deliveries[j].Authorization), &existing)
 					existing.RecipientIDs = append(existing.RecipientIDs, target.Id)
 					data, _ := json.Marshal(existing)
-					deliveries[i].Authorization = string(data)
+					deliveries[j].Authorization = string(data)
 				}
 			}
 			continue
 		}
 		seen[inbox] = true
-		authData, err := json.Marshal(auth)
-		if err != nil {
-			return nil, err
+		authData, authErr := json.Marshal(auth)
+		if authErr != nil {
+			return nil, authErr
 		}
 		deliveries = append(deliveries, Delivery{ActivityID: activityID, TargetInbox: inbox, Payload: string(encoded), Authorization: string(authData), Status: DeliveryStatusPending})
 	}
 	if e.Kind == "Update" && snapshot != nil {
-		revoked, err := revokePreviousRecipients(ctx, e, snapshot, &author, activityID, authorizedIDs, seen)
-		if err != nil {
-			return nil, err
+		revoked, revokeErr := revokePreviousRecipients(ctx, e, snapshot, &author, activityID, authorizedIDs, seen)
+		if revokeErr != nil {
+			return nil, revokeErr
 		}
 		deliveries = append(deliveries, revoked...)
 	}
@@ -403,7 +475,7 @@ func revokePreviousRecipients(ctx context.Context, e *models.FederationOutbox, s
 			}
 		}
 	}
-	var deliveries []Delivery
+	targets := make([]models.Account, 0, len(ids))
 	for id := range ids {
 		var target models.Account
 		if err := db.GetDB().First(&target, id).Error; err != nil {
@@ -415,37 +487,36 @@ func revokePreviousRecipients(ctx context.Context, e *models.FederationOutbox, s
 		if target.Domain == nil {
 			continue
 		}
-		inbox, err := remoteActorInbox(ctx, &target)
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			revokeID := activityID + "/revoke/" + strconv.FormatUint(id, 10)
-			payload := map[string]any{"@context": "https://www.w3.org/ns/activitystreams", "id": revokeID, "type": "Delete", "actor": accountActorURI(author, systemsettings.GetBaseURL()), "to": []string{target.OriginId}, "object": map[string]any{"id": statusObjectURI(status, author, systemsettings.GetBaseURL()), "type": "Tombstone"}}
-			data, marshalErr := json.Marshal(payload)
-			if marshalErr != nil {
-				return nil, marshalErr
-			}
-			deliveries = append(deliveries, failedRecipientDelivery(e, revokeID, string(data), &target, status, target.OriginId, err))
+		targets = append(targets, target)
+	}
+	resolved, err := resolveActorInboxes(ctx, targets)
+	if err != nil {
+		return nil, err
+	}
+	var deliveries []Delivery
+	for i, target := range targets {
+		revokeID := activityID + "/revoke/" + strconv.FormatUint(target.Id, 10)
+		body := map[string]any{"@context": "https://www.w3.org/ns/activitystreams", "id": revokeID, "type": "Delete", "actor": accountActorURI(author, systemsettings.GetBaseURL()), "to": []string{target.OriginId}, "object": map[string]any{"id": statusObjectURI(status, author, systemsettings.GetBaseURL()), "type": "Tombstone"}}
+		data, marshalErr := json.Marshal(body)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		result := resolved[i]
+		if result.err != nil {
+			deliveries = append(deliveries, failedRecipientDelivery(e, revokeID, string(data), &target, status, target.OriginId, result.err))
 			continue
 		}
 		// One server can host both audiences. Its Update carries the corrected
 		// audience; a Delete to that same inbox would delete the retained copy.
-		if currentInboxes[inbox] {
+		if currentInboxes[result.inbox] {
 			continue
 		}
-		currentInboxes[inbox] = true
-		revokeID := activityID + "/revoke/" + strconv.FormatUint(id, 10)
-		payload := map[string]any{"@context": "https://www.w3.org/ns/activitystreams", "id": revokeID, "type": "Delete", "actor": accountActorURI(author, systemsettings.GetBaseURL()), "to": []string{target.OriginId}, "object": map[string]any{"id": statusObjectURI(status, author, systemsettings.GetBaseURL()), "type": "Tombstone"}}
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return nil, err
+		currentInboxes[result.inbox] = true
+		authData, authErr := json.Marshal(DeliveryAuthorization{AccountID: author.Id, RecipientIDs: []uint64{target.Id}, Kind: "Delete", StatusID: status.Id})
+		if authErr != nil {
+			return nil, authErr
 		}
-		authData, err := json.Marshal(DeliveryAuthorization{AccountID: author.Id, RecipientIDs: []uint64{id}, Kind: "Delete", StatusID: status.Id})
-		if err != nil {
-			return nil, err
-		}
-		deliveries = append(deliveries, Delivery{ActivityID: revokeID, TargetInbox: inbox, Payload: string(data), Authorization: string(authData), Status: DeliveryStatusPending})
+		deliveries = append(deliveries, Delivery{ActivityID: revokeID, TargetInbox: result.inbox, Payload: string(data), Authorization: string(authData), Status: DeliveryStatusPending})
 	}
 	return deliveries, nil
 }
@@ -518,7 +589,13 @@ func remoteActorInbox(ctx context.Context, account *models.Account) (string, err
 	if account.OriginId == "" {
 		return "", errors.New("remote account has no actor URI")
 	}
-	actor, err := NewFetchClient().FetchActor(ctx, account.OriginId)
+	// Bound this GET on its own. A hung peer must not hold the errgroup slot
+	// until some outer fanout deadline; the client timeout cancels the request.
+	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), outboxRecipientTimeout)
+	defer cancel()
+	client := NewFetchClient()
+	client.httpClient = httpClientWithTimeout(client.httpClient, outboxRecipientTimeout)
+	actor, err := client.FetchActor(fetchCtx, account.OriginId)
 	if err != nil {
 		return "", err
 	}
@@ -529,4 +606,21 @@ func remoteActorInbox(ctx context.Context, account *models.Account) (string, err
 		return "", err
 	}
 	return actor.Inbox, nil
+}
+
+// httpClientWithTimeout copies base and caps a single Do at timeout. The
+// shared federation client can be slower or unlimited; inbox resolution must
+// not inherit that.
+func httpClientWithTimeout(base *http.Client, timeout time.Duration) *http.Client {
+	if timeout <= 0 {
+		return base
+	}
+	if base == nil {
+		return &http.Client{Timeout: timeout}
+	}
+	copied := *base
+	if copied.Timeout <= 0 || copied.Timeout > timeout {
+		copied.Timeout = timeout
+	}
+	return &copied
 }
