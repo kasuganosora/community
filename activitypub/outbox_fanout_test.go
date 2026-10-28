@@ -275,3 +275,47 @@ func TestOutboundFanoutTimesOutHungPeerWithoutDroppingSuccesses(t *testing.T) {
 	require.Equal(t, DeliveryStatusFailed, slow.Status)
 	require.Contains(t, slow.LastError, "deadline exceeded")
 }
+
+// A PollVote expands to the remote poll author only. That author's actor
+// fetch failing must not fail the outbox event with zero delivery rows.
+func TestOutboundPollVoteRecordsFailedAuthorWithoutFailingEvent(t *testing.T) {
+	conn := outboundDB(t)
+	voter := outboundAccount(t, conn, "voter", false)
+	author := outboundAccount(t, conn, "pollhost", true)
+	uri := author.OriginId + "/statuses/1"
+	status := &models.Status{AccountId: author.Id, OriginUri: &uri, Visibility: models.StatusVisibilityPublic, Content: models.StatusContent{Content: "tea?"}}
+	require.NoError(t, conn.Create(status).Error)
+	payload, err := json.Marshal(models.PollVotePayload{StatusID: status.Id, Choices: []string{"Tea"}})
+	require.NoError(t, err)
+	require.NoError(t, conn.Create(&models.FederationOutbox{ObjectID: status.Id, AccountID: voter.Id, Kind: "PollVote", Payload: string(payload), RecipientIDs: []uint64{author.Id}, State: "pending"}).Error)
+
+	logger := log.GetLogObject()
+	previousOut := logger.Out
+	var logged bytes.Buffer
+	logger.SetOutput(&logged)
+	t.Cleanup(func() { logger.SetOutput(previousOut) })
+
+	old := sharedHTTPClient
+	t.Cleanup(func() { sharedHTTPClient = old })
+	sharedHTTPClient = &http.Client{Transport: outboundTransport(func(r *http.Request) (*http.Response, error) {
+		return outboundResponse(502, "bad gateway"), nil
+	})}
+
+	(&OutboundWorker{}).processPending()
+
+	events := outboxEvents(t, conn)
+	require.Len(t, events, 1)
+	require.Equal(t, "processed", events[0].State, "one unreachable poll author must not fail the outbox event")
+	require.Equal(t, 0, events[0].Attempts)
+	require.Empty(t, events[0].LastError)
+
+	var deliveries []Delivery
+	require.NoError(t, conn.Find(&deliveries).Error)
+	require.Len(t, deliveries, 1)
+	require.Equal(t, author.OriginId, deliveries[0].TargetInbox)
+	require.Equal(t, DeliveryStatusFailed, deliveries[0].Status)
+	require.Contains(t, deliveries[0].LastError, "unexpected status code: 502")
+	require.Contains(t, logged.String(), "Federation outbox")
+	require.Contains(t, logged.String(), author.OriginId)
+	require.Contains(t, logged.String(), "502")
+}

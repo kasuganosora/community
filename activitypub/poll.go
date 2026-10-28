@@ -522,12 +522,14 @@ func pollVoteDeliveries(ctx context.Context, e *models.FederationOutbox, voter *
 	if err != nil || !allowed {
 		return nil, err
 	}
-	inbox, err := remoteActorInbox(ctx, status.Account)
-	if err != nil {
-		return nil, err
-	}
 	base := systemsettings.GetBaseURL()
 	activityID := accountActorURI(voter, base) + "/activities/" + strconv.FormatUint(e.ID, 10)
+	inbox, err := remoteActorInbox(ctx, status.Account)
+	if err != nil {
+		// The author is the only recipient. Record the miss and finish the
+		// event so a 502 does not retry the outbox row with zero deliveries.
+		return []Delivery{failedRecipientDelivery(e, activityID, e.Payload, status.Account, &status, status.Account.OriginId, err)}, nil
+	}
 	auth, err := json.Marshal(DeliveryAuthorization{AccountID: voter.Id, RecipientIDs: []uint64{status.Account.Id}, Kind: "PollVote"})
 	if err != nil {
 		return nil, err
