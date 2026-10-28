@@ -79,6 +79,7 @@ var ScripsType = []MigrationScript{
 	RetentionIndexesScript{},
 	TwoFactorSecurityPinScript{},
 	UserSignInScript{},
+	AddDeliveryTargetCooldownScript{},
 }
 
 type MigrationScript interface {

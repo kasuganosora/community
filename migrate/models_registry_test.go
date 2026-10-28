@@ -22,6 +22,7 @@ var appModels = []any{
 	&models.AccountDeletion{}, &models.PersonalAccessToken{}, &models.UserWebhook{}, &models.UserWebhookDelivery{}, &models.ListHashtag{},
 	&migrate.Migration{},
 	&activitypub.Delivery{},
+	&activitypub.DeliveryTarget{},
 	&activitypub.ProcessedActivity{},
 	&activitypub.AnnounceRetry{},
 	&activitypub.InboxJob{},

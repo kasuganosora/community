@@ -33,7 +33,7 @@ func outboundDB(t *testing.T) *gorm.DB {
 	previous := database.GetDB()
 	database.SetTestDB(conn)
 	t.Cleanup(func() { database.SetTestDB(previous); _ = sqlDB.Close() })
-	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.AccountKey{}, &models.Status{}, &models.StatusContent{}, &models.StatusToAccount{}, &models.Tag{}, &models.StatusTag{}, &models.MediaAttachment{}, &models.Follow{}, &models.Block{}, &models.SystemSetting{}, &models.Poll{}, &models.PollOption{}, &models.Emoji{}, &models.StatusEmoji{}, &models.Application{}, &models.Conversation{}, &models.AccountConversation{}, &models.FederationOutbox{}, &Delivery{}))
+	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.AccountKey{}, &models.Status{}, &models.StatusContent{}, &models.StatusToAccount{}, &models.Tag{}, &models.StatusTag{}, &models.MediaAttachment{}, &models.Follow{}, &models.Block{}, &models.SystemSetting{}, &models.Poll{}, &models.PollOption{}, &models.Emoji{}, &models.StatusEmoji{}, &models.Application{}, &models.Conversation{}, &models.AccountConversation{}, &models.FederationOutbox{}, &Delivery{}, &DeliveryTarget{}))
 	return conn
 }
 func outboundAccount(t *testing.T, conn *gorm.DB, name string, remote bool) *models.Account {
