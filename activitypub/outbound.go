@@ -116,6 +116,23 @@ func (w *OutboundWorker) process(e models.FederationOutbox) {
 	}
 }
 
+// failedRecipientDelivery records one inbox that could not be resolved.
+// TargetInbox is the URL that failed (the actor document when its inbox is
+// not known yet) so the failure log and the delivery row name the same host.
+func failedRecipientDelivery(e *models.FederationOutbox, activityID, payload string, target *models.Account, snapshot *models.Status, targetURL string, cause error) Delivery {
+	if targetURL == "" {
+		targetURL = fmt.Sprintf("acct:%d", target.Id)
+	}
+	log.Warn("Federation outbox %d: target %s: %v", e.ID, targetURL, cause)
+	auth := DeliveryAuthorization{AccountID: e.AccountID, RecipientIDs: []uint64{target.Id}, Kind: e.Kind}
+	if snapshot != nil {
+		auth.StatusID = snapshot.Id
+		auth.Visibility = snapshot.Visibility
+	}
+	authData, _ := json.Marshal(auth)
+	return Delivery{ActivityID: activityID, TargetInbox: targetURL, Payload: payload, Authorization: string(authData), Status: DeliveryStatusFailed, LastError: cause.Error()}
+}
+
 func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox) ([]Delivery, error) {
 	var author models.Account
 	if err := db.GetDB().First(&author, e.AccountID).Error; err != nil {
@@ -204,35 +221,10 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 		}
 		payload = map[string]any{"id": activityID, "type": e.Kind, "actor": actorURI, "object": map[string]any{"id": originalID, "type": "Follow", "actor": requester.OriginId, "object": actorURI}}
 	case "Create", "Update", "Delete":
-		snapshot = &models.Status{}
-		if err := json.Unmarshal([]byte(e.Payload), snapshot); err != nil {
-			return nil, err
-		}
-		if snapshot.LocalOnly {
-			return nil, nil
-		}
-		if snapshot.Account == nil || snapshot.Account.Domain != nil || !snapshot.IsLocal() {
-			return nil, errors.New("outbox status must be local")
-		}
-		if e.Kind == "Delete" {
-			to, cc := statusRecipients(snapshot, &author, systemsettings.GetBaseURL())
-			payload = map[string]any{"id": activityID, "type": "Delete", "actor": actorURI, "to": to, "cc": cc, "object": map[string]any{"id": statusObjectURI(snapshot, &author, systemsettings.GetBaseURL()), "type": "Tombstone"}}
-		} else {
-			if snapshot.Poll != nil && snapshot.Poll.Id != 0 {
-				// Updates are coalesced; always send the current tallies.
-				var current models.Poll
-				if err := db.GetDB().Preload("Options").First(&current, snapshot.Poll.Id).Error; err == nil {
-					snapshot.Poll = &current
-				}
-			}
-			note, err := StatusToNote(snapshot)
-			if err != nil {
-				return nil, err
-			}
-			payload = map[string]any{"id": activityID, "type": e.Kind, "actor": actorURI, "to": note["to"], "cc": note["cc"], "object": note}
-			if ctx, ok := note["@context"]; ok {
-				payload["@context"] = ctx
-			}
+		var buildErr error
+		payload, snapshot, buildErr = statusOutboxPayload(e, &author, actorURI, activityID)
+		if buildErr != nil || payload == nil {
+			return nil, buildErr
 		}
 	case "Announce", "AnnounceUndo":
 		snapshot = &models.Status{}
@@ -282,7 +274,15 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 		authorizedIDs[target.Id] = true
 		inbox, err := remoteActorInbox(ctx, &target)
 		if err != nil {
-			return nil, err
+			// One unreachable inbox must not fail the whole fanout. The
+			// worker context ending still retries the event with nothing
+			// committed; a per-recipient 502/530 (or any other fetch
+			// failure) is recorded on that delivery and the rest continue.
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			deliveries = append(deliveries, failedRecipientDelivery(e, activityID, string(encoded), &target, snapshot, target.OriginId, err))
+			continue
 		}
 		// Several actors may share an inbox. Keep every intended actor for
 		// send-time authorization; do not silently lose recipients on dedup.
@@ -417,7 +417,17 @@ func revokePreviousRecipients(ctx context.Context, e *models.FederationOutbox, s
 		}
 		inbox, err := remoteActorInbox(ctx, &target)
 		if err != nil {
-			return nil, err
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			revokeID := activityID + "/revoke/" + strconv.FormatUint(id, 10)
+			payload := map[string]any{"@context": "https://www.w3.org/ns/activitystreams", "id": revokeID, "type": "Delete", "actor": accountActorURI(author, systemsettings.GetBaseURL()), "to": []string{target.OriginId}, "object": map[string]any{"id": statusObjectURI(status, author, systemsettings.GetBaseURL()), "type": "Tombstone"}}
+			data, marshalErr := json.Marshal(payload)
+			if marshalErr != nil {
+				return nil, marshalErr
+			}
+			deliveries = append(deliveries, failedRecipientDelivery(e, revokeID, string(data), &target, status, target.OriginId, err))
+			continue
 		}
 		// One server can host both audiences. Its Update carries the corrected
 		// audience; a Delete to that same inbox would delete the retained copy.
@@ -468,6 +478,42 @@ func outboundRecipientAllowed(status *models.Status, author, target *models.Acco
 
 // Inbox URLs are actor metadata, not a convention based on username/domain.
 // Misskey in particular uses opaque actor IDs and a shared /inbox endpoint.
+// statusOutboxPayload builds the Create, Update or Delete document stored
+// under {actor}/activities/{outboxID}. Delivery and the dereference
+// endpoint both use it, so a refetch returns the activity that was sent.
+func statusOutboxPayload(e *models.FederationOutbox, author *models.Account, actorURI, activityID string) (map[string]any, *models.Status, error) {
+	snapshot := &models.Status{}
+	if err := json.Unmarshal([]byte(e.Payload), snapshot); err != nil {
+		return nil, nil, err
+	}
+	if snapshot.LocalOnly {
+		return nil, nil, nil
+	}
+	if snapshot.Account == nil || snapshot.Account.Domain != nil || !snapshot.IsLocal() {
+		return nil, nil, errors.New("outbox status must be local")
+	}
+	if e.Kind == "Delete" {
+		to, cc := statusRecipients(snapshot, author, systemsettings.GetBaseURL())
+		return map[string]any{"id": activityID, "type": "Delete", "actor": actorURI, "to": to, "cc": cc, "object": map[string]any{"id": statusObjectURI(snapshot, author, systemsettings.GetBaseURL()), "type": "Tombstone"}}, snapshot, nil
+	}
+	if snapshot.Poll != nil && snapshot.Poll.Id != 0 {
+		// Updates are coalesced; always send the current tallies.
+		var current models.Poll
+		if err := db.GetDB().Preload("Options").First(&current, snapshot.Poll.Id).Error; err == nil {
+			snapshot.Poll = &current
+		}
+	}
+	note, err := StatusToNote(snapshot)
+	if err != nil {
+		return nil, nil, err
+	}
+	payload := map[string]any{"id": activityID, "type": e.Kind, "actor": actorURI, "to": note["to"], "cc": note["cc"], "object": note}
+	if contextDoc, ok := note["@context"]; ok {
+		payload["@context"] = contextDoc
+	}
+	return payload, snapshot, nil
+}
+
 func remoteActorInbox(ctx context.Context, account *models.Account) (string, error) {
 	if account.OriginId == "" {
 		return "", errors.New("remote account has no actor URI")

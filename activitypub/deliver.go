@@ -218,6 +218,7 @@ func (q *DeliveryQueue) finish(delivery *Delivery, values map[string]any) {
 func (q *DeliveryQueue) handleDeliveryError(delivery *Delivery, err error) {
 	delivery.Retries++
 	delivery.LastError = err.Error()
+	log.Warn("Federation delivery %d: target %s: %v", delivery.ID, delivery.TargetInbox, err)
 
 	// Check if we should retry
 	if delivery.Retries < 5 {
