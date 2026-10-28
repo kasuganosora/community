@@ -1,11 +1,14 @@
 package activitypub
 
 import (
+	"bytes"
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/kasuganosora/community/tests/testutil"
@@ -247,6 +250,83 @@ func TestAccountReachFinderGetInboxesWithFollowers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, inboxes, 1)
 	assert.Contains(t, inboxes[0], "remote2.example.com")
+}
+
+// One follower or mention whose actor document fails must not discard the
+// inboxes that resolved. The failure is logged with that actor URL.
+func TestStatusReachFinderSkipsBadRecipient(t *testing.T) {
+	testDB := setupStatusReachDB(t)
+	logger := log.GetLogObject()
+	previousOut := logger.Out
+	var logged bytes.Buffer
+	logger.SetOutput(&logged)
+	t.Cleanup(func() { logger.SetOutput(previousOut) })
+	sharedHTTPClient = &http.Client{Transport: outboundTransport(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Path, "/users/bad") {
+			return outboundResponse(502, "bad gateway"), nil
+		}
+		return outboundResponse(200, `{"id":"`+r.URL.String()+`","inbox":"`+r.URL.String()+`/inbox"}`), nil
+	})}
+
+	author := &models.Account{Username: "author"}
+	require.NoError(t, testDB.GormDB.Create(author).Error)
+	domain := "remote.example"
+	good := &models.Account{Username: "good", OriginId: "https://remote.example/users/good", Domain: &domain}
+	badFollower := &models.Account{Username: "badfollower", OriginId: "https://remote.example/users/badfollower", Domain: &domain}
+	badMention := &models.Account{Username: "badmention", OriginId: "https://remote.example/users/badmention", Domain: &domain}
+	require.NoError(t, testDB.GormDB.Create(good).Error)
+	require.NoError(t, testDB.GormDB.Create(badFollower).Error)
+	require.NoError(t, testDB.GormDB.Create(badMention).Error)
+	require.NoError(t, testDB.GormDB.Create(&models.Follow{AccountId: good.Id, FollowId: author.Id, Status: models.FollowStatusFollowed}).Error)
+	require.NoError(t, testDB.GormDB.Create(&models.Follow{AccountId: badFollower.Id, FollowId: author.Id, Status: models.FollowStatusFollowed}).Error)
+
+	status := &models.Status{
+		AccountId:  author.Id,
+		Visibility: models.StatusVisibilityPrivate,
+		Content:    models.StatusContent{Content: "partial reach"},
+	}
+	require.NoError(t, testDB.GormDB.Create(status).Error)
+	status.ToAccounts = []*models.Account{badMention}
+
+	finder := &StatusReachFinder{db: testDB.GormDB, status: status}
+	inboxes, err := finder.GetInboxes()
+	require.NoError(t, err)
+	require.Equal(t, []string{good.OriginId + "/inbox"}, inboxes)
+	require.Contains(t, logged.String(), badFollower.OriginId)
+	require.Contains(t, logged.String(), badMention.OriginId)
+	require.Contains(t, logged.String(), "502")
+}
+
+func TestAccountReachFinderSkipsBadFollower(t *testing.T) {
+	testDB := setupStatusReachDB(t)
+	logger := log.GetLogObject()
+	previousOut := logger.Out
+	var logged bytes.Buffer
+	logger.SetOutput(&logged)
+	t.Cleanup(func() { logger.SetOutput(previousOut) })
+	sharedHTTPClient = &http.Client{Transport: outboundTransport(func(r *http.Request) (*http.Response, error) {
+		if strings.Contains(r.URL.Path, "/users/bad") {
+			return outboundResponse(502, "bad gateway"), nil
+		}
+		return outboundResponse(200, `{"id":"`+r.URL.String()+`","inbox":"`+r.URL.String()+`/inbox"}`), nil
+	})}
+
+	account := &models.Account{Username: "acct"}
+	require.NoError(t, testDB.GormDB.Create(account).Error)
+	domain := "remote.example"
+	good := &models.Account{Username: "goodacct", OriginId: "https://remote.example/users/goodacct", Domain: &domain}
+	bad := &models.Account{Username: "badacct", OriginId: "https://remote.example/users/badacct", Domain: &domain}
+	require.NoError(t, testDB.GormDB.Create(good).Error)
+	require.NoError(t, testDB.GormDB.Create(bad).Error)
+	require.NoError(t, testDB.GormDB.Create(&models.Follow{AccountId: good.Id, FollowId: account.Id, Status: models.FollowStatusFollowed}).Error)
+	require.NoError(t, testDB.GormDB.Create(&models.Follow{AccountId: bad.Id, FollowId: account.Id, Status: models.FollowStatusFollowed}).Error)
+
+	finder := &AccountReachFinder{db: testDB.GormDB, account: account}
+	inboxes, err := finder.GetInboxes()
+	require.NoError(t, err)
+	require.Equal(t, []string{good.OriginId + "/inbox"}, inboxes)
+	require.Contains(t, logged.String(), bad.OriginId)
+	require.Contains(t, logged.String(), "502")
 }
 
 // --- DeliveryQueue tests with DB ---

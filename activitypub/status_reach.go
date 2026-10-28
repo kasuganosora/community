@@ -2,11 +2,28 @@ package activitypub
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 )
+
+// reachInbox resolves one remote inbox. A fetch, timeout, or parse error is
+// logged with the actor URL and skipped so the rest of the fanout continues.
+func reachInbox(account *models.Account) (string, bool) {
+	inboxURL, err := remoteActorInbox(context.Background(), account)
+	if err != nil {
+		target := account.OriginId
+		if target == "" {
+			target = fmt.Sprintf("acct:%d", account.Id)
+		}
+		log.Warn("Federation reach: target %s: %v", target, err)
+		return "", false
+	}
+	return inboxURL, true
+}
 
 // StatusReachFinder 状态触达查找器
 // 用于确定一个状态应该被分发到哪些 inbox.
@@ -99,12 +116,10 @@ func (f *StatusReachFinder) getFollowerInboxes() ([]string, error) {
 			if !f.unsafe && f.isAccountBlocked(follow.Account.Id) {
 				continue
 			}
-			// 远程账户，构建 inbox URL
-			inboxURL, err := remoteActorInbox(context.Background(), follow.Account)
-			if err != nil {
-				return nil, err
+			// 远程账户，构建 inbox URL。一个失败的 actor 不影响其余粉丝。
+			if inboxURL, ok := reachInbox(follow.Account); ok {
+				inboxes = append(inboxes, inboxURL)
 			}
-			inboxes = append(inboxes, inboxURL)
 		}
 	}
 
@@ -122,12 +137,10 @@ func (f *StatusReachFinder) getMentionInboxes() ([]string, error) { //nolint:unp
 			if !f.unsafe && f.isAccountBlocked(mention.Id) {
 				continue
 			}
-			// 远程账户，构建 inbox URL
-			inboxURL, err := remoteActorInbox(context.Background(), mention)
-			if err != nil {
-				return nil, err
+			// 远程账户，构建 inbox URL。一个失败的 actor 不影响其余提及。
+			if inboxURL, ok := reachInbox(mention); ok {
+				inboxes = append(inboxes, inboxURL)
 			}
-			inboxes = append(inboxes, inboxURL)
 		}
 	}
 
@@ -244,12 +257,10 @@ func (f *AccountReachFinder) getFollowerInboxes() ([]string, error) {
 
 	for _, follow := range follows {
 		if follow.Account != nil && follow.Account.Domain != nil {
-			// 远程账户，构建 inbox URL
-			inboxURL, err := remoteActorInbox(context.Background(), follow.Account)
-			if err != nil {
-				return nil, err
+			// 远程账户，构建 inbox URL。一个失败的 actor 不影响其余粉丝。
+			if inboxURL, ok := reachInbox(follow.Account); ok {
+				inboxes = append(inboxes, inboxURL)
 			}
-			inboxes = append(inboxes, inboxURL)
 		}
 	}
 
