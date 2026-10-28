@@ -524,6 +524,9 @@ func pollVoteDeliveries(ctx context.Context, e *models.FederationOutbox, voter *
 	}
 	base := systemsettings.GetBaseURL()
 	activityID := accountActorURI(voter, base) + "/activities/" + strconv.FormatUint(e.ID, 10)
+	if targetCoolingDown(deliveryTargetKey(status.Account)) {
+		return []Delivery{failedRecipientDelivery(e, activityID, e.Payload, status.Account, &status, deliveryTargetKey(status.Account), errDeliveryTargetCooling)}, nil
+	}
 	inbox, err := remoteActorInbox(ctx, status.Account)
 	if err != nil {
 		// The author is the only recipient. Record the miss and finish the
@@ -540,7 +543,7 @@ func pollVoteDeliveries(ctx context.Context, e *models.FederationOutbox, voter *
 		if err != nil {
 			return nil, err
 		}
-		deliveries = append(deliveries, Delivery{ActivityID: activity["id"].(string), TargetInbox: inbox, Payload: string(data), Authorization: string(auth), Status: DeliveryStatusPending})
+		deliveries = append(deliveries, queueDelivery(Delivery{ActivityID: activity["id"].(string), TargetInbox: inbox, Payload: string(data), Authorization: string(auth), Status: DeliveryStatusPending}))
 	}
 	return deliveries, nil
 }

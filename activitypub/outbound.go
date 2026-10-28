@@ -36,6 +36,9 @@ func StartOutboundWorker() (*OutboundWorker, error) {
 	if !db.GetDB().Migrator().HasColumn(&Delivery{}, "Authorization") {
 		return nil, errors.New("federation delivery authorization migration is missing")
 	}
+	if !db.GetDB().Migrator().HasTable(&DeliveryTarget{}) {
+		return nil, errors.New("federation delivery target cooldown migration is missing")
+	}
 	models.RequireFederationOutbox()
 	models.RequireReactionSchema()
 	w := &OutboundWorker{stop: make(chan struct{}), delivery: NewDeliveryQueue(nil, "", 1)}
@@ -191,7 +194,15 @@ func failedRecipientDelivery(e *models.FederationOutbox, activityID, payload str
 	if targetURL == "" {
 		targetURL = fmt.Sprintf("acct:%d", target.Id)
 	}
-	log.Warn("Federation outbox %d: target %s: %v", e.ID, targetURL, cause)
+	if !errors.Is(cause, errDeliveryTargetCooling) {
+		log.Warn("Federation outbox %d: target %s: %v", e.ID, targetURL, cause)
+	}
+	// Blocked hosts and cooling skips are not unreachable-inbox failures.
+	if !errors.Is(cause, errDeliveryTargetCooling) && !errors.Is(cause, ErrDeliveryBlocked) {
+		if noteErr := noteDeliveryTargetFailure(time.Now(), targetURL); noteErr != nil {
+			log.Warn("Federation delivery target cooldown: %s: %v", targetURL, noteErr)
+		}
+	}
 	auth := DeliveryAuthorization{AccountID: e.AccountID, RecipientIDs: []uint64{target.Id}, Kind: e.Kind}
 	if snapshot != nil {
 		auth.StatusID = snapshot.Id
@@ -342,6 +353,12 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 			continue
 		}
 		authorizedIDs[target.Id] = true
+		// An open window skips the actor fetch. The row is terminal for this
+		// event; the next event tries again after the window elapses.
+		if targetCoolingDown(deliveryTargetKey(target)) {
+			deliveries = append(deliveries, failedRecipientDelivery(e, activityID, string(encoded), target, snapshot, deliveryTargetKey(target), errDeliveryTargetCooling))
+			continue
+		}
 		pending = append(pending, *target)
 	}
 	// Lookups run together, one goroutine per recipient, capped by the
@@ -380,7 +397,7 @@ func (w *OutboundWorker) expand(ctx context.Context, e *models.FederationOutbox)
 		if authErr != nil {
 			return nil, authErr
 		}
-		deliveries = append(deliveries, Delivery{ActivityID: activityID, TargetInbox: inbox, Payload: string(encoded), Authorization: string(authData), Status: DeliveryStatusPending})
+		deliveries = append(deliveries, queueDelivery(Delivery{ActivityID: activityID, TargetInbox: inbox, Payload: string(encoded), Authorization: string(authData), Status: DeliveryStatusPending}))
 	}
 	if e.Kind == "Update" && snapshot != nil {
 		revoked, revokeErr := revokePreviousRecipients(ctx, e, snapshot, &author, activityID, authorizedIDs, seen)
@@ -425,7 +442,7 @@ func relayDeliveries(e *models.FederationOutbox, snapshot *models.Status, author
 		if err != nil {
 			return nil, err
 		}
-		deliveries = append(deliveries, Delivery{ActivityID: activityID, TargetInbox: relay.InboxURL, Payload: payload, Authorization: string(auth), Status: DeliveryStatusPending})
+		deliveries = append(deliveries, queueDelivery(Delivery{ActivityID: activityID, TargetInbox: relay.InboxURL, Payload: payload, Authorization: string(auth), Status: DeliveryStatusPending}))
 	}
 	return deliveries, nil
 }
@@ -489,12 +506,27 @@ func revokePreviousRecipients(ctx context.Context, e *models.FederationOutbox, s
 		}
 		targets = append(targets, target)
 	}
-	resolved, err := resolveActorInboxes(ctx, targets)
+	live := make([]models.Account, 0, len(targets))
+	var deliveries []Delivery
+	for i := range targets {
+		target := targets[i]
+		if !targetCoolingDown(deliveryTargetKey(&target)) {
+			live = append(live, target)
+			continue
+		}
+		revokeID := activityID + "/revoke/" + strconv.FormatUint(target.Id, 10)
+		body := map[string]any{"@context": "https://www.w3.org/ns/activitystreams", "id": revokeID, "type": "Delete", "actor": accountActorURI(author, systemsettings.GetBaseURL()), "to": []string{target.OriginId}, "object": map[string]any{"id": statusObjectURI(status, author, systemsettings.GetBaseURL()), "type": "Tombstone"}}
+		data, marshalErr := json.Marshal(body)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		deliveries = append(deliveries, failedRecipientDelivery(e, revokeID, string(data), &target, status, deliveryTargetKey(&target), errDeliveryTargetCooling))
+	}
+	resolved, err := resolveActorInboxes(ctx, live)
 	if err != nil {
 		return nil, err
 	}
-	var deliveries []Delivery
-	for i, target := range targets {
+	for i, target := range live {
 		revokeID := activityID + "/revoke/" + strconv.FormatUint(target.Id, 10)
 		body := map[string]any{"@context": "https://www.w3.org/ns/activitystreams", "id": revokeID, "type": "Delete", "actor": accountActorURI(author, systemsettings.GetBaseURL()), "to": []string{target.OriginId}, "object": map[string]any{"id": statusObjectURI(status, author, systemsettings.GetBaseURL()), "type": "Tombstone"}}
 		data, marshalErr := json.Marshal(body)
@@ -516,7 +548,7 @@ func revokePreviousRecipients(ctx context.Context, e *models.FederationOutbox, s
 		if authErr != nil {
 			return nil, authErr
 		}
-		deliveries = append(deliveries, Delivery{ActivityID: revokeID, TargetInbox: result.inbox, Payload: string(data), Authorization: string(authData), Status: DeliveryStatusPending})
+		deliveries = append(deliveries, queueDelivery(Delivery{ActivityID: revokeID, TargetInbox: result.inbox, Payload: string(data), Authorization: string(authData), Status: DeliveryStatusPending}))
 	}
 	return deliveries, nil
 }

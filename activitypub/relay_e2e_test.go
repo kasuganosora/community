@@ -71,7 +71,7 @@ func relayDB(t *testing.T) *gorm.DB {
 	all := []any{&models.User{}, &models.Account{}, &models.AccountExtra{}, &models.AccountKey{}, &models.AccountFederationKey{}, &models.RemoteActorIdentity{},
 		&models.Emoji{}, &models.AccountEmoji{}, &models.Status{}, &models.StatusContent{}, &models.StatusToAccount{}, &models.Tag{}, &models.StatusTag{},
 		&models.MediaAttachment{}, &models.Follow{}, &models.Block{}, &models.SystemSetting{}, &models.Poll{}, &models.PollOption{}, &models.StatusEmoji{},
-		&models.Application{}, &models.Conversation{}, &models.AccountConversation{}, &models.Notification{}, &models.FederationOutbox{}, &Delivery{},
+		&models.Application{}, &models.Conversation{}, &models.AccountConversation{}, &models.Notification{}, &models.FederationOutbox{}, &Delivery{}, &DeliveryTarget{},
 		&ProcessedActivity{}, &AnnounceRetry{}, &InboxJob{}, &models.Relay{}, &models.DomainBlock{}}
 	if conn.Dialector.Name() == "sqlite" {
 		for _, m := range all {

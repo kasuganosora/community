@@ -126,6 +126,14 @@ func (q *DeliveryQueue) processPending() {
 			WHERE prior.target_inbox = activitypub_deliveries.target_inbox
 			AND prior.id < activitypub_deliveries.id AND prior.status IN ?
 			AND prior.next_retry_at > ?)`, []DeliveryStatus{DeliveryStatusPending, DeliveryStatusProcessing}, now).
+		// A target whose accumulated cooldown is over 60 minutes is left
+		// untouched until that window elapses. Omitting every row for that
+		// inbox here keeps a dead relay from filling the batch.
+		Where(`NOT EXISTS (SELECT 1 FROM activitypub_delivery_targets AS tgt
+			WHERE tgt.target = activitypub_deliveries.target_inbox
+			AND tgt.cooldown > ?
+			AND tgt.cooldown_until IS NOT NULL
+			AND tgt.cooldown_until > ?)`, deliveryTargetCooldownSeconds(deliveryTargetCooldownGrace), now).
 		Order("id ASC").
 		Limit(10).
 		Find(&deliveries).Error
@@ -189,18 +197,46 @@ func (q *DeliveryQueue) deliver(delivery Delivery) {
 		return
 	}
 	if err != nil {
+		if noteErr := noteDeliveryTargetFailure(time.Now(), delivery.TargetInbox); noteErr != nil {
+			log.Warn("Federation delivery target cooldown: %s: %v", delivery.TargetInbox, noteErr)
+		}
 		q.handleDeliveryError(&delivery, err)
 
 		return
 	}
 
-	// Mark as delivered
+	// A real POST succeeded: the accumulated cooldown goes back to zero now,
+	// including the actor URL recorded when expand could not resolve an inbox.
+	q.clearCooldown(&delivery)
 	q.finish(&delivery, map[string]any{
 		"status":        DeliveryStatusDelivered,
 		"next_retry_at": nil,
 		"last_error":    "",
 		"updated_at":    time.Now(),
 	})
+}
+
+// clearCooldown resets the inbox and any authorized recipient actor URLs.
+func (q *DeliveryQueue) clearCooldown(delivery *Delivery) {
+	targets := []string{delivery.TargetInbox}
+	if delivery.Authorization != "" {
+		var auth DeliveryAuthorization
+		if err := json.Unmarshal([]byte(delivery.Authorization), &auth); err == nil && len(auth.RecipientIDs) > 0 {
+			var accounts []models.Account
+			if err = db.GetDB().Where("id IN ?", auth.RecipientIDs).Find(&accounts).Error; err != nil {
+				log.Warn("Federation delivery target cooldown: %s: %v", delivery.TargetInbox, err)
+			} else {
+				for i := range accounts {
+					if accounts[i].OriginId != "" {
+						targets = append(targets, accounts[i].OriginId)
+					}
+				}
+			}
+		}
+	}
+	if err := clearDeliveryTargetCooldown(targets...); err != nil {
+		log.Warn("Federation delivery target cooldown: %s: %v", delivery.TargetInbox, err)
+	}
 }
 
 // finish records the outcome of an attempt. It goes through the federation
