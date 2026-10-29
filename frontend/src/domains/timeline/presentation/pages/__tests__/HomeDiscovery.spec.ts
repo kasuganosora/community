@@ -6,7 +6,10 @@ import { discoveryApi, type DiscoveryPage } from '@/domains/discovery/infrastruc
 import { sessionEpoch } from '@/shared/api/sessionScope'
 
 const timeline = reactive({ homeTab: 'for-you' as 'for-you' | 'following' | 'global', homeStatuses: [], homeTimeline: { statuses: [], newer: [], isLoading: false, error: null, hasMore: false, hasPrevious: false },
-  fetchPublicTimeline: vi.fn(), fetchHomeTimeline: vi.fn(), checkNewer: vi.fn(), cancelRevalidation: vi.fn(), updateStatus: vi.fn(), prependStatus: vi.fn() })
+  publicTimeline: { statuses: [] as { id: string }[], newer: [], isLoading: false, error: null, hasMore: false, hasPrevious: false },
+  fetchPublicTimeline: vi.fn(), fetchHomeTimeline: vi.fn(), checkNewer: vi.fn(), cancelRevalidation: vi.fn(), updateStatus: vi.fn(), prependStatus: vi.fn(),
+  needsInitialLoad: (type: string) => (type === 'public' ? timeline.publicTimeline.statuses : timeline.homeTimeline.statuses).length === 0,
+  pendingReveal: null as { id: string, nonce: number } | null })
 vi.mock('../../stores/timelineStore', () => ({ useTimelineStore: () => timeline }))
 vi.mock('@/shared/composables/useFeedStream', () => ({ useFeedStream: vi.fn() }))
 vi.mock('vue-router', async () => ({ ...await vi.importActual<object>('vue-router'), onBeforeRouteLeave: vi.fn() }))

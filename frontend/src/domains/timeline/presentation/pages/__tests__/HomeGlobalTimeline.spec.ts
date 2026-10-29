@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { defineComponent, type PropType } from 'vue'
 import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import client from '@/shared/api/client'
@@ -206,6 +207,65 @@ it('keeps following posts when a tab return re-reads a publication-ordered home 
   expect(feed().props('error')).toBeNull()
   expect(wrapper.get('[data-testid="new-posts-pill"]').text()).toContain('查看新帖')
   expect(shown).not.toContain('240800')
+})
+
+it('shows a composed status at the top of the open timeline', async () => {
+  const revealHead = vi.fn().mockResolvedValue(undefined)
+  const TimelineFeed = defineComponent({
+    name: 'TimelineFeed',
+    props: { statuses: { type: Array as PropType<MastodonStatus[]>, required: true } },
+    setup(_, { expose }) { expose({ revealHead }); return () => null },
+  })
+  vi.spyOn(client, 'get').mockResolvedValue({ data: rows(100, 1) })
+  wrapper = mount(HomePage, { global: { stubs: { PostComposer: true, TimelineFeed, TabBar: true, RouterLink: true } } })
+  await flushPromises()
+  wrapper.findComponent({ name: 'PostComposer' }).vm.$emit('posted', {
+    id: '101', visibility: 'public', created_at: '2026-10-26T13:00:00.000Z', content: 'hello',
+  })
+  await flushPromises()
+  expect(feed().props('statuses').map((post: MastodonStatus) => post.id)).toEqual(['101', '100'])
+  expect(wrapper.find('[data-testid="new-posts-pill"]').exists()).toBe(false)
+  expect(revealHead).toHaveBeenCalled()
+})
+
+it('fetches a full public page when global only has the status just composed', async () => {
+  const page = [
+    { id: '200', created_at: '2026-10-26T12:00:00.000Z', visibility: 'public', content: 'public newest' },
+    { id: '199', created_at: '2026-10-26T11:00:00.000Z', visibility: 'public', content: 'public older' },
+    { id: '198', created_at: '2026-10-26T10:00:00.000Z', visibility: 'public', content: 'public tail' },
+  ] as MastodonStatus[]
+  const get = vi.spyOn(client, 'get').mockImplementation(async url => ({
+    data: String(url).endsWith('/public') ? page : rows(100, 1),
+  }))
+  wrapper = mount(HomePage, options)
+  await flushPromises()
+  wrapper.findComponent({ name: 'PostComposer' }).vm.$emit('posted', {
+    id: '101', visibility: 'public', created_at: '2026-10-26T13:00:00.000Z', content: 'mine',
+  })
+  await flushPromises()
+  get.mockClear()
+  await select('global')
+  expect(get).toHaveBeenCalledWith('/api/v1/timelines/public', expect.objectContaining({ params: { limit: 20 } }))
+  expect(get.mock.calls.some(call => (call[1] as { params?: { max_id?: string } } | undefined)?.params?.max_id)).toBe(false)
+  expect(feed().props('statuses').map((post: MastodonStatus) => post.id)).toEqual(['101', '200', '199', '198'])
+  expect(wrapper.find('[data-testid="new-posts-pill"]').exists()).toBe(false)
+  expect(feed().props('loading')).toBe(false)
+})
+
+it('fetches a full following page when that tab has no loaded posts', async () => {
+  useTimelineStore().homeTab = 'global'
+  const get = vi.spyOn(client, 'get').mockImplementation(async url => ({
+    data: String(url).endsWith('/home')
+      ? [{ id: '100', created_at: '2026-10-26T12:00:00.000Z', visibility: 'public', content: 'home' }]
+      : [{ id: '200', created_at: '2026-10-26T12:00:00.000Z', visibility: 'public', content: 'public' }],
+  }))
+  wrapper = mount(HomePage, options)
+  await flushPromises()
+  get.mockClear()
+  await select('following')
+  expect(get).toHaveBeenCalledWith('/api/v1/timelines/home', expect.objectContaining({ params: { limit: 20 } }))
+  expect(feed().props('statuses').map((post: MastodonStatus) => post.id)).toEqual(['100'])
+  expect(feed().props('scopeKey')).toBe('home')
 })
 
 it('retries a failed page with its original cursor instead of refreshing the head', async () => {

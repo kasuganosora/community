@@ -50,7 +50,8 @@ function fetchChronological() {
 }
 async function openChronological() {
   const type = chronologicalType.value
-  if (!chronologicalTimeline.value.statuses.length) { await fetchChronological(); return }
+  // Empty, wiped, or only a just-composed row: load the head page before any window walk.
+  if (timelineStore.needsInitialLoad(type)) { await fetchChronological(); return }
   const snapshot = readListSnapshot(`home:${activeTab.value}`)
   if (snapshot) await nextTick(() => restoreListScroll(snapshot.scroll))
   await timelineStore.checkNewer(type)
@@ -97,7 +98,7 @@ function onTabChange(value: TabType) {
   activeTab.value = value
   void openTimeline()
 }
-const { reveal: revealNewerPosts } = useTimelineReveal(
+const { reveal: revealNewerPosts, scrollToHead } = useTimelineReveal(
   () => timelineStore.revealNewer(chronologicalType.value), () => activeTab.value, () => error.value,
 )
 async function reloadHead() {
@@ -117,6 +118,12 @@ async function feedback(status: MastodonStatus, action: 'hide_status' | 'hide_au
   } catch (e) { MessagePlugin.error(e instanceof Error ? e.message : t('timeline.HomePage.s18')) }
 }
 function handlePosted(status: MastodonStatus) { timelineStore.prependStatus(status) }
+watch(() => timelineStore.pendingReveal, async (pending) => {
+  if (!pending || isDiscovery.value) return
+  if (!chronologicalTimeline.value.statuses.some(status => status.id === pending.id)) return
+  await nextTick()
+  await scrollToHead()
+})
 watch(() => discovery.disabled.value, disabled => {
   if (disabled && isDiscovery.value) { activeTab.value = 'following'; void timelineStore.fetchHomeTimeline() }
 })

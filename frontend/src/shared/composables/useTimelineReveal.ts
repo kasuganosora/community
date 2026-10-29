@@ -39,5 +39,8 @@ export function useTimelineReveal(
     // but should not flash the network-loading state.
     void finish(result)
   }
-  return { reveal }
+  function scrollToHead() {
+    return feed.value?.revealHead?.(header.value?.getBoundingClientRect().height ?? 0, false)
+  }
+  return { reveal, scrollToHead }
 }

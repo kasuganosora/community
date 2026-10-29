@@ -59,7 +59,17 @@ export const useTimelineStore = defineStore('timeline', () => {
   const pinned: Record<ManagedTimelineType, Set<string>> = { home: new Set(), public: new Set() }
   const paused: Record<ManagedTimelineType, boolean> = { home: false, public: false }
   const listGeneration: Record<ManagedTimelineType, number> = { home: 0, public: 0 }
+  // True only after a head page (no max_id) has been committed. A composed
+  // status can sit in the array before that, and must not count as a loaded tab.
+  const loadedHead: Record<ManagedTimelineType, boolean> = { home: false, public: false }
+  // Statuses inserted by compose. A head commit or window read must not drop
+  // them onto the new-posts pill or out of the list before the server page contains them.
+  const localHeads: Record<ManagedTimelineType, MastodonStatus[]> = { home: [], public: [] }
+  const pendingReveal = ref<{ id: string, nonce: number } | null>(null)
+  let revealNonce = 0
   let revealVersion = 0
+  // Streamed pill updates must not prefetch a head page per status.
+  let streamedNewer = false
   // Head page for the new-posts pill. Click applies it; it does not insert early.
   const prefetchedNewer = {
     home: createNewerPrefetch<MastodonStatus[]>(),
@@ -78,8 +88,10 @@ export const useTimelineStore = defineStore('timeline', () => {
       failedRequest[type] = null
       const timeline = getTimeline(type)
       knownHead[type] = undefined; previousCursors[type] = []; droppedHistory[type] = false; timeline.hasPrevious = false; pinned[type].clear(); paused[type] = false
+      loadedHead[type] = false; localHeads[type] = []
       timeline.statuses = []; timeline.newer = []; timeline.isLoading = false; timeline.hasMore = true; timeline.error = null
     }
+    pendingReveal.value = null
   }, { flush: 'sync' })
 
   // A post you boosted is already on the timeline. Don't show that boost as a second copy.
@@ -134,6 +146,7 @@ export const useTimelineStore = defineStore('timeline', () => {
         // Discard stale response — a newer request superseded this one
         if (myVersion !== requestVersionMap[type] || !current()) return false
         timeline.statuses = mockStatuses
+        loadedHead[type] = true
         timeline.hasMore = false
         return true
       }
@@ -232,16 +245,61 @@ export const useTimelineStore = defineStore('timeline', () => {
       const index = newer.findIndex(item => item.id === status.id)
       if (index >= 0) newer.splice(index, 1)
       if (!list.some(s => s.id === status.id)) {
-        if (list.length >= TIMELINE_PAGE_SIZE * 8 && pinned[type].has(list.at(-1)!.id)) { newer.unshift({ id: status.id }); return }
+        if (list.length >= TIMELINE_PAGE_SIZE * 8 && pinned[type].has(list.at(-1)!.id)) { newer.unshift({ id: status.id }); return false }
         list.unshift(status)
         if (list.length > TIMELINE_PAGE_SIZE * 8) { list.length = TIMELINE_PAGE_SIZE * 8; getTimeline(type).hasMore = true }
       }
+      return true
     }
-    add(homeTimeline.value.statuses, homeTimeline.value.newer, 'home')
+    const remember = (type: ManagedTimelineType) => {
+      localHeads[type] = [status, ...localHeads[type].filter(row => row.id !== status.id)].slice(0, TIMELINE_PAGE_SIZE)
+    }
+    const onHome = add(homeTimeline.value.statuses, homeTimeline.value.newer, 'home')
+    if (onHome) remember('home')
     // Only public posts belong on the public timeline, including its first post.
+    let onPublic = false
     if (status.visibility === 'public') {
-      add(publicTimeline.value.statuses, publicTimeline.value.newer, 'public')
+      onPublic = add(publicTimeline.value.statuses, publicTimeline.value.newer, 'public')
+      if (onPublic) remember('public')
     }
+    if (onHome || onPublic) pendingReveal.value = { id: status.id, nonce: ++revealNonce }
+  }
+
+  function publishedAt(row: { created_at?: string }): number | null {
+    if (typeof row.created_at !== 'string' || row.created_at === '') return null
+    const value = Date.parse(row.created_at)
+    return Number.isFinite(value) ? value : null
+  }
+
+  /** The loaded page covers this post's time and did not return it. */
+  function serverSkipped(status: MastodonStatus, page: MastodonStatus[]): boolean {
+    if (!page.length || page.some(row => row.id === status.id)) return false
+    const mine = publishedAt(status)
+    const newest = publishedAt(page[0]!)
+    const oldest = publishedAt(page[page.length - 1]!)
+    if (mine === null || newest === null || oldest === null) return false
+    if (mine >= newest) return false
+    if (page.length >= TIMELINE_PAGE_SIZE && mine < oldest) return true
+    return mine < newest && mine >= oldest
+  }
+
+  function restoreLocalHeads(type: ManagedTimelineType) {
+    const timeline = getTimeline(type)
+    const page = timeline.statuses
+    const kept: MastodonStatus[] = []
+    const missing: MastodonStatus[] = []
+    for (const status of localHeads[type]) {
+      if (page.some(row => row.id === status.id) || serverSkipped(status, page)) continue
+      kept.push(status)
+      missing.push(status)
+    }
+    localHeads[type] = kept
+    if (!missing.length) return
+    const ids = new Set(missing.map(row => row.id))
+    streamedNewer = true
+    timeline.newer = timeline.newer.filter(row => !ids.has(row.id))
+    streamedNewer = false
+    timeline.statuses = [...missing, ...page]
   }
 
   function setPinnedIds(type: ManagedTimelineType, ids: string[]) {
@@ -334,6 +392,8 @@ export const useTimelineStore = defineStore('timeline', () => {
     timeline.newer = hintsAtStart ? timeline.newer.filter(row => !hintsAtStart.has(row.id) && !shown.has(row.id)) : []
     streamedNewer = false
     prefetchedNewer[type].clear()
+    restoreLocalHeads(type)
+    loadedHead[type] = true
     timeline.hasMore = data.length >= TIMELINE_PAGE_SIZE
     timeline.error = null
     failedRequest[type] = null
@@ -362,8 +422,6 @@ export const useTimelineStore = defineStore('timeline', () => {
     })
   }
 
-  // Streamed pill updates must not prefetch a head page per status.
-  let streamedNewer = false
   watch(() => newerPrefetchKey(homeTimeline.value.newer), () => { if (!streamedNewer) scheduleNewerPrefetch('home') }, { flush: 'sync' })
   watch(() => newerPrefetchKey(publicTimeline.value.newer), () => { if (!streamedNewer) scheduleNewerPrefetch('public') }, { flush: 'sync' })
 
@@ -395,10 +453,11 @@ export const useTimelineStore = defineStore('timeline', () => {
     try {
       if (scope === 'head') {
         const result = await refreshTimelineHead(timeline.statuses.slice(), async (maxId, limit) => read.filter(await fetchPage(type, maxId, limit)), valid, knownHead[type])
-        if (result?.inaccessible && valid()) { commitHead(type, []); prefetchedNewer[type].clear(); return true }
+        if (result?.inaccessible && valid()) { localHeads[type] = []; commitHead(type, []); prefetchedNewer[type].clear(); return true }
         if (result && valid()) {
           if (!knownHead[type]) knownHead[type] = result.statuses.slice(0, TIMELINE_PAGE_SIZE).map(row => row.id)
           timeline.statuses = read.filter(result.statuses)
+          restoreLocalHeads(type)
           const newer = mergePill(type, result.newer.filter(row => !read.wasRemoved(row.id)), timeline.statuses)
           const key = newerPrefetchKey(newer)
           const headIds = new Set(result.head.map(row => row.id))
@@ -415,10 +474,11 @@ export const useTimelineStore = defineStore('timeline', () => {
         if (maxId === undefined) seenHead = page
         return page
       }, valid, knownHead[type])
-      if (result?.inaccessible && valid()) { commitHead(type, []); prefetchedNewer[type].clear(); return true }
+      if (result?.inaccessible && valid()) { localHeads[type] = []; commitHead(type, []); prefetchedNewer[type].clear(); return true }
       if (result && valid()) {
         if (!knownHead[type]) knownHead[type] = result.statuses.slice(0, TIMELINE_PAGE_SIZE).map(row => row.id)
         timeline.statuses = read.filter(result.statuses)
+        restoreLocalHeads(type)
         const newer = mergePill(type, result.newer.filter(row => !read.wasRemoved(row.id)), timeline.statuses)
         const key = newerPrefetchKey(newer)
         if (seenHead && key && newer.every(item => seenHead!.some(row => row.id === item.id))) prefetchedNewer[type].adopt(key, read.filter(seenHead))
@@ -430,8 +490,14 @@ export const useTimelineStore = defineStore('timeline', () => {
     } finally { read.close() }
   }
 
+  /** A tab with no committed head must load that page, not reconcile an empty or compose-only cache. */
+  function needsInitialLoad(type: ManagedTimelineType) {
+    return !loadedHead[type] || getTimeline(type).statuses.length === 0
+  }
+
   /** One home or public read at a time. A second caller waits on that read instead of starting another walk. */
   function checkNewer(type: ManagedTimelineType, scope: 'head' | 'window' = 'window') {
+    if (!loadedHead[type]) return fetchTimeline(type).then(() => true)
     return startFlight(type, () => readTimeline(type, scope)).then(() => true)
   }
 
@@ -448,6 +514,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     // A reply parent or quote that is only previewed inside another card stays put.
     const displayed = (row: { id: string, reblog?: { id?: string } | null }) => row.id === id || row.reblog?.id === id
     if (status.event === 'delete') {
+      localHeads[type] = localHeads[type].filter(row => row.id !== id && row.reblog?.id !== id)
       readGuards[type].remove(id)
       prefetchedNewer[type].clear()
       timeline.statuses = timeline.statuses.filter(row => !displayed(row))
@@ -539,6 +606,8 @@ export const useTimelineStore = defineStore('timeline', () => {
     checkNewer,
     applyStreamed,
     cancelRevalidation,
+    needsInitialLoad,
+    pendingReveal,
     loadPrevious,
     setPinnedIds,
     revealNewer,
