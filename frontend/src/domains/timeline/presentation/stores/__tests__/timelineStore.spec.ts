@@ -284,6 +284,38 @@ describe('timeline account and cursor isolation', () => {
     expect(store.homeStatuses.map(status => status.id)).toEqual(['240737', '240700'])
     expect(store.homeTimeline.newer.map(status => status.id)).toEqual(['240800'])
   })
+  it('keeps a post composed during a window read on screen instead of the pill', async () => {
+    const visible = { id: '20', created_at: '2026-10-26T12:00:00.000Z', visibility: 'public' } as MastodonStatus
+    const mine = { id: '21', created_at: '2026-10-26T13:00:00.000Z', visibility: 'public', content: 'just posted' } as MastodonStatus
+    const api = vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([visible])
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+    let finish!: (rows: MastodonStatus[]) => void
+    api.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const read = store.checkNewer('home')
+    await Promise.resolve()
+    store.prependStatus(mine)
+    finish([mine, visible])
+    await read
+    expect(store.homeStatuses.map(status => status.id)).toEqual(['21', '20'])
+    expect(store.homeTimeline.newer).toEqual([])
+  })
+  it('keeps a composed post when the in-flight page has not caught up to it yet', async () => {
+    const visible = { id: '20', created_at: '2026-10-26T12:00:00.000Z', visibility: 'public' } as MastodonStatus
+    const mine = { id: '21', created_at: '2026-10-26T13:00:00.000Z', visibility: 'public', content: 'just posted' } as MastodonStatus
+    const api = vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([visible])
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+    let finish!: (rows: MastodonStatus[]) => void
+    api.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const read = store.checkNewer('home')
+    await Promise.resolve()
+    store.prependStatus(mine)
+    finish([visible])
+    await read
+    expect(store.homeStatuses.map(status => status.id)).toEqual(['21', '20'])
+    expect(store.homeTimeline.newer).toEqual([])
+  })
   it('checks only the head when asked, and does not walk max_id', async () => {
     vi.mocked(timelineApi.getHomeTimeline).mockResolvedValueOnce([{ id: '20' }, { id: '19' }] as MastodonStatus[])
     const store = useTimelineStore()
