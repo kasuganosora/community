@@ -3,26 +3,35 @@ package discovery
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/kasuganosora/community/defaultavatar"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"gorm.io/gorm"
 )
+
+// suggestionCandidateLimit caps accounts scored for one suggestion page.
+// Default avatars are removed before this cap so they cannot crowd out
+// accounts that have a real upload.
+const suggestionCandidateLimit = 400
 
 type AccountSuggestion struct {
 	Account *models.Account
 	Source  string
 }
 
-// SuggestAccounts uses at most 400 candidates and 2,000 public social edges.
-// Generic/off never read the viewer's graph for ranking. Relationship reads
-// in the final eligibility check only exclude follows and pending requests.
 // SuggestOptions carries request context used only for ranking.
 type SuggestOptions struct {
 	AcceptLanguage string
 }
 
+// SuggestAccounts uses at most 400 candidates and 2,000 public social edges.
+// Generic/off never read the viewer's graph for ranking. Relationship reads
+// in the final eligibility check only exclude follows and pending requests.
+// Accounts without a custom avatar are removed before that cap and skipped
+// again while the page is filled, so a default avatar does not leave a hole.
 // Same-language candidates rank first (exact, then the zh/ja CJK group),
 // then everything else; primary languages come from the account_languages
 // cache with a bounded inline refresh.
@@ -101,8 +110,10 @@ func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account,
 	}
 	// Public recent activity supplies a bounded cold-start pool, without
 	// trusting a remote server's self-reported total follower count.
+	// Placeholder avatars are left out of this pool; the assembly step
+	// checks again so a full page can be filled from later candidates.
 	var recent []*models.Account
-	if err = conn.Model(&models.Account{}).Where("discoverable = ? AND is_ban = ?", true, false).Order("last_status_at IS NULL, last_status_at DESC, id DESC").Limit(400).Find(&recent).Error; err != nil {
+	if err = customAvatarQuery(conn).Order("last_status_at IS NULL, last_status_at DESC, id DESC").Limit(suggestionCandidateLimit).Find(&recent).Error; err != nil {
 		return nil, err
 	}
 	for _, a := range recent {
@@ -121,8 +132,9 @@ func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account,
 		}
 		return ids[i] > ids[j]
 	})
-	if len(ids) > 400 {
-		ids = ids[:400]
+	ids, err = retainCustomAvatars(conn, ids, scores, sources, len(recent) >= suggestionCandidateLimit)
+	if err != nil {
+		return nil, err
 	}
 	if len(ids) == 0 {
 		return result, nil
@@ -235,8 +247,12 @@ func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account,
 		}
 		return a.Id > b.Id
 	})
+	baseURL := systemsettings.GetBaseURL()
 	domains := map[string]int{}
 	for _, a := range candidates {
+		if !defaultavatar.HasCustom(a.Avatar, baseURL) {
+			continue
+		}
 		domain := ""
 		if a.Domain != nil {
 			domain = *a.Domain
@@ -251,4 +267,94 @@ func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account,
 		}
 	}
 	return result, nil
+}
+
+// customAvatarQuery is the cold-start pool. It excludes the stored forms of
+// a missing avatar, the legacy default asset, and a generated identicon URL.
+// HasCustom remains the exact check: this predicate only keeps those rows
+// from using up the candidate cap.
+func customAvatarQuery(conn *gorm.DB) *gorm.DB {
+	base := strings.TrimRight(systemsettings.GetBaseURL(), "/")
+	q := conn.Model(&models.Account{}).Where("discoverable = ? AND is_ban = ?", true, false).
+		Where("TRIM(avatar) <> ''").
+		Where("avatar <> ?", "/default-assets/avatar.png").
+		Where("avatar NOT LIKE ?", "%/api/v1/avatars/default/"+strings.Repeat("_", 64)+".png")
+	if base != "" {
+		q = q.Where("avatar <> ?", base+"/default-assets/avatar.png")
+	}
+	return q
+}
+
+// retainCustomAvatars drops default-avatar ids before the candidate cap, then
+// keeps reading older custom-avatar accounts until the cap is full or the
+// pool is exhausted. Callers still stop at the requested page size only
+// after this set is ranked.
+func retainCustomAvatars(conn *gorm.DB, ids []uint64, scores map[uint64]float64, sources map[uint64]string, coldStartFull bool) ([]uint64, error) {
+	base := systemsettings.GetBaseURL()
+	kept := make([]uint64, 0, len(ids))
+	if len(ids) > 0 {
+		var rows []models.Account
+		if err := conn.Model(&models.Account{}).Select("id", "avatar").Where("id IN ?", ids).Find(&rows).Error; err != nil {
+			return nil, err
+		}
+		custom := make(map[uint64]bool, len(rows))
+		for _, row := range rows {
+			if defaultavatar.HasCustom(row.Avatar, base) {
+				custom[row.Id] = true
+			}
+		}
+		for _, id := range ids {
+			if custom[id] {
+				kept = append(kept, id)
+			}
+		}
+	}
+	// A short cold-start page already holds every row the SQL predicate can
+	// see, so another pass cannot add any. A full page can still hide older
+	// uploads behind rows HasCustom rejects; those are dropped below.
+	if len(kept) >= suggestionCandidateLimit || !coldStartFull {
+		if len(kept) > suggestionCandidateLimit {
+			return kept[:suggestionCandidateLimit], nil
+		}
+		return kept, nil
+	}
+	seen := make(map[uint64]bool, len(ids))
+	for _, id := range ids {
+		seen[id] = true
+	}
+	for page := 0; page < 3 && len(kept) < suggestionCandidateLimit; page++ {
+		known := make([]uint64, 0, len(seen))
+		for id := range seen {
+			known = append(known, id)
+		}
+		var more []models.Account
+		q := customAvatarQuery(conn).Select("id", "avatar")
+		if len(known) > 0 {
+			q = q.Where("id NOT IN ?", known)
+		}
+		if err := q.Order("last_status_at IS NULL, last_status_at DESC, id DESC").Limit(suggestionCandidateLimit).Find(&more).Error; err != nil {
+			return nil, err
+		}
+		if len(more) == 0 {
+			break
+		}
+		for _, row := range more {
+			seen[row.Id] = true
+			if !defaultavatar.HasCustom(row.Avatar, base) {
+				continue
+			}
+			if _, exists := scores[row.Id]; !exists {
+				scores[row.Id] = 0
+				sources[row.Id] = "global"
+			}
+			kept = append(kept, row.Id)
+			if len(kept) == suggestionCandidateLimit {
+				break
+			}
+		}
+		if len(more) < suggestionCandidateLimit {
+			break
+		}
+	}
+	return kept, nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,7 +46,7 @@ func suggestionFixture(t *testing.T) (*gorm.DB, []*models.Account) {
 	for i, name := range []string{"viewer", "candidate", "pending", "followed", "intermediary"} {
 		u := &models.User{UserName: name, EmailHash: name, Status: models.UserStatusNormal}
 		require.NoError(t, conn.Create(u).Error)
-		a := &models.Account{Id: uint64(i + 1), UserId: u.Id, Username: name, Discoverable: true}
+		a := &models.Account{Id: uint64(i + 1), UserId: u.Id, Username: name, Discoverable: true, Avatar: "https://cdn.example/media/" + name + "/avatar.png"}
 		require.NoError(t, conn.Create(a).Error)
 		accounts = append(accounts, a)
 	}
@@ -132,7 +133,7 @@ func TestSuggestionsOnlyPublicInteractionsAndUndo(t *testing.T) {
 	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Model(&models.Account{}).Where("id = 5").Update("feed_last_seen_at", now).Error)
 	user := &models.User{Id: 6, UserName: "another", EmailHash: "another", Status: models.UserStatusNormal}
 	require.NoError(t, conn.Create(user).Error)
-	other := &models.Account{Id: 6, UserId: 6, Username: "another", Discoverable: true}
+	other := &models.Account{Id: 6, UserId: 6, Username: "another", Discoverable: true, Avatar: "https://cdn.example/media/another/avatar.png"}
 	require.NoError(t, conn.Create(other).Error)
 	at := now.Add(-time.Hour)
 	for _, spec := range []struct {
@@ -158,4 +159,85 @@ func TestSuggestionsOnlyPublicInteractionsAndUndo(t *testing.T) {
 	rows, err = discovery.SuggestAccounts(t.Context(), conn, a[0], 20)
 	require.NoError(t, err)
 	require.Empty(t, rows, "site disable is read fresh")
+}
+
+func suggestionUser(t *testing.T, conn *gorm.DB, name, avatar string, lastStatus time.Time) {
+	t.Helper()
+	u := &models.User{UserName: name, EmailHash: name, Status: models.UserStatusNormal}
+	require.NoError(t, conn.Create(u).Error)
+	var maxID uint64
+	require.NoError(t, conn.Raw("SELECT COALESCE(MAX(id), 0) FROM accounts").Scan(&maxID).Error)
+	at := lastStatus
+	require.NoError(t, conn.Create(&models.Account{
+		Id: maxID + 1, UserId: u.Id, Username: name, Discoverable: true, Avatar: avatar, LastStatusAt: &at,
+	}).Error)
+}
+
+func TestSuggestionsSkipDefaultAvatarsAndFillLimit(t *testing.T) {
+	conn, existing := suggestionFixture(t)
+	require.NoError(t, conn.Session(&gorm.Session{AllowGlobalUpdate: true, SkipHooks: true}).Model(&models.Account{}).Update("avatar", "").Error)
+
+	rows, err := discovery.SuggestAccounts(t.Context(), conn, existing[0], 3)
+	require.NoError(t, err)
+	require.Empty(t, rows)
+
+	base := strings.TrimRight(systemsettings.GetBaseURL(), "/")
+	seed := strings.Repeat("ab", 32)
+	now := time.Now().UTC()
+	// Newer activity ranks first. The newest rows have no custom avatar, so
+	// cutting to the limit and then dropping them would leave an empty page.
+	for i, spec := range []struct {
+		name, avatar string
+	}{
+		{"blank", ""},
+		{"legacy", "/default-assets/avatar.png"},
+		{"legacy-absolute", base + "/default-assets/avatar.png"},
+		{"identicon", base + "/api/v1/avatars/default/" + seed + ".png"},
+		{"identicon-query", "/api/v1/avatars/default/" + seed + ".png?v=1"},
+		{"spaces", "   "},
+		{"uploaded-new", base + "/media/101/avatar.png"},
+		{"uploaded-mid", "https://cdn.example/avatars/mid.png"},
+		{"uploaded-old", "avatars/legacy-upload.png"},
+	} {
+		suggestionUser(t, conn, spec.name, spec.avatar, now.Add(-time.Duration(i)*time.Minute))
+	}
+
+	rows, err = discovery.SuggestAccounts(t.Context(), conn, existing[0], 2)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, "uploaded-new", rows[0].Account.Username)
+	require.Equal(t, "uploaded-mid", rows[1].Account.Username)
+
+	rows, err = discovery.SuggestAccounts(t.Context(), conn, existing[0], 5)
+	require.NoError(t, err)
+	got := make([]string, 0, len(rows))
+	for _, row := range rows {
+		got = append(got, row.Account.Username)
+	}
+	require.Equal(t, []string{"uploaded-new", "uploaded-mid", "uploaded-old"}, got)
+}
+
+func TestSuggestionsFillLimitWhenRecentAccountsLackAvatars(t *testing.T) {
+	conn, existing := suggestionFixture(t)
+	require.NoError(t, conn.Session(&gorm.Session{AllowGlobalUpdate: true, SkipHooks: true}).Model(&models.Account{}).Update("avatar", "").Error)
+	now := time.Now().UTC()
+	users := make([]*models.User, 400)
+	for i := range users {
+		name := fmt.Sprintf("noavatar-%03d", i)
+		users[i] = &models.User{UserName: name, EmailHash: name, Status: models.UserStatusNormal}
+	}
+	require.NoError(t, conn.CreateInBatches(users, 50).Error)
+	accounts := make([]*models.Account, 400)
+	for i, u := range users {
+		at := now.Add(-time.Duration(i) * time.Second)
+		accounts[i] = &models.Account{Id: uint64(1000 + i), UserId: u.Id, Username: u.UserName, Discoverable: true, Avatar: "", LastStatusAt: &at}
+	}
+	require.NoError(t, conn.CreateInBatches(accounts, 50).Error)
+	suggestionUser(t, conn, "has-avatar", "https://cdn.example/media/has-avatar.png", now.Add(-48*time.Hour))
+
+	rows, err := discovery.SuggestAccounts(t.Context(), conn, existing[0], 1)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "has-avatar", rows[0].Account.Username)
+	require.Equal(t, "global", rows[0].Source)
 }

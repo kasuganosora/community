@@ -25,7 +25,7 @@ func TestSuggestionsRankSameLanguageFirst(t *testing.T) {
 	for id := uint64(6); id <= 9; id++ {
 		u := &models.User{UserName: "u" + string(rune('a'+id)), EmailHash: "h" + string(rune('a'+id)), Status: models.UserStatusNormal}
 		require.NoError(t, conn.Create(u).Error)
-		require.NoError(t, conn.Create(&models.Account{Id: id, UserId: u.Id, Username: u.UserName, Discoverable: true, LastStatusAt: &now}).Error)
+		require.NoError(t, conn.Create(&models.Account{Id: id, UserId: u.Id, Username: u.UserName, Discoverable: true, LastStatusAt: &now, Avatar: "https://cdn.example/media/" + u.UserName + "/avatar.png"}).Error)
 		for i := 0; i < 3; i++ {
 			s := &models.Status{AccountId: id, Content: models.StatusContent{Content: texts[id]}, CreatedAt: &now, UpdatedAt: &now}
 			s.FillLanguage()
