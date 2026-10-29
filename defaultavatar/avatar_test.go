@@ -26,6 +26,33 @@ func TestIdentityAndRendering(t *testing.T) {
 		}
 	}
 }
+func TestHasCustomAvatar(t *testing.T) {
+	base := "https://social.example"
+	seed := strings.Repeat("ab", 32)
+	require.True(t, ValidSeed(seed))
+	for _, raw := range []string{
+		"",
+		"   ",
+		"/default-assets/avatar.png",
+		base + "/default-assets/avatar.png",
+		base + "/default-assets/avatar.png ",
+		"/api/v1/avatars/default/" + seed + ".png",
+		base + "/api/v1/avatars/default/" + seed + ".png",
+		base + "/api/v1/avatars/default/" + seed + ".png?v=1",
+	} {
+		require.Falsef(t, HasCustom(raw, base), "%q", raw)
+	}
+	for _, raw := range []string{
+		base + "/media/3/avatar.png",
+		"https://cdn.example/avatars/a.png",
+		"avatars/bob.png",
+		"https://other.example/default-assets/avatar.png",
+		"/api/v1/avatars/default/not-a-seed.png",
+	} {
+		require.Truef(t, HasCustom(raw, base), "%q", raw)
+	}
+}
+
 func TestPublicEndpointValidationAndCache(t *testing.T) {
 	r := gin.New()
 	r.GET("/api/v1/avatars/default/:seed", Serve)

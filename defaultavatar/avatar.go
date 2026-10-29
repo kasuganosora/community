@@ -86,3 +86,29 @@ func Serve(c *gin.Context) {
 func IsPlaceholder(raw, baseURL string) bool {
 	return raw == "" || raw == "/default-assets/avatar.png" || raw == strings.TrimRight(baseURL, "/")+"/default-assets/avatar.png"
 }
+
+// HasCustom reports whether raw is an uploaded or remote avatar.
+// A missing value, the legacy default asset, and this server's generated
+// identicon URL are not custom. Serializers substitute the identicon when
+// the stored value is a placeholder; a stored copy of that URL is the same
+// picture. There is no separate avatar file id: accounts.avatar is the URL
+// written by an upload (/media/<id>/<file>) or by a remote actor icon.
+func HasCustom(raw, baseURL string) bool {
+	raw = strings.TrimSpace(raw)
+	return !IsPlaceholder(raw, baseURL) && !isGeneratedAvatar(raw)
+}
+
+// isGeneratedAvatar matches the public identicon path, with or without a host.
+func isGeneratedAvatar(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if i := strings.IndexAny(raw, "?#"); i >= 0 {
+		raw = raw[:i]
+	}
+	const marker = "/api/v1/avatars/default/"
+	i := strings.LastIndex(raw, marker)
+	if i < 0 {
+		return false
+	}
+	seed, ok := strings.CutSuffix(raw[i+len(marker):], ".png")
+	return ok && !strings.Contains(seed, "/") && ValidSeed(seed)
+}
