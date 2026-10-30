@@ -18,13 +18,13 @@ describe('original attachment access', () => {
     await link.trigger('click')
     expect(bubbled).toBe(false)
   })
-  it('keeps every original accessible beyond the four-image preview limit', () => {
-    const attachments = Array.from({ length: 5 }, (_, i) => file({ id: String(i), type: 'image', url: `https://remote.test/full${i}.png`, preview_url: `https://remote.test/thumb${i}.png` }))
+  it('hides overflow images behind the +N mosaic instead of file links', () => {
+    const attachments = Array.from({ length: 9 }, (_, i) => file({ id: String(i), type: 'image', url: `https://remote.test/full${i}.png`, preview_url: `https://remote.test/thumb${i}.png` }))
     const wrapper = mount(PostMedia, { props: { attachments } })
     expect(wrapper.findAll('img')).toHaveLength(4)
-    // Previewed images are not listed again; only the fifth gets a link.
-    expect(wrapper.findAll('a')).toHaveLength(1)
-    expect(wrapper.get('a').attributes('href')).toBe('https://remote.test/full4.png')
+    expect(wrapper.find('.media-overflow').text()).toContain('+5')
+    // Overflow stays in the viewer; do not list "open attachment" links above the card.
+    expect(wrapper.find('.media-file-links').exists()).toBe(false)
   })
   it('loads uploaded files from the current site instead of the configured host', () => {
     const wrapper = mount(PostMedia, { props: { attachments: [file({ type: 'image', url: 'http://127.0.0.1:8080/media/9/photo.png', preview_url: 'http://127.0.0.1:8080/media/9/thumbnail/photo.jpg' })] } })
