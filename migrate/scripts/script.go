@@ -80,6 +80,7 @@ var ScripsType = []MigrationScript{
 	TwoFactorSecurityPinScript{},
 	UserSignInScript{},
 	AddDeliveryTargetCooldownScript{},
+	NewAccountModScript{},
 }
 
 type MigrationScript interface {

@@ -119,6 +119,8 @@ var appModels = []any{
 	&models.UserSecretData{},
 	&models.UserSetting{},
 	&models.WebAuthnSession{},
+	&newacctmod.ReviewJob{},
+	&newacctmod.Appeal{},
 }
 
 // unmigratedModels are table models that intentionally have no table after
