@@ -5,6 +5,7 @@ import { i18n, t } from '@/shared/i18n'
 import { pinia } from '@/shared/stores'
 import router from '@/shared/router'
 import App from './App.vue'
+import { onAppealSession } from '@/shared/api/appealSession'
 import { setAuthExpiredCallback } from '@/shared/api/client'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { initTheme } from '@/shared/composables/useTheme'
@@ -49,6 +50,13 @@ setAuthExpiredCallback(() => {
   if (authStore.expireSession()) return
   router.push({ name: 'login' }).catch((err) => {
     console.warn('Auth expired: failed to navigate to login page', err)
+  })
+})
+
+onAppealSession(() => {
+  if (router.currentRoute.value.name === 'appeal') return
+  router.replace({ name: 'appeal' }).catch((err) => {
+    console.warn('Suspended account: failed to open the appeal page', err)
   })
 })
 

@@ -3,6 +3,7 @@ import LanguagePicker from '@/shared/components/common/LanguagePicker.vue'
 import { reactive, ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
+import { isAppealSession } from '@/shared/api/appealSession'
 import { isServerAuthReturn, safeInternalPath } from '@/shared/utils/authReturn'
 import { passkeySupported } from '@/shared/utils/webauthn'
 import { instanceApi } from '@/domains/instance/infrastructure/instanceApi'
@@ -119,6 +120,10 @@ function goRegister() {
 }
 
 function continueAfterLogin() {
+  if (isAppealSession()) {
+    router.push({ name: 'appeal' })
+    return
+  }
   if (addingAccount) {
     // Fresh page load so no store keeps the previous account's data.
     window.location.assign('/')

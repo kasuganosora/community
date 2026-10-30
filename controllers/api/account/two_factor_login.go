@@ -90,7 +90,9 @@ func LoginTwoFactor(c *gin.Context) {
 		return
 	}
 
-	if user.IsBan || user.Status != models.UserStatusNormal {
+	// Match password login: a suspension can still finish signing in so the
+	// account can open its appeal. Other abnormal statuses cannot.
+	if user.Status != models.UserStatusNormal {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user status abnormal"})
 
 		return

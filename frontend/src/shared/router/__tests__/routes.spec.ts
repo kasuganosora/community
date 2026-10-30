@@ -64,12 +64,21 @@ describe('routes', () => {
   })
   it('isolates administrator pages and inherits authentication and admin guards', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
-    for (const path of ['', '/accounts', '/reports', '/emojis', '/federation', '/system', '/settings', '/migrations']) {
+    for (const path of ['', '/accounts', '/reports', '/appeals', '/emojis', '/federation', '/system', '/settings', '/migrations']) {
       const resolved = router.resolve('/admin' + path)
       expect(resolved.meta).toMatchObject({ requiresAuth: true, requiresAdmin: true })
       expect(resolved.matched[0]?.path).toBe('/admin')
       expect(resolved.name).not.toBe('not-found')
     }
+  })
+  it('keeps the suspended-account appeal page signed-in but outside the admin shell', () => {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    const appeal = router.resolve('/appeal')
+    expect(appeal.name).toBe(RouteNames.APPEAL)
+    expect(appeal.meta).toMatchObject({ requiresAuth: true })
+    expect(appeal.meta.requiresAdmin).not.toBe(true)
+    expect(pageTitle(appeal.name)).toBe('账号申诉 - Community')
+    expect(router.resolve('/admin/appeals').meta.adminPermission).toBe('reports')
   })
   it('separates administrator site migration from personal data tools', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })

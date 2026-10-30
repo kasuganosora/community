@@ -1,6 +1,7 @@
 import axios from 'axios'
-import type { AxiosError } from 'axios'
+import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import type { ApiErrorData } from '@/shared/types/mastodon'
+import { isAppealSession, isLocalSignOut, markAppealSession } from './appealSession'
 import { applyStallRetry } from './stallRetry'
 import { isSlowConnection, networkInformation, type NetworkInformationLike } from '@/shared/utils/network'
 
@@ -62,6 +63,58 @@ export function setAuthExpiredCallback(cb: () => void) {
 // Reentrancy guard: when multiple requests fail with 401 simultaneously,
 // only the first one triggers the auth-expired flow.
 let isHandling401 = false
+let appealProbe: Promise<boolean> | null = null
+
+export function isAppealApiPath(url: string | undefined): boolean {
+  if (!url) return false
+  const path = url.split('?')[0].replace(/\/+$/, '')
+  return path.endsWith('/api/v1/appeals') || path.endsWith('/api/v2/appeals')
+}
+
+/** Password, passkey, and OAuth failures are not a suspended session. */
+export function isCredentialRequest(url: string | undefined): boolean {
+  if (!url) return false
+  const path = url.split('?')[0]
+  return /\/accounts\/(?:login|register)(?:\/|$)/.test(path)
+    || /\/auth\/passkey\/login(?:\/|$)/.test(path)
+    || /\/oauth\//.test(path)
+}
+
+function requestBearer(config: InternalAxiosRequestConfig | undefined): string | null {
+  const headers = config?.headers
+  const fromGetter = typeof headers?.get === 'function' ? headers.get('Authorization') : undefined
+  const raw = fromGetter || (headers as { Authorization?: unknown } | undefined)?.Authorization
+  if (typeof raw === 'string' && raw.startsWith('Bearer ')) return raw.slice('Bearer '.length)
+  return tokenService.get()
+}
+
+async function probeAppeals(token: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/appeals`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    credentials: 'same-origin',
+  })
+  return res.ok
+}
+
+/**
+ * A 401 from the auth middleware means the token is dead or the account is
+ * suspended. Suspended accounts can still GET /appeals, so keep that bearer.
+ */
+export function retainSuspendedAppealSession(url: string | undefined, token: string | null): Promise<boolean> {
+  if (isLocalSignOut() || isCredentialRequest(url) || isAppealApiPath(url)) return Promise.resolve(false)
+  if (isAppealSession()) return Promise.resolve(true)
+  if (!token) return Promise.resolve(false)
+  if (!appealProbe) {
+    appealProbe = probeAppeals(token).then(ok => {
+      if (ok && !isLocalSignOut()) {
+        markAppealSession()
+        return true
+      }
+      return false
+    }).catch(() => false).finally(() => { appealProbe = null })
+  }
+  return appealProbe
+}
 
 // Request interceptor
 client.interceptors.request.use(
@@ -140,14 +193,16 @@ function transformError(error: AxiosError<ApiErrorData>): Error {
 // Response interceptor with improved error handling
 client.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<ApiErrorData>) => {
+  async (error: AxiosError<ApiErrorData>) => {
     // Handle 401 — use callback instead of hard redirect (with reentrancy guard)
     // SIGNIN_REQUIRED is content gated for visitors (an account that requires
     // sign-in to view), not an expired session: let the page explain it.
     const gated = (error.response?.data as { code?: string } | undefined)?.code === 'SIGNIN_REQUIRED'
-    if (error.response?.status === 401 && !gated && !isHandling401) {
-      const currentPath = window.location.pathname
-      if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
+    const requestUrl = error.config?.url
+    const authRejection = (readApiMessage(error.response?.data) || '').trim().toLowerCase() === 'unauthorized'
+    if (error.response?.status === 401 && !gated && !isLocalSignOut() && !isCredentialRequest(requestUrl)) {
+      const keep = authRejection && await retainSuspendedAppealSession(requestUrl, requestBearer(error.config))
+      if (!keep && !isHandling401) {
         isHandling401 = true
         try {
           // Call callback first — it may want to use the token for refresh

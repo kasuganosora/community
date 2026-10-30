@@ -95,7 +95,10 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	if user.IsBan || user.Status != models.UserStatusNormal {
+	// Suspended accounts may still sign in. AuthMiddleware only lets that
+	// session read and file an appeal; pending, rejected, and unverified
+	// accounts stay blocked.
+	if user.Status != models.UserStatusNormal {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user status abnormal"})
 
 		return

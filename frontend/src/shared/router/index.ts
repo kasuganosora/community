@@ -1,8 +1,9 @@
 import { adminEntry, canAccessAdmin } from '@/domains/admin/domain/navigation'
 import { createRouter, createWebHistory } from 'vue-router'
-import { routes, pageHeading } from './routes'
+import { RouteNames, routes, pageHeading } from './routes'
 import { setDocumentTitle } from './documentTitle'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import { isAppealSession } from '@/shared/api/appealSession'
 import { tokenService } from '@/shared/api/client'
 import { isServerAuthReturn, safeInternalPath } from '@/shared/utils/authReturn'
 import { trackNavigation } from './navigationFeedback'
@@ -44,6 +45,11 @@ function isSafeRedirect(path: string): boolean {
 
 router.beforeEach(async (to) => {
   const token = tokenService.get()
+
+  // A suspended session can open the appeal page and public pages only.
+  if (token && isAppealSession() && to.name !== RouteNames.APPEAL && (to.meta.requiresAuth || to.meta.requiresAdmin || to.meta.guestOnly)) {
+    return { name: RouteNames.APPEAL }
+  }
 
   // An already signed-in user opening an OAuth / MiAuth link must land on the
   // server consent page, not be bounced to the home timeline.
