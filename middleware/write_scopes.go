@@ -54,7 +54,7 @@ func granularWriteAllowed(r *http.Request, td *models.AuthTokenData) bool {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
 		return true
 	}
-	if isTranslatePath(r.URL.Path) {
+	if isTranslatePath(r.URL.Path) || isAppealPath(r.URL.Path) {
 		return true
 	}
 	s := td.Scopes

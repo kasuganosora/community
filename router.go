@@ -7,6 +7,7 @@ import (
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/controllers/api/account"
 	"github.com/kasuganosora/community/controllers/api/admin"
+	appealapi "github.com/kasuganosora/community/controllers/api/appeal"
 	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/controllers/api/contact"
 	"github.com/kasuganosora/community/controllers/api/conversation"
@@ -492,6 +493,7 @@ func SetRouter(app gin.IRouter) {
 	// 举报（写入）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteReports})).
 		POST("/reports", report2.Create)
+	registerAppealRoutes(authGroupV1)
 
 	// ===== 管理员接口（v1）=====
 
@@ -747,6 +749,7 @@ func SetRouter(app gin.IRouter) {
 	// 举报（写入）
 	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteReports})).
 		POST("/reports", report2.Create)
+	registerAppealRoutes(authGroup)
 
 	// 举报管理（管理员读取）
 	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadReports})).
@@ -845,6 +848,18 @@ func SetRouter(app gin.IRouter) {
 	// Captcha 配置（管理员写入）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
 		PUT("/admin/captcha/config", common.AdminUpdateCaptchaConfig)
+}
+
+// registerAppealRoutes lets a suspended account file one appeal, and lets
+// moderators list and resolve those appeals. Login restoration stays on the
+// existing account unsuspend action.
+func registerAppealRoutes(auth *gin.RouterGroup) {
+	auth.GET("/appeals", appealapi.List)
+	auth.POST("/appeals", appealapi.Create)
+	auth.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadReports})).
+		GET("/admin/appeals", appealapi.AdminList)
+	auth.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteReports})).
+		POST("/admin/appeals/:id/resolve", appealapi.Resolve)
 }
 
 // safeRegisterRoutes runs a route-group registration and fails fast if it
