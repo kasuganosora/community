@@ -100,9 +100,10 @@ const audios = computed(() =>
   items.value.filter(a => a.type === 'audio')
 )
 
-// Inline media (first four images, videos, audio) is already shown; only
-// files without a preview, images past the fourth and media that failed to
-// load get a plain link to the original.
+// Inline media (first four images, videos, audio) is already shown. Images
+// past the fourth stay behind the +N mosaic badge and open in the viewer —
+// do not also list them as "open attachment" links above the card. Only
+// failed media and non-previewable files get a plain link to the original.
 const shownInline = computed(() => {
   const ids = new Set<string>()
   images.value.slice(0, 4).forEach(a => ids.add(a.id))
@@ -117,6 +118,8 @@ const shownInline = computed(() => {
 const fileLinks = computed(() => items.value.flatMap((attachment, index) => {
   if (props.hidden) return []
   if (shownInline.value.has(attachment.id)) return []
+  // Overflow images (5th+) are reachable via the +N mosaic / viewer.
+  if (attachment.type === 'image' && !failedMedia.value.has(attachment.id)) return []
   try {
     const target = attachment.remote_url || attachment.url
     const url = new URL(target, window.location.origin)
