@@ -58,3 +58,41 @@ func TestExistingWebAndOAuthTokensRespectCurrentModeration(t *testing.T) {
 		require.Equal(t, 204, request())
 	}
 }
+
+func TestSuspendedAccountCanReachAppealRouteOnly(t *testing.T) {
+	setup := testutil.NewTestSetup(t, testutil.WithModels(&models.User{}, &models.Account{}))
+	database.SetTestMode()
+	database.SetTestDB(setup.GormDB())
+	t.Cleanup(database.ResetTestDB)
+	useTestRedis(t)
+	old := config.C.EncryptedKey
+	config.C.EncryptedKey = "0123456789abcdef0123456789abcdef"
+	t.Cleanup(func() { config.C.EncryptedKey = old })
+	conn := setup.GormDB()
+	user := models.User{Id: 81, UUID: "appeal-token", UserName: "appealtoken", EmailHash: "appeal-email", IsBan: true, Status: models.UserStatusNormal}
+	account := models.Account{Id: 82, UserId: user.Id, Username: user.UserName, IsBan: true}
+	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(&user).Error)
+	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(&account).Error)
+	token := (models.AuthTokenData{UserId: user.Id, AuthType: models.AuthTokenTypeWeb}).GetTokenStr(config.C.EncryptedKey)
+	require.NotEmpty(t, token)
+	require.NoError(t, globalRedisClient.Set(context.Background(), tokenCacheKey(token), "valid", tokenCacheTTL).Err())
+
+	r := gin.New()
+	r.Use(AuthMiddleware())
+	r.POST("/api/v1/appeals", func(c *gin.Context) { c.Status(204) })
+	r.GET("/api/v1/appeals", func(c *gin.Context) { c.Status(204) })
+	r.POST("/api/v1/reports", func(c *gin.Context) { c.Status(204) })
+	call := func(method, path string) int {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(method, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	require.Equal(t, 204, call(http.MethodPost, "/api/v1/appeals"))
+	require.Equal(t, 204, call(http.MethodGet, "/api/v1/appeals"))
+	require.Equal(t, 401, call(http.MethodPost, "/api/v1/reports"))
+
+	require.NoError(t, conn.Model(&user).UpdateColumn("status", models.UserStatusRejected).Error)
+	require.Equal(t, 401, call(http.MethodPost, "/api/v1/appeals"))
+}

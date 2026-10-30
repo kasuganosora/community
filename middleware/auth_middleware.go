@@ -153,9 +153,12 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		// Moderation is evaluated against current rows on every request,
 		// including OAuth tokens already present in the token cache.
+		// A suspended local account may still open or submit its own appeal.
 		if user.IsBan || user.Status != models.UserStatusNormal || account.IsBan {
-			returnUnauthorizedAndRemoveCookie(c)
-			return
+			if !suspendedAppealAllowed(c.Request, user, account) {
+				returnUnauthorizedAndRemoveCookie(c)
+				return
+			}
 		}
 		if tokenData.ApplicationId > 0 {
 			application := &models.Application{}
@@ -416,7 +419,7 @@ func oauthTokenMayWrite(r *http.Request, td *models.AuthTokenData) bool {
 		return true
 	}
 	// Mastodon grants translation with read:statuses even though it is a POST.
-	if isTranslatePath(r.URL.Path) {
+	if isTranslatePath(r.URL.Path) || isAppealPath(r.URL.Path) {
 		return true
 	}
 	s := td.Scopes
@@ -474,6 +477,25 @@ func touchTokenLastUsed(ctx context.Context, token *models.AuthToken, now time.T
 
 func isTranslatePath(path string) bool {
 	return strings.HasPrefix(path, "/api/v1/statuses/") && strings.HasSuffix(path, "/translate")
+}
+
+func isAppealPath(path string) bool {
+	return path == "/api/v1/appeals" || path == "/api/v2/appeals"
+}
+
+// suspendedAppealAllowed lets a suspended (not rejected or disabled) account
+// read and file the single appeal for an automatic suspension.
+func suspendedAppealAllowed(r *http.Request, user *models.User, account *models.Account) bool {
+	if r == nil || user == nil || account == nil || user.Status != models.UserStatusNormal {
+		return false
+	}
+	if !user.IsBan && !account.IsBan {
+		return false
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		return false
+	}
+	return isAppealPath(r.URL.Path)
 }
 
 // accountActiveInterval throttles accounts.last_active_at writes.

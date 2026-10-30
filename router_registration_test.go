@@ -36,4 +36,8 @@ func TestSetRouterRegistersWithoutPanic(t *testing.T) {
 	assert.True(t, seen["GET /api/v2/filters"])
 	assert.True(t, seen["GET /api/v1/filters"])
 	assert.True(t, seen["GET /api/v1/timelines/public"])
+	assert.True(t, seen["POST /api/v1/appeals"])
+	assert.True(t, seen["POST /api/v2/appeals"])
+	assert.True(t, seen["GET /api/v1/admin/appeals"])
+	assert.True(t, seen["POST /api/v1/admin/appeals/:id/resolve"])
 }

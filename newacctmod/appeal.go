@@ -16,6 +16,27 @@ var (
 	ErrAppealClosed   = errors.New("appeal already resolved")
 )
 
+// SuspensionJob returns the auto-suspension a local account may appeal.
+// statusID 0 selects the latest one.
+func SuspensionJob(conn *gorm.DB, accountID, statusID uint64) (*ReviewJob, error) {
+	q := conn.Where("account_id = ? AND state = ? AND verdict = ?", accountID, "done", "suspend")
+	if statusID != 0 {
+		q = q.Where("status_id = ?", statusID)
+	}
+	var job ReviewJob
+	if err := q.Order("id DESC").First(&job).Error; err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+// ListAccountAppeals returns the account's appeals, newest first.
+func ListAccountAppeals(conn *gorm.DB, accountID uint64) ([]Appeal, error) {
+	var rows []Appeal
+	err := conn.Where("account_id = ?", accountID).Order("id DESC").Limit(20).Find(&rows).Error
+	return rows, err
+}
+
 func CreateAppeal(conn *gorm.DB, accountID, statusID uint64, body string) (*Appeal, error) {
 	body = strings.TrimSpace(body)
 	if body == "" {
