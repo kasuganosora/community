@@ -73,6 +73,22 @@ func TestLoginWithoutTwoFactor(t *testing.T) {
 	require.NotEmpty(t, body["token"])
 }
 
+func TestLoginAllowsSuspendedAccount(t *testing.T) {
+	e := newTwoFactorEnv(t)
+	require.NoError(t, e.conn.Model(e.u).Update("is_ban", true).Error)
+	code, body := e.call(Login, map[string]any{"username": "qa", "password": "correct-password"}, false)
+	require.Equal(t, 200, code, body)
+	require.NotEmpty(t, body["token"])
+}
+
+func TestLoginRejectsAbnormalStatus(t *testing.T) {
+	e := newTwoFactorEnv(t)
+	require.NoError(t, e.conn.Model(e.u).Update("status", models.UserStatusRejected).Error)
+	code, body := e.call(Login, map[string]any{"username": "qa", "password": "correct-password"}, false)
+	require.Equal(t, 401, code, body)
+	require.Equal(t, "user status abnormal", body["error"])
+}
+
 func TestTwoFactorSetupLoginAndDisable(t *testing.T) {
 	e := newTwoFactorEnv(t)
 

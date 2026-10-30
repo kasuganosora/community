@@ -30,6 +30,8 @@ export const RouteNames = {
   ADMIN_OVERVIEW: 'admin-overview',
   ADMIN_ACCOUNTS: 'admin-accounts',
   ADMIN_REPORTS: 'admin-reports',
+  ADMIN_APPEALS: 'admin-appeals',
+  APPEAL: 'appeal',
   ADMIN_FEDERATION: 'admin-federation',
   ADMIN_SYSTEM: 'admin-system',
   ADMIN_DISCOVERY: 'admin-discovery',
@@ -91,6 +93,12 @@ const PublicRoutes: RouteRecordRaw[] = [
     path: '/about',
     name: RouteNames.ABOUT,
     component: lazyRoute(() => import('@/domains/instance/presentation/pages/AboutPage.vue'), pageHeading),
+  },
+  {
+    path: '/appeal',
+    name: RouteNames.APPEAL,
+    component: lazyRoute(() => import('@/domains/auth/presentation/pages/AppealPage.vue'), pageHeading),
+    meta: { requiresAuth: true },
   },
 ]
 
@@ -208,6 +216,7 @@ export const routes: RouteRecordRaw[] = [
       { path: '', name: RouteNames.ADMIN_OVERVIEW, component: lazyRoute(() => import('@/domains/admin/presentation/pages/OverviewAdminPage.vue'), pageHeading), meta: { adminPermission: 'dashboard' } },
       { path: 'accounts', name: RouteNames.ADMIN_ACCOUNTS, component: lazyRoute(() => import('@/domains/admin/presentation/pages/AccountsAdminPage.vue'), pageHeading), meta: { adminPermission: 'users' } },
       { path: 'reports', name: RouteNames.ADMIN_REPORTS, component: lazyRoute(() => import('@/domains/admin/presentation/pages/ReportsAdminPage.vue'), pageHeading), meta: { adminPermission: 'reports' } },
+      { path: 'appeals', name: RouteNames.ADMIN_APPEALS, component: lazyRoute(() => import('@/domains/admin/presentation/pages/AppealsAdminPage.vue'), pageHeading), meta: { adminPermission: 'reports' } },
       { path: 'federation', name: RouteNames.ADMIN_FEDERATION, component: lazyRoute(() => import('@/domains/admin/presentation/pages/FederationAdminPage.vue'), pageHeading), meta: { adminPermission: 'federation' } },
       { path: 'system', name: RouteNames.ADMIN_SYSTEM, component: lazyRoute(() => import('@/domains/admin/presentation/pages/SystemAdminPage.vue'), pageHeading), meta: { adminPermission: 'system' } },
       { path: 'emojis', name: RouteNames.ADMIN_EMOJIS, component: lazyRoute(() => import('@/domains/admin/presentation/pages/EmojiAdminPage.vue'), pageHeading), meta: { adminPermission: 'emojis' } },
@@ -282,6 +291,7 @@ export const RouteTitles: Partial<Record<RouteName, { title: string }>> = {
   [RouteNames.ADMIN_EMOJIS]: { title: t('shared.routes.s28') },
   [RouteNames.ABOUT]: { title: t('shared.routes.s29') },
   [RouteNames.ANNOUNCEMENTS]: { title: t('shared.routes.s30') },
+  [RouteNames.APPEAL]: { title: t('shared.routes.s31') },
 }
 
 export function pageHeading(name: unknown): string {

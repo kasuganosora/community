@@ -4,6 +4,7 @@ import { defineStore } from 'pinia'
 import type { MastodonAccount } from '@/shared/types/mastodon'
 import type { AuthCredentials } from '../../domain/entities'
 import { authApi } from '../../infrastructure/authApi'
+import { beginLocalSignOut, endLocalSignOut, isAppealSession } from '@/shared/api/appealSession'
 import { tokenService } from '@/shared/api/client'
 import { useMediaMode } from '@/shared/composables/useMediaMode'
 import { syncUiLocale } from '@/shared/composables/useUiLocale'
@@ -91,6 +92,7 @@ export const useAuthStore = defineStore('auth', () => {
     tokenService.set(rawToken)
     const success = await fetchCurrentUser()
     if (!success) {
+      if (isAppealSession()) return
       await logout()
       throw new Error(t('auth.authStore.s3'))
     }
@@ -149,9 +151,10 @@ export const useAuthStore = defineStore('auth', () => {
         if (throwOnError) throw e
         return false
       }
+      // A suspended account keeps the bearer: only the appeal routes still work.
+      if (isAppealSession()) return false
       // Any other 4xx (401, 403, 422, ...) means the server rejected this
-      // session; suspended/disabled accounts get 401 from AuthMiddleware.
-      // Sign out locally — the token is unusable, so no logout API call.
+      // session. Sign out locally — the token is unusable, so no logout API call.
       const rejected = token.value
       currentUser.value = null
       if (rejected) {
@@ -172,6 +175,7 @@ export const useAuthStore = defineStore('auth', () => {
    */
   async function logout(redirectToLogin = false, switchAfter = true): Promise<boolean> {
     ++fetchUserVersion
+    beginLocalSignOut()
     invalidateSessionData()
     const leaving = token.value
     // Notify backend to invalidate the token — ignore failures to ensure local cleanup always runs
@@ -195,9 +199,8 @@ export const useAuthStore = defineStore('auth', () => {
       reloadTo('/')
       return true
     }
-    if (redirectToLogin) {
-      window.location.href = '/login'
-    }
+    if (redirectToLogin) window.location.href = '/login'
+    endLocalSignOut()
     return false
   }
 
@@ -229,6 +232,7 @@ export const useAuthStore = defineStore('auth', () => {
    */
   function expireSession(): boolean {
     ++fetchUserVersion
+    beginLocalSignOut()
     invalidateSessionData()
     const dead = accountRegistry.markNeedsRelogin(token.value ?? '')
     refreshAccounts()
@@ -238,9 +242,11 @@ export const useAuthStore = defineStore('auth', () => {
     const next = accountRegistry.nextUsableAccount(dead?.id)
     if (next) {
       tokenService.set(next.token)
+      endLocalSignOut()
       reloadTo('/')
       return true
     }
+    endLocalSignOut()
     return false
   }
 
@@ -259,7 +265,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
     const initialToken = token.value
     const success = await fetchCurrentUser({ throwOnError: true })
-    if (!success && token.value === initialToken) {
+    if (!success && token.value === initialToken && !isAppealSession()) {
       token.value = null
       tokenService.clear()
     }

@@ -415,7 +415,8 @@
       "s27": "Import & Export persönlicher Daten",
       "s28": "Verwaltung eigener Emojis",
       "s29": "Über",
-      "s30": "Community-Ankündigungen"
+      "s30": "Community-Ankündigungen",
+      "s31": "Konto-Einspruch"
     },
     "imageCrop": {
       "s1": "Ungültige Bildabmessungen"
@@ -501,7 +502,8 @@
       "s31": "Datenbank",
       "s32": "Matrix-Dienst",
       "s33": "Datenmigration",
-      "s34": "Vollständiges Backup derselben Domain prüfen und importieren."
+      "s34": "Vollständiges Backup derselben Domain prüfen und importieren.",
+      "s35": "Sperr-Einsprüche"
     },
     "accessAdminApi": {
       "s1": "Statistik",
@@ -1358,7 +1360,51 @@
       "s36": "Offene Meldungen",
       "s37": "Noch nicht erledigt",
       "s38": "Statistik konnte nicht geladen werden, bitte erneut versuchen",
-      "s39": "Seiteninfos können gerade nicht geladen werden"
+      "s39": "Seiteninfos können gerade nicht geladen werden",
+      "s40": "Sperr-Einsprüche prüfen",
+      "s41": "Annehmen oder ablehnen. Entsperren bleibt in der Nutzerverwaltung"
+    },
+    "AppealsAdminPage": {
+      "s1": "Sperr-Einsprüche",
+      "s2": "Einsprüche nach einer automatischen Sperre. Annehmen oder Ablehnen speichert nur die Entscheidung und hebt die Sperre nicht auf.",
+      "s3": "Einsprüche filtern",
+      "s4": "Status",
+      "s5": "Alle",
+      "s6": "Offen",
+      "s7": "Angenommen",
+      "s8": "Abgelehnt",
+      "s9": "Filtern",
+      "s10": "Einsprüche werden geladen…",
+      "s11": "Liste der Einsprüche, horizontal scrollbar",
+      "s12": "Einspruch",
+      "s13": "Konto-ID",
+      "s14": "Beitrags-ID",
+      "s15": "Status",
+      "s16": "Eingereicht",
+      "s17": "Aktionen",
+      "s18": "Keine Einsprüche für diesen Filter",
+      "s19": "Einspruchsseiten",
+      "s20": "Zurück",
+      "s21": "Seite {0}",
+      "s22": "Weiter",
+      "s23": "Einspruchsdetails",
+      "s24": "Einspruch #{0}",
+      "s25": "Text des Einspruchs",
+      "s26": "Kein Text",
+      "s27": "Moderationsnotiz (optional)",
+      "s28": "Notiz nur für Moderatoren",
+      "s29": "Annehmen",
+      "s30": "Ablehnen",
+      "s31": "Einspruch #{0} annehmen? Das speichert nur die Entscheidung und hebt die Sperre nicht auf.",
+      "s32": "Einspruch #{0} ablehnen?",
+      "s33": "Moderationsnotiz",
+      "s34": "Keine Notiz",
+      "s35": "Entschieden",
+      "s36": "Zum Wiederherstellen der Anmeldung die Sperre in der Nutzerverwaltung aufheben.",
+      "s37": "Nutzerverwaltung öffnen",
+      "s38": "Kein verknüpfter Beitrag",
+      "s39": "Die Aktion ist fehlgeschlagen",
+      "s40": "Details"
     },
     "ReportsAdminPage": {
       "s1": "Meldungen",
@@ -1873,6 +1919,32 @@
       "s2": "Anmeldung fehlgeschlagen; Benutzername und Passwort prüfen",
       "s3": "Nach der Anmeldung konnten die Nutzerdaten nicht geladen werden",
       "s4": "Anmeldung mit Passkey fehlgeschlagen"
+    },
+    "AppealPage": {
+      "s1": "Konto-Einspruch",
+      "s2": "Dieses Konto kann derzeit nicht normal verwendet werden. Hier können Sie einen Einspruch senden und das Ergebnis ansehen. Ein angenommener Einspruch stellt die Anmeldung nicht wieder her; eine Moderation muss die Sperre getrennt aufheben.",
+      "s3": "Text des Einspruchs",
+      "s4": "Erklären Sie, warum diese Sperre überdacht werden sollte",
+      "s5": "ID des verknüpften Beitrags (optional)",
+      "s6": "Einspruch senden",
+      "s7": "Wird geladen…",
+      "s8": "Wird gesendet…",
+      "s9": "Aktueller Einspruch",
+      "s10": "Status",
+      "s11": "Offen",
+      "s12": "Angenommen",
+      "s13": "Abgelehnt",
+      "s14": "Eingereicht",
+      "s15": "Entschieden",
+      "s16": "Moderationsnotiz",
+      "s17": "Noch keine Notiz",
+      "s18": "Jede automatische Sperre erlaubt einen Einspruch.",
+      "s19": "Abmelden",
+      "s20": "Noch kein Einspruch. Schreiben Sie eine Erklärung und senden Sie sie.",
+      "s21": "Bitte den Einspruch ausfüllen",
+      "s22": "Frühere Einsprüche",
+      "s23": "Beitrag #{0}",
+      "s24": "Kein verknüpfter Beitrag"
     }
   },
   "bookmark": {
@@ -3824,6 +3896,19 @@
     "llmTranslationProviderRequired": "Für LLM-Übersetzung muss ein LLM-Anbieter für Übersetzung gewählt werden",
     "translationInvalidLimit": "Limits müssen ganze Zahlen von 0 bis 1000000 sein",
     "llmTooManyProviders": "Es können höchstens 20 LLM-Anbieter hinzugefügt werden",
-    "translationVisibilityRestricted": "Auf diesem Server können nur öffentliche und nicht gelistete Beiträge übersetzt werden"
+    "translationVisibilityRestricted": "Auf diesem Server können nur öffentliche und nicht gelistete Beiträge übersetzt werden",
+    "appealBodyRequired": "Bitte den Einspruch ausfüllen",
+    "appealExists": "Für diese Sperre wurde bereits Einspruch eingelegt",
+    "appealClosed": "Dieser Einspruch ist bereits entschieden",
+    "appealNotFound": "Einspruch nicht gefunden",
+    "appealLocalOnly": "Nur ein Konto auf diesem Server kann Einspruch einlegen",
+    "appealAcceptRequired": "Geben Sie an, ob der Einspruch angenommen wird",
+    "appealNotSuspended": "Dieses Konto ist nicht gesperrt",
+    "appealCreateFailed": "Der Einspruch konnte nicht gesendet werden. Bitte später erneut versuchen",
+    "appealListFailed": "Einsprüche konnten nicht geladen werden. Bitte später erneut versuchen",
+    "appealLoadFailed": "Diese Sperre konnte nicht geladen werden. Bitte später erneut versuchen",
+    "appealResolveFailed": "Die Entscheidung konnte nicht gespeichert werden. Bitte später erneut versuchen",
+    "appealInvalidStatus": "Ungültige Beitrags-ID",
+    "appealNoCase": "Keine automatische Sperre, gegen die Einspruch eingelegt werden kann"
   }
 }

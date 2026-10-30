@@ -415,7 +415,8 @@
       "s27": "Import et export des données personnelles",
       "s28": "Gestion des émojis personnalisés",
       "s29": "À propos",
-      "s30": "Annonces de la communauté"
+      "s30": "Annonces de la communauté",
+      "s31": "Recours du compte"
     },
     "imageCrop": {
       "s1": "Dimensions d’image non valides"
@@ -501,7 +502,8 @@
       "s31": "Base de données",
       "s32": "Service Matrix",
       "s33": "Migration des données",
-      "s34": "Pré-vérifiez et importez une sauvegarde complète du site depuis le même domaine."
+      "s34": "Pré-vérifiez et importez une sauvegarde complète du site depuis le même domaine.",
+      "s35": "Recours de suspension"
     },
     "accessAdminApi": {
       "s1": "Statistiques",
@@ -1358,7 +1360,51 @@
       "s36": "Signalements ouverts",
       "s37": "Pas encore traités",
       "s38": "Impossible de charger les statistiques, réessayez",
-      "s39": "Infos du site indisponibles pour le moment"
+      "s39": "Infos du site indisponibles pour le moment",
+      "s40": "Traiter les recours",
+      "s41": "Accepter ou refuser. Lever la suspension reste dans la gestion des comptes"
+    },
+    "AppealsAdminPage": {
+      "s1": "Recours de suspension",
+      "s2": "Recours après une suspension automatique. Accepter ou refuser enregistre seulement la décision et ne lève pas la suspension.",
+      "s3": "Filtrer les recours",
+      "s4": "État",
+      "s5": "Tous",
+      "s6": "Ouvert",
+      "s7": "Accepté",
+      "s8": "Refusé",
+      "s9": "Filtrer",
+      "s10": "Chargement des recours…",
+      "s11": "Liste des recours, défilement horizontal",
+      "s12": "Recours",
+      "s13": "ID du compte",
+      "s14": "ID du post",
+      "s15": "État",
+      "s16": "Envoyé",
+      "s17": "Actions",
+      "s18": "Aucun recours pour ce filtre",
+      "s19": "Pages de recours",
+      "s20": "Précédent",
+      "s21": "Page {0}",
+      "s22": "Suivant",
+      "s23": "Détail du recours",
+      "s24": "Recours #{0}",
+      "s25": "Texte du recours",
+      "s26": "Aucun texte",
+      "s27": "Note de modération (facultative)",
+      "s28": "Note visible seulement par les modérateurs",
+      "s29": "Accepter",
+      "s30": "Refuser",
+      "s31": "Accepter le recours #{0} ? Cela enregistre seulement la décision et ne lève pas la suspension.",
+      "s32": "Refuser le recours #{0} ?",
+      "s33": "Note de modération",
+      "s34": "Aucune note",
+      "s35": "Traité",
+      "s36": "Pour rétablir la connexion, levez la suspension dans la gestion des comptes.",
+      "s37": "Ouvrir la gestion des comptes",
+      "s38": "Aucun post lié",
+      "s39": "L’action a échoué",
+      "s40": "Détails"
     },
     "ReportsAdminPage": {
       "s1": "Signalements",
@@ -1873,6 +1919,32 @@
       "s2": "Échec de la connexion ; vérifiez votre identifiant et mot de passe",
       "s3": "Impossible de récupérer les infos utilisateur après connexion",
       "s4": "Échec de la connexion par clé d’accès"
+    },
+    "AppealPage": {
+      "s1": "Recours du compte",
+      "s2": "Ce compte ne peut pas être utilisé normalement pour le moment. Vous pouvez envoyer un recours ici et suivre son résultat. Accepter un recours ne rétablit pas la connexion : un modérateur doit encore lever la suspension.",
+      "s3": "Texte du recours",
+      "s4": "Expliquez pourquoi cette suspension devrait être revue",
+      "s5": "ID du post lié (facultatif)",
+      "s6": "Envoyer le recours",
+      "s7": "Chargement…",
+      "s8": "Envoi…",
+      "s9": "Recours en cours",
+      "s10": "État",
+      "s11": "Ouvert",
+      "s12": "Accepté",
+      "s13": "Refusé",
+      "s14": "Envoyé",
+      "s15": "Traité",
+      "s16": "Note de modération",
+      "s17": "Pas encore de note",
+      "s18": "Chaque suspension automatique n’autorise qu’un seul recours.",
+      "s19": "Se déconnecter",
+      "s20": "Pas encore de recours. Écrivez une explication, puis envoyez-la.",
+      "s21": "Rédigez le recours",
+      "s22": "Recours précédents",
+      "s23": "Post #{0}",
+      "s24": "Aucun post lié"
     }
   },
   "bookmark": {
@@ -3824,6 +3896,19 @@
     "llmTranslationProviderRequired": "La traduction par LLM nécessite un fournisseur LLM pour la traduction",
     "translationInvalidLimit": "Les limites doivent être des entiers de 0 à 1000000",
     "llmTooManyProviders": "Vous pouvez ajouter au plus 20 fournisseurs LLM",
-    "translationVisibilityRestricted": "Seuls les messages publics et non listés peuvent être traduits sur ce serveur"
+    "translationVisibilityRestricted": "Seuls les messages publics et non listés peuvent être traduits sur ce serveur",
+    "appealBodyRequired": "Rédigez le recours",
+    "appealExists": "Un recours a déjà été envoyé pour cette suspension",
+    "appealClosed": "Ce recours a déjà été traité",
+    "appealNotFound": "Recours introuvable",
+    "appealLocalOnly": "Seul un compte de ce serveur peut faire un recours",
+    "appealAcceptRequired": "Indiquez s’il faut accepter le recours",
+    "appealNotSuspended": "Ce compte n’est pas suspendu",
+    "appealCreateFailed": "Le recours n’a pas pu être envoyé. Réessayez plus tard",
+    "appealListFailed": "Impossible de charger les recours. Réessayez plus tard",
+    "appealLoadFailed": "Impossible de charger cette suspension. Réessayez plus tard",
+    "appealResolveFailed": "La décision n’a pas pu être enregistrée. Réessayez plus tard",
+    "appealInvalidStatus": "Identifiant de post invalide",
+    "appealNoCase": "Aucune suspension automatique à contester"
   }
 }

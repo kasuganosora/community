@@ -3,7 +3,9 @@ import SlowNetworkHint from '@/shared/components/common/SlowNetworkHint.vue'
 import { defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import { accountHover } from '@/shared/composables/useAccountHover'
 const AccountHoverCard = defineAsyncComponent(() => import('@/shared/components/common/AccountHoverCard.vue'))
+import { isAppealSession } from '@/shared/api/appealSession'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
+import router from '@/shared/router'
 import { useEmojiStore } from '@/domains/emoji/presentation/stores/emojiStore'
 import { navigationPending } from '@/shared/router/navigationFeedback'
 
@@ -24,6 +26,9 @@ async function retryInit() {
   slowTimer = setTimeout(() => { slowInit.value = true }, 6000)
   try {
     await authStore.initialize()
+    if (isAppealSession() && router.currentRoute.value.name !== 'appeal') {
+      await router.replace({ name: 'appeal' })
+    }
   } catch (e) {
     console.error('Failed to initialize auth:', e)
     const msg = e instanceof Error ? e.message : String(e)

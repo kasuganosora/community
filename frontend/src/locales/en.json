@@ -415,7 +415,8 @@
       "s27": "Personal data import & export",
       "s28": "Custom emoji management",
       "s29": "About",
-      "s30": "Community announcements"
+      "s30": "Community announcements",
+      "s31": "Account appeal"
     },
     "imageCrop": {
       "s1": "Invalid image dimensions"
@@ -501,7 +502,8 @@
       "s31": "Database",
       "s32": "Matrix service",
       "s33": "Data migration",
-      "s34": "Pre-check and import a full site backup from the same domain."
+      "s34": "Pre-check and import a full site backup from the same domain.",
+      "s35": "Suspension appeals"
     },
     "accessAdminApi": {
       "s1": "Statistics",
@@ -1358,7 +1360,51 @@
       "s36": "Open reports",
       "s37": "Not yet resolved",
       "s38": "Couldn’t load stats, please try again",
-      "s39": "Site info can’t be loaded right now"
+      "s39": "Site info can’t be loaded right now",
+      "s40": "Review suspension appeals",
+      "s41": "Accept or reject. Unsuspend still happens in user management"
+    },
+    "AppealsAdminPage": {
+      "s1": "Suspension appeals",
+      "s2": "Appeals filed after an automatic suspension. Accepting or rejecting only records the decision and does not unsuspend the account.",
+      "s3": "Filter appeals",
+      "s4": "State",
+      "s5": "All",
+      "s6": "Open",
+      "s7": "Accepted",
+      "s8": "Rejected",
+      "s9": "Filter",
+      "s10": "Loading appeals…",
+      "s11": "Appeal list, scrolls horizontally",
+      "s12": "Appeal",
+      "s13": "Account ID",
+      "s14": "Post ID",
+      "s15": "State",
+      "s16": "Submitted",
+      "s17": "Actions",
+      "s18": "No appeals match this filter",
+      "s19": "Appeal pages",
+      "s20": "Previous",
+      "s21": "Page {0}",
+      "s22": "Next",
+      "s23": "Appeal detail",
+      "s24": "Appeal #{0}",
+      "s25": "Appeal",
+      "s26": "No text provided",
+      "s27": "Moderator note (optional)",
+      "s28": "A note visible only to moderators",
+      "s29": "Accept",
+      "s30": "Reject",
+      "s31": "Accept appeal #{0}? This only records the decision and does not unsuspend the account.",
+      "s32": "Reject appeal #{0}?",
+      "s33": "Moderator note",
+      "s34": "No note",
+      "s35": "Resolved",
+      "s36": "To restore sign-in, unsuspend the account in user management.",
+      "s37": "Open user management",
+      "s38": "No linked post",
+      "s39": "That action failed",
+      "s40": "Details"
     },
     "ReportsAdminPage": {
       "s1": "Reports",
@@ -1873,6 +1919,32 @@
       "s2": "Sign-in failed; check your username and password",
       "s3": "Couldn’t load user info after signing in",
       "s4": "Passkey sign-in failed"
+    },
+    "AppealPage": {
+      "s1": "Account appeal",
+      "s2": "This account can’t be used normally right now. You can submit one appeal here and check its result. Accepting an appeal does not restore sign-in; a moderator still has to unsuspend the account.",
+      "s3": "Appeal",
+      "s4": "Explain why this suspension should be reconsidered",
+      "s5": "Linked post ID (optional)",
+      "s6": "Submit appeal",
+      "s7": "Loading…",
+      "s8": "Submitting…",
+      "s9": "Current appeal",
+      "s10": "State",
+      "s11": "Open",
+      "s12": "Accepted",
+      "s13": "Rejected",
+      "s14": "Submitted",
+      "s15": "Resolved",
+      "s16": "Moderator note",
+      "s17": "No note yet",
+      "s18": "Each automatic suspension allows one appeal.",
+      "s19": "Sign out",
+      "s20": "No appeal yet. Write an explanation, then submit it.",
+      "s21": "Please write an appeal",
+      "s22": "Earlier appeals",
+      "s23": "Post #{0}",
+      "s24": "No linked post"
     }
   },
   "bookmark": {
@@ -3824,6 +3896,19 @@
     "llmTranslationProviderRequired": "LLM translation needs an LLM provider selected for Translation",
     "translationInvalidLimit": "Limits must be whole numbers from 0 to 1000000",
     "llmTooManyProviders": "At most 20 LLM providers can be added",
-    "translationVisibilityRestricted": "Only public and unlisted posts can be translated on this server"
+    "translationVisibilityRestricted": "Only public and unlisted posts can be translated on this server",
+    "appealBodyRequired": "Please write an appeal",
+    "appealExists": "An appeal was already submitted for this suspension",
+    "appealClosed": "This appeal is already resolved",
+    "appealNotFound": "Appeal not found",
+    "appealLocalOnly": "Only an account on this server can appeal",
+    "appealAcceptRequired": "Choose whether to accept the appeal",
+    "appealNotSuspended": "This account is not suspended",
+    "appealCreateFailed": "The appeal could not be submitted. Please try again later",
+    "appealListFailed": "Appeals could not be loaded. Please try again later",
+    "appealLoadFailed": "This suspension could not be loaded. Please try again later",
+    "appealResolveFailed": "The decision could not be saved. Please try again later",
+    "appealInvalidStatus": "Invalid post ID",
+    "appealNoCase": "There is no automatic suspension to appeal"
   }
 }
