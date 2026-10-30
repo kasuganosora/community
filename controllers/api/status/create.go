@@ -15,6 +15,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/moderation"
+	"github.com/kasuganosora/community/newacctmod"
 	"github.com/kasuganosora/community/systemsettings"
 )
 
@@ -232,6 +233,7 @@ func Create(c *gin.Context) {
 		}
 		createDB = createDB.WithContext(models.WithStructuredRecipientIDs(c.Request.Context(), recipients))
 	}
+	newacctmod.PrepareCreate(status, currentAccount)
 	err = models.CreateStatusCommitted(createDB, status)
 	if err != nil {
 		_ = c.Error(err)
@@ -239,6 +241,7 @@ func Create(c *gin.Context) {
 
 		return
 	}
+	newacctmod.Enqueue(db.GetDB(), status)
 
 	now := time.Now()
 	currentAccount.LastStatusAt = &now

@@ -39,6 +39,7 @@ import (
 	"github.com/kasuganosora/community/moderation"
 	_ "github.com/kasuganosora/community/notifications"
 	"github.com/kasuganosora/community/profileverify"
+	"github.com/kasuganosora/community/newacctmod"
 	"github.com/kasuganosora/community/runtimeconfig"
 	"github.com/kasuganosora/community/search/indexsync"
 	"github.com/kasuganosora/community/server"
@@ -167,6 +168,7 @@ func main() {
 	userwebhook.Start(transferContext, db.GetDB())
 	accountlifecycle.Start(transferContext, db.GetDB())
 	profileverify.Start(transferContext, db.GetDB())
+	newacctmod.Start(transferContext, db.GetDB())
 	moderation.StartInactivityChecker(serviceContext)
 	translation.StartCacheJanitor(serviceContext)
 

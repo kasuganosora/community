@@ -28,7 +28,8 @@ import (
 const (
 	KeyConfig = "config.llm.config" // JSON document, see Config
 
-	ServiceTranslation = "translation"
+	ServiceTranslation   = "translation"
+	ServiceNewAccountMod = "new_account_mod"
 )
 
 // Provider types accepted by the admin API.
@@ -44,7 +45,7 @@ const (
 var ProviderTypes = []string{TypeOpenAI, TypeOpenAICompatible, TypeAnthropic, TypeGoogle, TypeGrok}
 
 // Services lists the features that can use an LLM.
-var Services = []string{ServiceTranslation}
+var Services = []string{ServiceTranslation, ServiceNewAccountMod}
 
 // ProviderConfig is one configured LLM endpoint as stored in the database.
 // APIKeyEnc holds the AES-encrypted key; the plaintext never leaves this package
