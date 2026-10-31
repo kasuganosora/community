@@ -17,7 +17,7 @@
 
 - 媒体始终通过本站路由 `/media/<id>/<文件名>`、`/media/<id>/thumbnail/<缩略图>` 访问（`controllers/api/media/serve.go`）。
 - 本地后端或未配置 `S3_PUBLIC_URL`：由本站从后端读取并返回（`http.ServeContent`，支持 Range）。
-- 配置了 `S3_PUBLIC_URL`：图片 / 音频 / 视频以 302 跳转到 `<S3_PUBLIC_URL>/<对象键>`；其他类型仍由本站以 `attachment` 返回。
+- 配置了 `S3_PUBLIC_URL`：图片 / 音频 / 视频以 302 跳转到 `<S3_PUBLIC_URL>/<对象键>`；其他类型仍由本站以 `attachment` 返回。该地址必须是**存储桶根**（自定义域名或 `https://pub-xxxx.r2.dev`），不要带桶名。旧实现会在公开地址后再拼 `/<桶名>/<键>`。若现在的值仍以 `/<桶名>` 结尾，而自定义域名实际按 `<域名>/<键>` 提供文件，服务会探测一次：配置的地址返回 404、去掉这段桶名后返回 200 时，重定向改用较短的根地址。与 S3 API 同主机的路径风格地址（`https://端点/桶名`）不会被改写。
 
 `models.MediaStorageKey` / `MediaAttachment.StorageKey()` 兼容旧数据：`2026/..` 相对路径、`uploads/...` 本机路径，以及旧版本 S3 模式误存的完整桶 URL（`https://<endpoint>/<bucket>/media/...`）。迁移脚本 `NormalizeStorageKeysScript` 会把后者改写为键。
 
