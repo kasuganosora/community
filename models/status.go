@@ -385,6 +385,12 @@ func (s *Status) AfterCreate(tx *gorm.DB) (err error) {
 		Data: s,
 	})
 
+	// A redraft (or any new post) that reuses these attachments is no longer
+	// waiting to be purged.
+	if err = clearDetachedMedia(tx, s.Attachments); err != nil {
+		return err
+	}
+
 	// 维护作者的 statuses_count（仅本地作者的计数有意义，远程账号同样更新以保持一致）。
 	// 转发（reblog）不增加原作者的 statuses_count，这里 s.ReblogId 为空表示原创 status。
 	// accounts_extra 表可能尚未迁移（测试 / 引导场景），此时跳过计数器维护，不阻断核心创建操作。
@@ -491,18 +497,67 @@ func (s *Status) BeforeDelete(tx *gorm.DB) (err error) {
 	return
 }
 
+// detachStatusMedia unlinks every attachment of a deleted status without
+// removing its storage objects. detached_at starts the redraft window.
+// A schema that predates the column only clears status_id.
+func detachStatusMedia(tx *gorm.DB, statusID uint64) error {
+	now := time.Now()
+	if tx.Migrator().HasColumn(&MediaAttachment{}, "detached_at") {
+		return tx.Exec(
+			"UPDATE media_attachments SET status_id = NULL, detached_at = ?, updated_at = ? WHERE status_id = ?",
+			now, now, statusID,
+		).Error
+	}
+
+	return tx.Model(&MediaAttachment{}).Where("status_id = ?", statusID).Update("status_id", nil).Error
+}
+
+// clearDetachedMedia marks attachments linked to a new status as in use.
+func clearDetachedMedia(tx *gorm.DB, attachments Attachments) error {
+	ids := make([]uint64, 0, len(attachments))
+	for _, attachment := range attachments {
+		if attachment != nil && attachment.Id != 0 {
+			ids = append(ids, attachment.Id)
+		}
+	}
+
+	if len(ids) == 0 || !tx.Migrator().HasTable(&MediaAttachment{}) || !tx.Migrator().HasColumn(&MediaAttachment{}, "detached_at") {
+		return nil
+	}
+
+	for _, attachment := range attachments {
+		if attachment != nil {
+			attachment.DetachedAt = nil
+		}
+	}
+
+	// Select forces the NULL write. A plain Update skips a nil pointer, and a
+	// raw "SET col = NULL" is not honored by every test engine.
+	for _, id := range ids {
+		if err := tx.Model(&MediaAttachment{}).Where("id = ?", id).Select("detached_at").Updates(map[string]any{"detached_at": nil}).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // deleteDependents removes rows that reference this status before the status
 // row itself is (hard-)deleted. Several of them have foreign keys to
 // statuses.id (status_contents, polls, favorite_statuses, notifications,
 // reblogs, media_attachments), so without this deleting a status failed with
-// MySQL error 1451. Media is detached rather than deleted: it stays owned by
-// the author, which also allows "delete & redraft".
+// MySQL error 1451. Media is detached rather than deleted: status_id is
+// cleared and updated_at is refreshed, so the author can redraft with the
+// same attachment ids during the retention window. mediagc later deletes
+// unattached rows older than that window and their storage objects.
+// Scheduled posts keep status_id. There is no separate draft row; an upload
+// that has not been posted yet stays until the same window elapses.
 func (s *Status) deleteDependents(tx *gorm.DB) error {
 	m := tx.Migrator()
 	has := func(model any) bool { return m.HasTable(model) }
 
 	if has(&MediaAttachment{}) {
-		if err := tx.Model(&MediaAttachment{}).Where("status_id = ?", s.Id).Update("status_id", nil).Error; err != nil {
+		if err := detachStatusMedia(tx, s.Id); err != nil {
 			return err
 		}
 	}

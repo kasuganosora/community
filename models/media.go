@@ -39,11 +39,16 @@ type MediaAttachment struct {
 	Description   string    `gorm:"type:text"                          json:"description"`
 	Blurhash      string    `gorm:"size:255"                           json:"blurhash"`
 	// Sensitive is the per-file flag federated servers send (Misskey, Mastodon).
-	Sensitive bool      `gorm:"not null;default:false"             json:"sensitive"`
-	FocusX    float64   `gorm:"default:0"                          json:"focus_x"`
-	FocusY    float64   `gorm:"default:0"                          json:"focus_y"`
-	CreatedAt time.Time `gorm:"autoCreateTime"                     json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime"                     json:"updated_at"`
+	Sensitive bool    `gorm:"not null;default:false"             json:"sensitive"`
+	FocusX    float64 `gorm:"default:0"                          json:"focus_x"`
+	FocusY    float64 `gorm:"default:0"                          json:"focus_y"`
+	// DetachedAt is set when a status delete unlinks this attachment and
+	// cleared when it is linked again. Expiry uses updated_at, which that
+	// delete also refreshes, so rows unlinked before this column existed are
+	// still eligible once they are old enough.
+	DetachedAt *time.Time `gorm:"index"                              json:"-"`
+	CreatedAt  time.Time  `gorm:"autoCreateTime"                     json:"created_at"`
+	UpdatedAt  time.Time  `gorm:"autoUpdateTime"                     json:"updated_at"`
 
 	// 关联
 	Account *Account `gorm:"foreignKey:AccountId" json:"-"`

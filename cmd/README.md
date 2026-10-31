@@ -132,7 +132,7 @@ flag.Parse()
 | `email-domain-blocks` | `EmailDomainBlocksCommand()` | 邮箱域名封锁（list / add / remove） |
 | `emoji` | `EmojiCommand()` | 自定义表情（export / import / purge） |
 | `feeds` | `FeedsCommand()` | Feed 管理（build / clear） |
-| `media` | `MediaCommand()` | 媒体文件管理（remove / remove-orphans / refresh / usage / lookup） |
+| `media` | `MediaCommand()` | 媒体文件管理（remove / remove-orphans / purge-unattached / refresh / usage / lookup） |
 | `statuses` | `StatusesCommand()` | 帖子管理（remove） |
 | `passkeys` | `PasskeysCommand()` | Passkey 管理（import-misskey） |
 
@@ -190,6 +190,7 @@ flag.Parse()
 |--------|------|-----------|
 | `media remove` | 删除**远程账号**附件的本地缓存副本（经存储后端删除原图与缩略图，清空 `file_path`/`thumbnail_path`，行保留并回落到 `remote_url`）；本地用户媒体永不触碰；被其他行共享的文件保留 | `--days`, `--concurrency`, `--prune-profiles`, `--remove-headers`, `--dry-run` |
 | `media remove-orphans` | 扫描孤立对象。**默认只报告（dry run）**，必须加 `--confirm` 才删除（同时给 `--dry-run` 时 dry run 优先）。只扫描 `media/`、`matrix/`、`refreshed/`，`emojis/`、`avatars/` 等永不删除；比较规范化后的存储键；跳过宽限期内的对象；数据库查询失败即中止；数据库无任何媒体引用而存储有对象时拒绝执行；删除前逐个回查数据库 | `--confirm`, `--min-age`（默认 24h，最少 1h）, `--prefix`, `--start-after`, `--dry-run` |
+| `media purge-unattached` | 删除 `status_id` 为空且 `updated_at` 早于保留期的附件行，并删除其对象（原图和缩略图）。删除帖子只解除关联并刷新 `updated_at`，不立刻删对象，以便重发；保留期从那次刷新起算。定时帖仍有 `status_id`，不会被选中。没有单独的草稿表，未发出的上传在同一保留期内保留。仍被其他附件或头像/横幅引用的对象不删；存储删除失败则保留该行，下次再试。**默认只报告**，`--confirm` 才删除（`--dry-run` 优先）。服务进程默认每小时跑一轮（`MEDIA_UNATTACHED_PURGE=off` 关闭，`MEDIA_UNATTACHED_TTL` 改保留期，默认 `168h`，最少 `1h`） | `--confirm`, `--min-age`（默认 168h，最少 1h）, `--dry-run` |
 | `media refresh` | 重新拉取远程账号的媒体附件，写入 `media/<yyyy/mm/dd>/...` 键 | `--account`, `--domain`, `--status`, `--days`, `--force` |
 | `media usage` | 按命名空间（`media/`、`matrix/`、`emojis/`…）统计真实对象数与字节数（本地目录或 S3 桶，S3 下另列旧本地回退目录） | — |
 | `media lookup` | 通过媒体 URL 查找关联帖子 | — |
@@ -294,6 +295,10 @@ MISSKEY_DSN='postgres://misskey:***@127.0.0.1:5432/misskey' ./tootctl passkeys i
 # 孤立文件：先预览，确认后再删除
 ./tootctl media remove-orphans
 ./tootctl media remove-orphans --confirm
+
+# 过期的未附加媒体：先预览，确认后再删除对象和行
+./tootctl media purge-unattached
+./tootctl media purge-unattached --confirm
 
 # 爬取联邦统计（JSON 格式输出）
 ./tootctl domains crawl --format json --concurrency 50
