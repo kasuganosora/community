@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { isAxiosError } from 'axios'
 import { computed, onMounted, reactive, ref } from 'vue'
-import { RouterLink } from 'vue-router'
 import { moderationSettingsApi as api, invalidRegexLine, splitLines, type ModerationSettings, type ModerationUpdate, type UgcVisibility } from '../../infrastructure/moderationSettingsApi'
-import { operationsAdminApi, type SiteRule } from '../../infrastructure/operationsAdminApi'
 import { AdminAlert, AdminButton, AdminCheck, AdminField, AdminPageHeader } from '../components/ui'
 
 import { t } from '@/shared/i18n'
@@ -31,7 +29,6 @@ const data = ref<ModerationSettings>()
 const drafts = reactive<Record<ListKey, string>>({ preserved_usernames: '', sensitive_words: '', prohibited_words: '', prohibited_words_for_name_of_user: '', hidden_tags: '', silenced_hosts: '', media_silenced_hosts: '', blocked_hosts: '' })
 const fieldErrors = reactive<Partial<Record<ListKey, string>>>({})
 const loading = ref(false), busy = ref<string>(''), error = ref(''), notice = ref('')
-const rules = ref<SiteRule[]>([]), ruleDraft = ref(''), ruleEdits = reactive<Record<string, string>>({}), rulesError = ref('')
 
 const locked = computed(() => new Set(data.value?.environment_locked || []))
 function install(s: ModerationSettings) {
@@ -45,8 +42,7 @@ function fmt(v?: string) { return v ? new Date(v).toLocaleString() : '' }
 async function load() {
   loading.value = true; error.value = ''
   try {
-    const [s, r] = await Promise.all([api.get(), operationsAdminApi.rules().catch(() => [] as SiteRule[])])
-    install(s); rules.value = r
+    install(await api.get())
   } catch { error.value = t('admin.ModerationSettingsAdminPage.s50') }
   finally { loading.value = false }
 }
@@ -75,26 +71,6 @@ async function saveList(l: ListSection) {
   await save({ [l.key]: lines } as ModerationUpdate, l.key, t('admin.ModerationSettingsAdminPage.s57', [l.title]))
 }
 
-async function addRule() {
-  const text = ruleDraft.value.trim()
-  if (!text) return
-  busy.value = 'rules'; rulesError.value = ''
-  try { rules.value = [...rules.value, await operationsAdminApi.saveRule(null, text)]; ruleDraft.value = '' }
-  catch { rulesError.value = t('admin.ModerationSettingsAdminPage.s58') } finally { busy.value = '' }
-}
-async function updateRule(r: SiteRule) {
-  const text = (ruleEdits[r.id] ?? r.text).trim()
-  if (!text || text === r.text) { delete ruleEdits[r.id]; return }
-  busy.value = 'rules'; rulesError.value = ''
-  try { const saved = await operationsAdminApi.saveRule(r.id, text); rules.value = rules.value.map(x => x.id === r.id ? saved : x); delete ruleEdits[r.id] }
-  catch { rulesError.value = t('admin.ModerationSettingsAdminPage.s59') } finally { busy.value = '' }
-}
-async function removeRule(r: SiteRule) {
-  if (!window.confirm(t('admin.ModerationSettingsAdminPage.s60', [r.text]))) return
-  busy.value = 'rules'; rulesError.value = ''
-  try { await operationsAdminApi.deleteRule(r.id); rules.value = rules.value.filter(x => x.id !== r.id) }
-  catch { rulesError.value = t('admin.ModerationSettingsAdminPage.s61') } finally { busy.value = '' }
-}
 onMounted(load)
 </script>
 
@@ -133,25 +109,6 @@ onMounted(load)
         </AdminField>
       </section>
 
-      <details class="admin-card mod-folder">
-        <summary><span class="mod-folder__icon" aria-hidden="true">📜</span><span class="mod-folder__title">{{ $t('admin.ModerationSettingsAdminPage.s19') }}</span><span class="mod-folder__count">{{ rules.length }}</span></summary>
-        <div class="mod-folder__body">
-          <p class="mod-hint">{{ $t('admin.ModerationSettingsAdminPage.s20') }} <RouterLink to="/admin/rules">{{ $t('admin.ModerationSettingsAdminPage.s21') }}</RouterLink> {{ $t('admin.ModerationSettingsAdminPage.s22') }}</p>
-          <ol class="mod-rules">
-            <li v-for="r in rules" :key="r.id">
-              <input :value="ruleEdits[r.id] ?? r.text" maxlength="255" :aria-label="$t('admin.ModerationSettingsAdminPage.s23', [r.text])" :disabled="busy === 'rules'" @input="ruleEdits[r.id] = ($event.target as HTMLInputElement).value" @keydown.enter.prevent="updateRule(r)" />
-              <AdminButton size="sm" :disabled="busy === 'rules' || ruleEdits[r.id] === undefined" @click="updateRule(r)">{{ $t('admin.ModerationSettingsAdminPage.s24') }}</AdminButton>
-              <AdminButton size="sm" variant="danger" :disabled="busy === 'rules'" @click="removeRule(r)">{{ $t('admin.ModerationSettingsAdminPage.s25') }}</AdminButton>
-            </li>
-          </ol>
-          <form class="mod-rules__add" @submit.prevent="addRule">
-            <input v-model="ruleDraft" maxlength="255" :placeholder="$t('admin.ModerationSettingsAdminPage.s26')" :aria-label="$t('admin.ModerationSettingsAdminPage.s26')" :disabled="busy === 'rules'" />
-            <AdminButton type="submit" variant="primary" size="sm" :disabled="busy === 'rules' || !ruleDraft.trim()">{{ $t('admin.ModerationSettingsAdminPage.s27') }}</AdminButton>
-          </form>
-          <p v-if="rulesError" class="admin-field__error" role="alert">{{ rulesError }}</p>
-        </div>
-      </details>
-
       <details v-for="l in LISTS" :key="l.key" class="admin-card mod-folder" :data-key="l.key">
         <summary><span class="mod-folder__icon" aria-hidden="true">{{ l.icon }}</span><span class="mod-folder__title">{{ l.title }}</span><span class="mod-folder__count">{{ count(l.key) }}</span></summary>
         <form class="mod-folder__body" @submit.prevent="saveList(l)">
@@ -171,12 +128,11 @@ onMounted(load)
 </template>
 
 <style scoped>
-.moderation-settings { display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
+.moderation-settings { display: flex; flex-direction: column; gap: 12px; width: 100%; }
 .moderation-settings > .admin-card { max-width: none; width: 100%; box-sizing: border-box; }
 .mod-basic { display: flex; flex-direction: column; gap: 14px; }
 .mod-basic select { width: 100%; }
 .mod-warn { margin: -6px 0 0; font-size: 12px; line-height: 1.6; color: var(--color-warning, #b7791f); }
-.mod-hint { margin: 0 0 10px; font-size: 13px; line-height: 1.6; color: var(--color-label-secondary); }
 .mod-folder { padding: 0; overflow: hidden; }
 .mod-folder > summary { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 16px; cursor: pointer; list-style: none; user-select: none; }
 .mod-folder > summary::-webkit-details-marker { display: none; }
@@ -188,13 +144,5 @@ onMounted(load)
 .mod-folder__count { font-size: 12px; min-width: 22px; text-align: center; padding: 1px 8px; border-radius: 999px; background: var(--color-fill); color: var(--color-label-secondary); font-variant-numeric: tabular-nums; }
 .mod-folder__body { padding: 4px 16px 16px; border-top: 1px solid var(--color-separator); display: flex; flex-direction: column; gap: 10px; }
 .mod-folder__body textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; min-height: 140px; resize: vertical; }
-.mod-rules { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
-.mod-rules li { display: flex; gap: 6px; align-items: center; }
-.mod-rules input, .mod-rules__add input { flex: 1; min-width: 0; height: 34px; box-sizing: border-box; padding: 0 10px; border-radius: 8px; border: 1px solid var(--color-separator); background: var(--admin-control-bg); color: var(--color-label); font: inherit; }
-.mod-rules__add { display: flex; gap: 6px; }
-@media (max-width: 640px) {
-  .mod-rules li { flex-wrap: wrap; }
-  .mod-rules li input { flex-basis: 100%; }
-}
 .mod-sub { margin-left: 28px; padding-left: 12px; border-left: 2px solid var(--td-component-stroke, #e5e7eb); }
 </style>

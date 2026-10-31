@@ -1,17 +1,16 @@
-import { mount, enableAutoUnmount, flushPromises, RouterLinkStub } from '@vue/test-utils'
+import { mount, enableAutoUnmount, flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ModerationSettingsAdminPage from '../ModerationSettingsAdminPage.vue'
 
 const api = vi.hoisted(() => ({ get: vi.fn(), save: vi.fn(), instanceAction: vi.fn() }))
 vi.mock('../../../infrastructure/moderationSettingsApi', async (orig) => ({ ...(await orig<object>()), moderationSettingsApi: api }))
-vi.mock('../../../infrastructure/operationsAdminApi', () => ({ operationsAdminApi: { rules: vi.fn().mockResolvedValue([]) } }))
 
 const base = {
   enable_registration: true, email_required_for_signup: true, auto_close_registration: true, moderator_inactivity_limit_days: 7,
   ugc_visibility_for_visitor: 'all', preserved_usernames: [], sensitive_words: [], prohibited_words: [], prohibited_words_for_name_of_user: [],
   hidden_tags: [], blocked_hosts: [], silenced_hosts: [], media_silenced_hosts: [], environment_locked: [],
 }
-const opts = { global: { stubs: { RouterLink: RouterLinkStub } } }
+const opts = {}
 enableAutoUnmount(afterEach)
 beforeEach(() => { vi.clearAllMocks() })
 
@@ -32,5 +31,11 @@ describe('registration auto-close toggle', () => {
     await wrapper.get('[data-testid="auto-close-registration"] input').setValue(false); await flushPromises()
     expect(api.save).toHaveBeenCalledWith({ auto_close_registration: false })
     expect(wrapper.get('[data-testid="auto-close-registration"]').text()).toContain('都不会自动关闭注册')
+  })
+  it('does not embed a second server-rules editor', async () => {
+    api.get.mockResolvedValue({ ...base })
+    const wrapper = mount(ModerationSettingsAdminPage, opts); await flushPromises()
+    expect(wrapper.text()).not.toContain('服务器规则')
+    expect(wrapper.find('a[href="/admin/rules"]').exists()).toBe(false)
   })
 })
