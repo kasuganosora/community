@@ -383,6 +383,8 @@ onMounted(measure)
 .post-content__sensitive {
   position: absolute;
   inset: 0;
+  display: grid;
+  place-items: center;
   width: 100%;
   min-height: 6rem;
   padding: var(--space-4);
@@ -391,6 +393,7 @@ onMounted(measure)
   color: #fff;
   font-size: var(--text-subhead);
   font-weight: var(--weight-medium);
+  text-align: center;
   transition: background-color var(--duration-release) var(--ease-out);
 }
 

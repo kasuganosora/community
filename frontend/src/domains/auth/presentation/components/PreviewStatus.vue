@@ -315,12 +315,15 @@ onBeforeUnmount(() => resizeObserver?.disconnect())
   background: var(--color-fill);
 }
 
-/* A single thumbnail keeps the file's own proportions (capped in height);
-   the placeholder and the revealed image fill the same box. */
+/* A single thumbnail fills the card. Height follows the file until 16rem;
+   past that the box stays full width (same as the timeline) so a tall
+   sensitive preview does not leave an empty strip beside the reveal label.
+   The placeholder and the revealed image fill the same box. */
 .preview-status__thumbs[data-count="1"] .preview-status__thumb {
   aspect-ratio: var(--media-aspect, 16 / 9);
-  width: min(100%, calc(16rem * var(--media-aspect, 16 / 9)));
+  width: 100%;
   max-width: 100%;
+  max-height: 16rem;
 }
 
 .preview-status__thumb > .blur-ph {
