@@ -81,6 +81,7 @@ var ScripsType = []MigrationScript{
 	UserSignInScript{},
 	AddDeliveryTargetCooldownScript{},
 	NewAccountModScript{},
+	MediaDetachedAtScript{},
 }
 
 type MigrationScript interface {

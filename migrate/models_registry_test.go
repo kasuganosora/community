@@ -9,6 +9,7 @@ import (
 	"github.com/kasuganosora/community/llmsvc"
 	"github.com/kasuganosora/community/migrate"
 	models "github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/newacctmod"
 )
 
 // appModels lists every GORM model of the application whose table the

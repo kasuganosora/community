@@ -37,9 +37,9 @@ import (
 	"github.com/kasuganosora/community/migrate"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/moderation"
+	"github.com/kasuganosora/community/newacctmod"
 	_ "github.com/kasuganosora/community/notifications"
 	"github.com/kasuganosora/community/profileverify"
-	"github.com/kasuganosora/community/newacctmod"
 	"github.com/kasuganosora/community/runtimeconfig"
 	"github.com/kasuganosora/community/search/indexsync"
 	"github.com/kasuganosora/community/server"
@@ -171,6 +171,7 @@ func main() {
 	newacctmod.Start(transferContext, db.GetDB())
 	moderation.StartInactivityChecker(serviceContext)
 	translation.StartCacheJanitor(serviceContext)
+	startUnattachedMediaPurge(serviceContext)
 
 	event.GetEventManager("status")
 

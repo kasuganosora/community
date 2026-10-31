@@ -31,6 +31,7 @@ func MediaCommand() *cli.Command {
 		Subcommands: []*cli.Command{
 			MediaRemoveCommand(),
 			MediaRemoveOrphansCommand(),
+			MediaPurgeUnattachedCommand(),
 			MediaRefreshCommand(),
 			MediaUsageCommand(),
 			MediaLookupCommand(),
