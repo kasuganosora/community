@@ -503,7 +503,8 @@
       "s32": "Service Matrix",
       "s33": "Migration des données",
       "s34": "Pré-vérifiez et importez une sauvegarde complète du site depuis le même domaine.",
-      "s35": "Recours de suspension"
+      "s35": "Recours de suspension",
+      "s36": "Modération des nouveaux comptes"
     },
     "accessAdminApi": {
       "s1": "Statistiques",
@@ -1706,6 +1707,20 @@
       "saved": "Enregistré",
       "error": "Échec de l’enregistrement. Réessayez."
     },
+    "NewAccountMod": {
+      "title": "Modération des nouveaux comptes",
+      "description": "Un modèle de langage examine les premiers posts originaux des nouveaux comptes. Les valeurs enregistrées s’appliquent tout de suite.",
+      "enabled": "Activer la modération des nouveaux comptes",
+      "enabledHint": "Si désactivé, les nouveaux comptes ne sont pas surveillés et la fédération sortante n’est pas retenue.",
+      "observationN": "Posts à surveiller (N)",
+      "observationNHint": "Les N premiers posts originaux de chaque nouveau compte local (hors partages) restent sous revue. Valeur par défaut : 20.",
+      "contextX": "Posts de contexte (X)",
+      "contextXHint": "Nombre de posts plus anciens envoyés au modèle, du plus récent au plus ancien. Valeur par défaut : 8.",
+      "policy": "Politique du site",
+      "policyHint": "Texte de politique inclus dans l’invite du modèle. Tant que rien n’est enregistré, le texte intégré par défaut s’affiche. Enregistrer une valeur vide n’envoie aucune politique.",
+      "holdFederation": "Retenir la fédération sortante jusqu’au feu vert du modèle",
+      "holdFederationHint": "Tant qu’un compte est sous surveillance, ses posts ne sont pas envoyés aux autres serveurs tant que le modèle ne les a pas acceptés. Activé par défaut."
+    },
     "Llm": {
       "title": "LLM",
       "description": "Configurez des fournisseurs de grands modèles de langage et choisissez les fonctions qui les utilisent. Les clés API sont chiffrées et ne sont plus affichées après l’enregistrement.",
@@ -1723,6 +1738,7 @@
       "keyPending": "Nouvelle clé non enregistrée",
       "keyWillClear": "La clé sera effacée",
       "usedByTranslation": "Utilisé pour la traduction",
+      "usedByNewAccountMod": "Utilisé pour la modération des nouveaux comptes",
       "test": "Tester la connexion",
       "testOk": "Connexion réussie ({0} ms)",
       "testError": {
@@ -1766,6 +1782,8 @@
       "services": "Services utilisant le LLM",
       "serviceTranslation": "Traduction",
       "serviceTranslationHint": "Utilisé lorsque le mode de traduction est LLM",
+      "serviceNewAccountMod": "Modération des nouveaux comptes",
+      "serviceNewAccountModHint": "Examine les posts des nouveaux comptes. Sans choix, cette fonction utilise le fournisseur lié à la traduction.",
       "serviceNone": "Aucun",
       "translation": "Réglages de traduction",
       "translationEnabled": "Activer la traduction des messages",

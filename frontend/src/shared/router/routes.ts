@@ -236,6 +236,7 @@ export const routes: RouteRecordRaw[] = [
       { path: 'settings/general', name: 'admin-settings-general', component: SettingsCenterPageRoute, props: { section: 'general' }, meta: { adminPermission: 'settings' } },
       { path: 'settings/branding', name: 'admin-settings-branding', component: SettingsCenterPageRoute, props: { section: 'branding' }, meta: { adminPermission: 'branding' } },
       { path: 'settings/moderation', name: 'admin-settings-moderation', component: SettingsCenterPageRoute, props: { section: 'moderation' }, meta: { adminPermission: 'settings' } },
+      { path: 'settings/new-account-mod', name: 'admin-settings-new-account-mod', component: SettingsCenterPageRoute, props: { section: 'new_account_mod' }, meta: { adminPermission: 'settings' } },
       { path: 'settings/email', name: 'admin-settings-email', component: SettingsCenterPageRoute, props: { section: 'email' }, meta: { adminPermission: 'settings' } },
       { path: 'settings/storage', name: 'admin-settings-storage', component: SettingsCenterPageRoute, props: { section: 'storage' }, meta: { adminPermission: 'settings' } },
       { path: 'settings/security', name: 'admin-settings-security', component: SettingsCenterPageRoute, props: { section: 'security' }, meta: { adminPermission: 'settings' } },

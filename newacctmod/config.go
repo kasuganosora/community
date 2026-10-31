@@ -7,11 +7,11 @@ import (
 )
 
 const (
-	KeyEnabled       = "config.new_account_mod.enabled"
-	KeyObservationN  = "config.new_account_mod.observation_n"
-	KeyContextX      = "config.new_account_mod.context_x"
-	KeyPolicyText    = "config.new_account_mod.policy_text"
-	KeyHoldFederate  = "config.new_account_mod.hold_federation" // default true
+	KeyEnabled      = "config.new_account_mod.enabled"
+	KeyObservationN = "config.new_account_mod.observation_n"
+	KeyContextX     = "config.new_account_mod.context_x"
+	KeyPolicyText   = "config.new_account_mod.policy_text"
+	KeyHoldFederate = "config.new_account_mod.hold_federation" // default true
 )
 
 const (
@@ -46,5 +46,11 @@ func PolicyText() string {
 func HoldFederation() bool {
 	return systemsettings.GetBool(KeyHoldFederate, true)
 }
+
+// Defaults shown by the admin settings form. Runtime readers above use the
+// same numbers and policy text when a key has not been saved.
+func DefaultObservationN() int { return defaultObservationN }
+func DefaultContextX() int     { return defaultContextX }
+func DefaultPolicy() string    { return defaultPolicy }
 
 const defaultPolicy = `Ban clear advertising spam farms: identical promo copy across accounts, lottery/outlet scam links, mass hashtag spam, and accounts created only to push external shops. Allow normal personal posts, questions, and non-commercial discussion. When unsure, flag for human review rather than suspend.`

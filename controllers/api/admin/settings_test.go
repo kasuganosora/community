@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/newacctmod"
 	"github.com/kasuganosora/community/storage"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/stretchr/testify/require"
@@ -173,4 +174,76 @@ func TestStorageSettingsApplyWithoutRestart(t *testing.T) {
 	require.Equal(t, "s3", config.C.StorageType)
 	require.Equal(t, "maid-file", config.C.Other["S3_BUCKET"])
 	require.Equal(t, storage.KindS3, storage.Default().Kind())
+}
+
+func TestNewAccountModSettingsRoundTrip(t *testing.T) {
+	env := newAdminTestEnv(t)
+	keys := []string{newacctmod.KeyEnabled, newacctmod.KeyObservationN, newacctmod.KeyContextX, newacctmod.KeyPolicyText, newacctmod.KeyHoldFederate}
+	type snap struct {
+		ok bool
+		v  any
+	}
+	original := map[string]snap{}
+	for _, key := range keys {
+		v, ok := systemsettings.Stored(key)
+		original[key] = snap{ok, v}
+		systemsettings.Unset(key)
+	}
+	t.Cleanup(func() {
+		for _, key := range keys {
+			if original[key].ok {
+				systemsettings.Set(key, original[key].v)
+			} else {
+				systemsettings.Unset(key)
+			}
+		}
+	})
+
+	c, w := newJSONContext(t, http.MethodGet, gin.Params{{Key: "section", Value: "new_account_mod"}}, nil)
+	GetSettings(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var section SettingsSection
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &section))
+	got := map[string]any{}
+	for _, field := range section.Fields {
+		got[field.Key] = field.Value
+		require.False(t, field.ReadOnly)
+		require.False(t, field.RestartRequired)
+	}
+	require.Equal(t, true, got[newacctmod.KeyEnabled])
+	require.Equal(t, float64(newacctmod.DefaultObservationN()), got[newacctmod.KeyObservationN])
+	require.Equal(t, float64(newacctmod.DefaultContextX()), got[newacctmod.KeyContextX])
+	require.Equal(t, newacctmod.DefaultPolicy(), got[newacctmod.KeyPolicyText])
+	require.Equal(t, true, got[newacctmod.KeyHoldFederate])
+	require.True(t, newacctmod.Enabled())
+	require.Equal(t, newacctmod.DefaultObservationN(), newacctmod.ObservationN())
+	require.Equal(t, newacctmod.DefaultContextX(), newacctmod.ContextX())
+	require.Equal(t, newacctmod.DefaultPolicy(), newacctmod.PolicyText())
+	require.True(t, newacctmod.HoldFederation())
+
+	c, w = newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "new_account_mod"}}, map[string]any{"values": map[string]any{
+		newacctmod.KeyEnabled:      false,
+		newacctmod.KeyObservationN: 12,
+		newacctmod.KeyContextX:     3,
+		newacctmod.KeyPolicyText:   "No lottery spam.",
+		newacctmod.KeyHoldFederate: false,
+	}})
+	UpdateSettings(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.False(t, newacctmod.Enabled())
+	require.Equal(t, 12, newacctmod.ObservationN())
+	require.Equal(t, 3, newacctmod.ContextX())
+	require.Equal(t, "No lottery spam.", newacctmod.PolicyText())
+	require.False(t, newacctmod.HoldFederation())
+
+	var row models.SystemSetting
+	require.NoError(t, env.gdb.Where(map[string]any{"key": newacctmod.KeyPolicyText}).First(&row).Error)
+	require.Equal(t, "No lottery spam.", row.Val)
+
+	c, w = newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "new_account_mod"}}, map[string]any{"values": map[string]any{
+		newacctmod.KeyObservationN: 0,
+	}})
+	UpdateSettings(c)
+	require.Equal(t, 422, w.Code)
+	require.Equal(t, 12, newacctmod.ObservationN())
 }

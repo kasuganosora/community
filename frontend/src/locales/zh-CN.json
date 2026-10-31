@@ -503,7 +503,8 @@
       "s32": "Matrix 服务",
       "s33": "数据迁移",
       "s34": "预检并导入同域名的完整站点备份。",
-      "s35": "封禁申诉"
+      "s35": "封禁申诉",
+      "s36": "新账号内容审核"
     },
     "accessAdminApi": {
       "s1": "统计概览",
@@ -1706,6 +1707,20 @@
       "saved": "已保存",
       "error": "保存失败，请重试。"
     },
+    "NewAccountMod": {
+      "title": "新账号内容审核",
+      "description": "用大语言模型检查新账号的前若干条原创帖。保存后立即生效。",
+      "enabled": "启用新账号审核",
+      "enabledHint": "关闭后不再观察新账号发帖，也不会暂停对外联邦。",
+      "observationN": "观察帖数（N）",
+      "observationNHint": "每个本地新账号的前 N 条原创帖（不含转发）会进入审核。默认 20。",
+      "contextX": "上下文帖数（X）",
+      "contextXHint": "交给模型的更早帖子条数，从新到旧。默认 8。",
+      "policy": "站点策略",
+      "policyHint": "写给模型的站点规则。未保存过时显示内置默认文本；清空并保存后模型不再收到策略说明。",
+      "holdFederation": "通过审核前暂停对外联邦",
+      "holdFederationHint": "开启后，观察期内的帖子在模型放行前不会发给其他实例。默认开启。"
+    },
     "Llm": {
       "title": "LLM",
       "description": "配置大语言模型服务，并选择哪些功能使用它。API 密钥加密保存，保存后不会再显示。",
@@ -1723,6 +1738,7 @@
       "keyPending": "新密钥待保存",
       "keyWillClear": "保存后清除密钥",
       "usedByTranslation": "用于翻译",
+      "usedByNewAccountMod": "用于新账号审核",
       "test": "测试连接",
       "testOk": "连接成功（{0} ms）",
       "testError": {
@@ -1766,6 +1782,8 @@
       "services": "使用 LLM 的功能",
       "serviceTranslation": "翻译",
       "serviceTranslationHint": "翻译模式为“LLM”时使用此服务",
+      "serviceNewAccountMod": "新账号审核",
+      "serviceNewAccountModHint": "审核新账号的帖子。未指定时，该功能会改用翻译所绑定的服务。",
       "serviceNone": "不使用",
       "translation": "翻译设置",
       "translationEnabled": "启用帖子翻译",

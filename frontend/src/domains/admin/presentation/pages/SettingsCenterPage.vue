@@ -18,6 +18,24 @@ import LlmSettingsCard from '../components/LlmSettingsCard.vue'
 
 import { t } from '@/shared/i18n'
 const props = defineProps<{ section: string }>()
+const localizedSections: Record<string, { title: string; description: string }> = {
+  new_account_mod: { title: 'admin.NewAccountMod.title', description: 'admin.NewAccountMod.description' },
+}
+const localizedFields: Record<string, { label: string; description: string }> = {
+  'config.new_account_mod.enabled': { label: 'admin.NewAccountMod.enabled', description: 'admin.NewAccountMod.enabledHint' },
+  'config.new_account_mod.observation_n': { label: 'admin.NewAccountMod.observationN', description: 'admin.NewAccountMod.observationNHint' },
+  'config.new_account_mod.context_x': { label: 'admin.NewAccountMod.contextX', description: 'admin.NewAccountMod.contextXHint' },
+  'config.new_account_mod.policy_text': { label: 'admin.NewAccountMod.policy', description: 'admin.NewAccountMod.policyHint' },
+  'config.new_account_mod.hold_federation': { label: 'admin.NewAccountMod.holdFederation', description: 'admin.NewAccountMod.holdFederationHint' },
+}
+function fieldLabel(field: { key: string; label: string }) {
+  const key = localizedFields[field.key]?.label
+  return key ? t(key) : field.label
+}
+function fieldDescription(field: { key: string; description?: string }) {
+  const key = localizedFields[field.key]?.description
+  return key ? t(key) : (field.description || '')
+}
 const data = ref<SettingsSection>()
 const draft = reactive<Record<string, string | number | boolean>>({})
 const clearSecrets = reactive<Record<string, boolean>>({})
@@ -73,6 +91,16 @@ function colorPickerValue(value: unknown) {
 }
 const dirty = computed(() => Object.keys(changes.value.values).length + changes.value.clear.length > 0)
 const connectionSection = computed(() => props.section === 'email' || props.section === 'storage')
+const pageTitle = computed(() => {
+  const key = localizedSections[props.section]?.title
+  if (key) return t(key)
+  return data.value?.title || t('admin.SettingsCenterPage.s1')
+})
+const pageDescription = computed(() => {
+  const key = localizedSections[props.section]?.description
+  if (key) return t(key)
+  return data.value?.description
+})
 function install(section: SettingsSection) {
   data.value = section
   for (const key of Object.keys(fieldErrors)) delete fieldErrors[key]
@@ -156,7 +184,7 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
 <template>
   <SettingsAdminPage v-if="section === 'security'" mode="security" />
   <div v-else class="admin-page settings-center">
-    <AdminPageHeader :title="data?.title || $t('admin.SettingsCenterPage.s1')" :description="data?.description" />
+    <AdminPageHeader :title="pageTitle" :description="pageDescription" />
     <p v-if="loading" class="admin-empty" role="status">{{ $t('admin.SettingsCenterPage.s2') }}</p>
     <AdminAlert v-if="error" tone="danger">
       {{ error }}
@@ -171,8 +199,8 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
       <div class="admin-preferences__heading"><h2>{{ editable ? $t('admin.SettingsCenterPage.s9') : $t('admin.SettingsCenterPage.s10') }}</h2><span>{{ editable ? $t('admin.SettingsCenterPage.s11') : $t('admin.SettingsCenterPage.s12') }}</span></div>
       <div class="admin-form admin-preferences__fields">
         <template v-for="field in data.fields" :key="field.key">
-          <AdminCheck variant="switch" class="admin-preferences__toggle" v-if="field.type === 'boolean' && !field.read_only" :model-value="Boolean(draft[field.key])" @update:model-value="draft[field.key] = $event" :label="field.label" :hint="field.description" :disabled="busy || testing" />
-          <AdminField v-else :label="field.label" :error="localErrors[field.key] || fieldErrors[field.key]" :hint="[field.description, field.read_only ? (field.source === 'environment' ? lockHint(field) : $t('admin.SettingsCenterPage.s14')) : field.restart_required ? $t('admin.SettingsCenterPage.s15') : $t('admin.SettingsCenterPage.s16')].filter(Boolean).join(' ')">
+          <AdminCheck variant="switch" class="admin-preferences__toggle" v-if="field.type === 'boolean' && !field.read_only" :model-value="Boolean(draft[field.key])" @update:model-value="draft[field.key] = $event" :label="fieldLabel(field)" :hint="fieldDescription(field)" :disabled="busy || testing" />
+          <AdminField v-else :label="fieldLabel(field)" :error="localErrors[field.key] || fieldErrors[field.key]" :hint="[fieldDescription(field), field.read_only ? (field.source === 'environment' ? lockHint(field) : $t('admin.SettingsCenterPage.s14')) : field.restart_required ? $t('admin.SettingsCenterPage.s15') : $t('admin.SettingsCenterPage.s16')].filter(Boolean).join(' ')">
             <template #default="{ id, describedBy }">
               <template v-if="field.read_only">
                 <div class="settings-center__readonly">
@@ -185,13 +213,13 @@ onUnmounted(() => { generation++; for (const key of Object.keys(draft)) delete d
               <textarea v-else-if="field.type === 'json'" :id="id" class="settings-center__code" :aria-describedby="describedBy" :aria-invalid="localErrors[field.key] || fieldErrors[field.key] ? true : undefined" :value="String(draft[field.key] ?? '')" :maxlength="field.max" :disabled="busy || testing" rows="6" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="{ }" @input="draft[field.key] = ($event.target as HTMLTextAreaElement).value" />
               <div v-else-if="field.type === 'color'" class="settings-center__color">
                 <input :id="id" :aria-describedby="describedBy" :aria-invalid="localErrors[field.key] || fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" type="text" inputmode="text" autocapitalize="off" spellcheck="false" :maxlength="field.max" :placeholder="$t('admin.SettingsCenterPage.s24')" :disabled="busy || testing" />
-                <input type="color" class="settings-center__swatch" :aria-label="$t('admin.SettingsCenterPage.s25', [field.label])" :value="colorPickerValue(draft[field.key])" :disabled="busy || testing" @input="draft[field.key] = ($event.target as HTMLInputElement).value" />
+                <input type="color" class="settings-center__swatch" :aria-label="$t('admin.SettingsCenterPage.s25', [fieldLabel(field)])" :value="colorPickerValue(draft[field.key])" :disabled="busy || testing" @input="draft[field.key] = ($event.target as HTMLInputElement).value" />
               </div>
               <textarea v-else-if="field.type === 'textarea'" :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" :value="String(draft[field.key] ?? '')" :maxlength="field.max" :disabled="busy || testing" rows="5" @input="draft[field.key] = ($event.target as HTMLTextAreaElement).value" />
               <input v-else-if="field.type === 'number'" :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" v-model.number="draft[field.key]" type="number" required :min="field.min" :max="field.max" :disabled="busy || testing" />
               <template v-else-if="field.type === 'secret'">
                 <input :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" type="password" autocomplete="new-password" :placeholder="$t('admin.SettingsCenterPage.s26')" :disabled="busy || testing || clearSecrets[field.key]" />
-                <AdminCheck v-if="field.secret_set" v-model="clearSecrets[field.key]" :label="$t('admin.SettingsCenterPage.s27', [field.label])" :disabled="busy || testing" />
+                <AdminCheck v-if="field.secret_set" v-model="clearSecrets[field.key]" :label="$t('admin.SettingsCenterPage.s27', [fieldLabel(field)])" :disabled="busy || testing" />
               </template>
               <input v-else :id="id" :aria-describedby="describedBy" :aria-invalid="fieldErrors[field.key] ? true : undefined" v-model="draft[field.key]" :type="field.type" :maxlength="field.max" :disabled="busy || testing" />
             </template>

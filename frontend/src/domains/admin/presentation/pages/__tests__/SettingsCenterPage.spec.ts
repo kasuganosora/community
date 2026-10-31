@@ -107,3 +107,33 @@ it('submits editable select, numeric, boolean and textarea values with their ori
   expect(w.text()).toContain('新请求立即生效')
   w.unmount()
 })
+
+it('saves new-account moderation knobs with the localized labels', async () => {
+  const editable = { read_only: false, source: 'database' as const, restart_required: false }
+  const fields: SettingsSection['fields'] = [
+    { ...editable, key: 'config.new_account_mod.enabled', label: '启用新账号审核', type: 'boolean', value: true, description: 'api' },
+    { ...editable, key: 'config.new_account_mod.observation_n', label: '观察帖数（N）', type: 'number', value: 20, min: 1, max: 1000 },
+    { ...editable, key: 'config.new_account_mod.context_x', label: '上下文帖数（X）', type: 'number', value: 8, min: 1, max: 64 },
+    { ...editable, key: 'config.new_account_mod.policy_text', label: '站点策略', type: 'textarea', value: 'default policy' },
+    { ...editable, key: 'config.new_account_mod.hold_federation', label: '通过审核前暂停对外联邦', type: 'boolean', value: true },
+  ]
+  vi.mocked(api.get).mockResolvedValueOnce({ section: 'new_account_mod', title: '新账号内容审核', description: 'api description', fields })
+  const save = vi.spyOn(api, 'save').mockImplementation(async (_section, values) => ({ section: 'new_account_mod', title: '新账号内容审核', description: '', fields: fields.map(field => ({ ...field, value: values[field.key] ?? field.value })) }))
+  const w = mount(SettingsCenterPage, { props: { section: 'new_account_mod' } }); await flushPromises()
+  expect(w.get('h1').text()).toBe('新账号内容审核')
+  expect(w.text()).toContain('观察帖数（N）')
+  expect(w.text()).toContain('默认 20')
+  expect(w.text()).toContain('通过审核前暂停对外联邦')
+  const boxes = w.findAll('input[type=checkbox]')
+  expect(boxes).toHaveLength(2)
+  await boxes[0]!.setValue(false)
+  await w.get('input[type=number]').setValue('12')
+  await w.get('textarea').setValue('No lottery spam.')
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(save).toHaveBeenCalledWith('new_account_mod', {
+    'config.new_account_mod.enabled': false,
+    'config.new_account_mod.observation_n': 12,
+    'config.new_account_mod.policy_text': 'No lottery spam.',
+  }, [])
+  w.unmount()
+})
