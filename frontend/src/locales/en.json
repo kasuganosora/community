@@ -1625,7 +1625,17 @@
       "s19": "Degraded",
       "s20": "Error",
       "s21": "Couldn’t get the system health check, please try again.",
-      "s22": "The built-in Matrix client API isn’t reachable right now, please try again."
+      "s22": "The built-in Matrix client API isn’t reachable right now, please try again.",
+      "s23": "Sitemap",
+      "s24": "Rebuilds the public sitemap: homepage, about, profiles, and tags. It also rebuilds once a day.",
+      "s25": "Refresh sitemap",
+      "s26": "Refreshing…",
+      "s27": "Generated {0}. {1} profiles, {2} tags, {3} URLs.",
+      "s28": "Not generated yet. Wait for the daily job, or refresh now.",
+      "s29": "Couldn’t load sitemap status.",
+      "s30": "Sitemap refreshed.",
+      "s31": "Refresh failed. Try again.",
+      "s32": "Loading sitemap status…"
     },
     "WebhooksAdminPage": {
       "s1": "Only sends create, update and delete metadata for public local posts.",

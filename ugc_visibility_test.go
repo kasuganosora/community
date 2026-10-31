@@ -2,8 +2,13 @@ package community
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/moderation"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,4 +41,25 @@ func TestFilterRemoteUGC(t *testing.T) {
 	unchanged, _ := json.Marshal([]any{local})
 	out, _ = filterRemoteUGC(unchanged)
 	require.Nil(t, out)
+}
+
+func TestRobotsTxtAdvertisesSitemap(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	prevURL := config.C.AppBaseURL
+	prevConfigured := config.AppBaseURLConfigured()
+	config.SetAppBaseURL("https://social.example", true)
+	t.Cleanup(func() { config.SetAppBaseURL(prevURL, prevConfigured) })
+	restore := moderation.SetForTesting(moderation.Snapshot{UGCVisibilityForVisitor: moderation.UGCAll})
+	t.Cleanup(restore)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/robots.txt", nil)
+	RobotsTxt(c)
+	body := w.Body.String()
+	require.Contains(t, body, "Disallow: /admin\n")
+	require.Contains(t, body, "Disallow: /settings\n")
+	require.Contains(t, body, "Sitemap: https://social.example/sitemap.xml\n")
+	require.NotContains(t, body, "Disallow: /tags")
+	require.NotContains(t, body, "noindex")
 }

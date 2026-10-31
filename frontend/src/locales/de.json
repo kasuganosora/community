@@ -1625,7 +1625,17 @@
       "s19": "Eingeschränkt",
       "s20": "Fehler",
       "s21": "Systemstatus konnte nicht abgerufen werden, bitte erneut versuchen.",
-      "s22": "Die integrierte Matrix-Client-API ist gerade nicht erreichbar, bitte erneut versuchen."
+      "s22": "Die integrierte Matrix-Client-API ist gerade nicht erreichbar, bitte erneut versuchen.",
+      "s23": "Sitemap",
+      "s24": "Erstellt die öffentliche Sitemap neu: Startseite, Über, Profile und Tags. Einmal täglich geschieht das automatisch.",
+      "s25": "Sitemap aktualisieren",
+      "s26": "Wird aktualisiert…",
+      "s27": "Erstellt {0}. {1} Profile, {2} Tags, {3} URLs.",
+      "s28": "Noch nicht erstellt. Auf den täglichen Lauf warten oder jetzt aktualisieren.",
+      "s29": "Sitemap-Status konnte nicht geladen werden.",
+      "s30": "Sitemap aktualisiert.",
+      "s31": "Aktualisierung fehlgeschlagen. Bitte erneut versuchen.",
+      "s32": "Sitemap-Status wird geladen…"
     },
     "WebhooksAdminPage": {
       "s1": "Sendet nur Metadaten zum Erstellen, Ändern und Löschen öffentlicher lokaler Beiträge.",

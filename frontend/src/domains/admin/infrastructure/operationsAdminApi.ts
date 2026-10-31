@@ -6,6 +6,7 @@ export interface MatrixStatus { enabled: boolean; connected: boolean; homeserver
 export interface MatrixConfig { enabled: boolean; homeserver_url: string; server_name: string; bridge_username: string; user_namespace: string; room_namespace: string }
 export interface ServiceHealth { status: string; latency: string; message?: string }
 export interface DetailedHealth { status: string; timestamp: string; uptime: string; services: Record<string, ServiceHealth> }
+export interface SitemapStatus { generated_at?: string; profiles: number; tags: number; urls: number }
 const base = '/api/v1/admin'
 export const operationsAdminApi = {
   async health() { return (await client.get<DetailedHealth>('/health/detailed', { validateStatus: status => status === 200 || status === 503 })).data },
@@ -24,4 +25,6 @@ export const operationsAdminApi = {
   async matrixStatus() { return (await client.get<MatrixStatus>(`${base}/matrix/status`)).data },
   async matrixConfig() { return (await client.get<MatrixConfig>(`${base}/matrix/config`)).data },
   async matrixTest(matrix_user_id: string) { return (await client.post<{ success: boolean; display_name?: string }>(`${base}/matrix/test`, { matrix_user_id })).data },
+  async sitemap() { return (await client.get<SitemapStatus>(`${base}/seo/sitemap`)).data },
+  async refreshSitemap() { return (await client.post<SitemapStatus>(`${base}/seo/sitemap`)).data },
 }

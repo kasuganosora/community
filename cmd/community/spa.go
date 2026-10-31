@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/seo"
 	"github.com/kasuganosora/community/systemsettings"
 )
 
@@ -110,30 +112,6 @@ func isSPARoute(method, p string) bool {
 	return true
 }
 
-// spaSections are the first path segments the Vue router knows (see
-// frontend/src/shared/router/routes.ts); /@user... routes are matched
-// separately. /public, /public/local, /federated and /timeline/public are
-// web aliases for the explore timelines.
-var spaSections = map[string]bool{
-	"": true, "login": true, "register": true, "about": true, "announcements": true,
-	"settings": true, "explore": true, "notifications": true, "messages": true, "groups": true,
-	"bookmarks": true, "search": true, "lists": true, "tags": true, "admin": true,
-	"public": true, "notes": true, "federated": true,
-}
-
-// spaPaths are single frontend routes whose first segment is not a section.
-var spaPaths = map[string]bool{"/timeline/public": true}
-
-// isKnownSPAPage reports whether the frontend has a page for p. Other paths
-// still get the shell (so the app renders its own not-found page) but with
-// a 404 status instead of a soft 404.
-func isKnownSPAPage(p string) bool {
-	first, _, _ := strings.Cut(strings.TrimPrefix(p, "/"), "/")
-	return strings.HasPrefix(first, "@") || spaSections[first] || spaPaths[strings.TrimSuffix(p, "/")]
-}
-
-// spaFallback serves built files, the SPA shell for frontend routes and a
-// JSON 404 for everything else.
 // frontendMIMETypes pins Content-Types for frontend assets. Go falls back to
 // the host's mime.types, which lacks .webmanifest (served as text/plain) and
 // varies across images for the rest.
@@ -159,6 +137,10 @@ func init() {
 	}
 }
 
+// spaFallback serves built files, the SPA shell for frontend routes and a
+// JSON 404 for everything else. The shell's <head> is filled per path
+// (title, description, canonical); missing profiles, tags, and posts are
+// a real 404.
 func spaFallback(frontendDir string, indexHTML []byte) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p := c.Request.URL.Path
@@ -181,16 +163,12 @@ func spaFallback(frontendDir string, indexHTML []byte) gin.HandlerFunc {
 			return
 		}
 
-		code := http.StatusOK
-		if !isKnownSPAPage(p) {
-			code = http.StatusNotFound
-		}
-
-		// The shell names the current hashed bundles and carries the build
-		// id: never let a browser or CDN keep one (the service worker keeps
-		// its own copy for offline reloads).
+		// Per-URL title, description, and canonical are injected here. The
+		// shell also names the current hashed bundles, so it must not be
+		// cached and reused for a different path.
+		doc := seo.Resolve(db.GetDB(), p)
 		c.Header("Cache-Control", "no-store")
-		c.Data(code, "text/html; charset=utf-8", systemsettings.BrandIndexHTML(indexHTML))
+		c.Data(doc.Code, "text/html; charset=utf-8", seo.Inject(systemsettings.BrandIndexHTML(indexHTML), doc))
 	}
 }
 
