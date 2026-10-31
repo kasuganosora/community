@@ -164,14 +164,25 @@ func TestSitemapListsHomeAboutProfilesAndTagsOnly(t *testing.T) {
 	makeStatus(t, conn, 4, carol.Id, models.StatusVisibilityPublic, "skip")
 	makeStatus(t, conn, 5, alice.Id, models.StatusVisibilityPrivate, "nope")
 
+	// last_status_used_at stays unset: nothing in the server writes it, which
+	// used to exclude every tag. Recency comes from the linked public post.
 	older := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	newer := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
 	mid := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
-	require.NoError(t, conn.Create(&models.Tag{Name: "older", StatusCount: 1, LastStatusUsedAt: &older}).Error)
-	require.NoError(t, conn.Create(&models.Tag{Name: "newer", StatusCount: 1, LastStatusUsedAt: &newer}).Error)
-	require.NoError(t, conn.Create(&models.Tag{Name: "mid", StatusCount: 1, LastStatusUsedAt: &mid}).Error)
-	require.NoError(t, conn.Create(&models.Tag{Name: "secret", StatusCount: 9, LastStatusUsedAt: &newer}).Error)
-	require.NoError(t, conn.Create(&models.Tag{Name: "empty", StatusCount: 0, LastStatusUsedAt: &newer}).Error)
+	newer := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+	makeStatusAt(t, conn, 10, alice.Id, models.StatusVisibilityPublic, older, nil)
+	makeStatusAt(t, conn, 11, alice.Id, models.StatusVisibilityPublic, mid, nil)
+	makeStatusAt(t, conn, 12, alice.Id, models.StatusVisibilityPublic, newer, nil)
+	linkTag(t, conn, 10, "older")
+	linkTag(t, conn, 11, "mid")
+	linkTag(t, conn, 12, "newer")
+	linkTag(t, conn, 12, "secret")
+	require.NoError(t, conn.Create(&models.Tag{Name: "empty"}).Error)
+	remoteDomain := "remote.example"
+	remote := makeAccount(t, conn, 4, "erin", func(a *models.Account) { a.Domain = &remoteDomain })
+	makeStatusAt(t, conn, 13, remote.Id, models.StatusVisibilityPublic, newer, &remoteDomain)
+	linkTag(t, conn, 13, "abroad")
+	makeStatusAt(t, conn, 14, alice.Id, models.StatusVisibilityPrivate, newer, nil)
+	linkTag(t, conn, 14, "quiet")
 
 	stats, err := Refresh(context.Background(), true)
 	require.NoError(t, err)
@@ -192,11 +203,15 @@ func TestSitemapListsHomeAboutProfilesAndTagsOnly(t *testing.T) {
 	require.Contains(t, xml, "<loc>https://social.example/tags/older</loc>")
 	require.NotContains(t, xml, "/tags/secret")
 	require.NotContains(t, xml, "/tags/empty")
+	require.NotContains(t, xml, "/tags/abroad")
+	require.NotContains(t, xml, "/tags/quiet")
 	require.NotContains(t, xml, "/status/")
 	require.Less(t, strings.Index(xml, "/@alice"), strings.Index(xml, "/@bob"))
 	require.Less(t, strings.Index(xml, "/tags/newer"), strings.Index(xml, "/tags/mid"))
 
-	require.NoError(t, conn.Create(&models.Tag{Name: "later", StatusCount: 1, LastStatusUsedAt: &newer}).Error)
+	later := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
+	makeStatusAt(t, conn, 20, alice.Id, models.StatusVisibilityPublic, later, nil)
+	linkTag(t, conn, 20, "later")
 	cached, err := Refresh(context.Background(), false)
 	require.NoError(t, err)
 	require.Equal(t, stats.Tags, cached.Tags, "a request inside the daily window must not rebuild")
@@ -239,7 +254,7 @@ func openSEO(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.Status{}, &models.StatusContent{}, &models.Tag{}, &models.MediaAttachment{}))
+	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.Status{}, &models.StatusContent{}, &models.Tag{}, &models.StatusTag{}, &models.MediaAttachment{}))
 	database.SetTestDB(conn)
 	t.Cleanup(database.ResetTestDB)
 	return conn
@@ -273,7 +288,20 @@ func makeAccount(t *testing.T, conn *gorm.DB, id uint64, name string, fn func(*m
 
 func makeStatus(t *testing.T, conn *gorm.DB, id, accountID uint64, visibility uint8, text string) {
 	t.Helper()
-	status := &models.Status{Id: id, AccountId: accountID, Visibility: visibility}
-	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Omit("Content").Create(status).Error)
+	makeStatusAt(t, conn, id, accountID, visibility, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), nil)
 	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(&models.StatusContent{StatusId: id, Content: text}).Error)
+}
+
+func makeStatusAt(t *testing.T, conn *gorm.DB, id, accountID uint64, visibility uint8, at time.Time, domain *string) {
+	t.Helper()
+	status := &models.Status{Id: id, AccountId: accountID, Visibility: visibility, CreatedAt: &at, UpdatedAt: &at, Domain: domain}
+	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Omit("Content").Create(status).Error)
+}
+
+func linkTag(t *testing.T, conn *gorm.DB, statusID uint64, name string) {
+	t.Helper()
+	tag := &models.Tag{Name: name}
+	require.NoError(t, conn.Create(tag).Error)
+	require.Nil(t, tag.LastStatusUsedAt)
+	require.NoError(t, conn.Create(&models.StatusTag{StatusId: statusID, TagId: tag.Id}).Error)
 }
