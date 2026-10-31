@@ -131,9 +131,11 @@ const fileLinks = computed(() => items.value.flatMap((attachment, index) => {
 }))
 const hasMedia = computed(() => items.value.length > 0)
 
-// One box per single image / video, sized from the attachment's aspect ratio
-// (16:9 when unknown) and capped in height. The BlurHash placeholder and the
-// revealed file both fill it, so revealing never moves the layout.
+// Single images fill the column. Height follows the attachment's aspect ratio
+// (16:9 when unknown) up to a cap; past the cap the picture is cropped rather
+// than the box narrowing. A video keeps a box of its own aspect, also capped.
+// The BlurHash placeholder and the revealed file both fill that box, so
+// revealing never moves the layout.
 const DEFAULT_ASPECT = 16 / 9
 function boxStyle(a?: MastodonAttachment): Record<string, string> | undefined {
   if (!a) return undefined
@@ -283,6 +285,7 @@ const gridClass = computed(() => {
   position: relative;
   display: grid;
   gap: 2px;
+  width: 100%;
   border-radius: var(--radius-lg);
   overflow: hidden;
   aspect-ratio: 16 / 9;
@@ -304,9 +307,12 @@ const gridClass = computed(() => {
   --media-max-h: 32rem;
 
   grid-template-columns: 1fr;
-  /* The box takes the attachment's own proportions, capped in height. */
+  /* Full column width. Height follows the file until --media-max-h; past that
+     the box stays full width and the picture is cropped. Shrinking the width
+     to keep the ratio left a tall empty strip beside a sensitive blur, because
+     the reveal button covers the whole text column. */
   aspect-ratio: var(--media-aspect, 16 / 9);
-  width: min(100%, calc(var(--media-max-h) * var(--media-aspect, 16 / 9)));
+  width: 100%;
   max-height: var(--media-max-h);
 }
 
@@ -463,6 +469,14 @@ const gridClass = computed(() => {
   .media-grid--single,
   .media-video-wrap {
     --media-max-h: 18rem;
+  }
+
+  /* Multi-image mosaics use the 1/1 rule above. A single image keeps its own
+     aspect and the full column width, with the shorter phone height cap. */
+  .media-grid--single {
+    width: 100%;
+    aspect-ratio: var(--media-aspect, 16 / 9);
+    max-height: var(--media-max-h);
   }
 }
 
