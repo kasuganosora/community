@@ -17,6 +17,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/newacctmod"
 	"github.com/kasuganosora/community/runtimeconfig"
 	"github.com/kasuganosora/community/systemsettings"
 )
@@ -63,6 +64,13 @@ func settingsSections() map[string]SettingsSection {
 			{Key: systemsettings.KeyRegistrationInviteRequired, Label: "注册需要邀请码", Type: "boolean", Value: false},
 			{Key: systemsettings.KeyRegistrationCheckEmail, Label: "注册需要邮箱验证", Type: "boolean", Value: false, Description: "启用前请确认邮件发送可用。"},
 			{Key: systemsettings.KeyRegistrationMessage, Label: "注册提示", Type: "textarea", Value: "", Max: 2000},
+		}},
+		"new_account_mod": {Title: "新账号内容审核", Description: "用大语言模型检查新账号的前若干条原创帖。保存后立即生效。", Fields: []SettingsField{
+			{Key: newacctmod.KeyEnabled, Label: "启用新账号审核", Type: "boolean", Value: true, Description: "关闭后不再观察新账号发帖，也不会暂停对外联邦。"},
+			{Key: newacctmod.KeyObservationN, Label: "观察帖数（N）", Type: "number", Value: newacctmod.DefaultObservationN(), Min: 1, Max: 1000, Description: "每个本地新账号的前 N 条原创帖（不含转发）会进入审核。"},
+			{Key: newacctmod.KeyContextX, Label: "上下文帖数（X）", Type: "number", Value: newacctmod.DefaultContextX(), Min: 1, Max: 64, Description: "交给模型的更早帖子条数，从新到旧。"},
+			{Key: newacctmod.KeyPolicyText, Label: "站点策略", Type: "textarea", Value: newacctmod.DefaultPolicy(), Max: 8000, Description: "写给模型的站点规则。未保存过时使用内置默认文本；清空并保存后模型不再收到策略说明。"},
+			{Key: newacctmod.KeyHoldFederate, Label: "通过审核前暂停对外联邦", Type: "boolean", Value: true, Description: "观察期内的帖子在模型放行前不会发给其他实例。"},
 		}},
 		"performance": {Title: "性能", Description: "仅提供有范围限制的运行参数；数据库连接池和缓存部署由服务器环境管理。", Fields: []SettingsField{
 			{Key: systemsettings.KeyDefaultPageSize, Label: "默认每页条数", Type: "number", Value: 20, Min: 1, Max: 80, Description: "影响未指定 limit 的分页请求，不改变接口各自的最大上限。"},

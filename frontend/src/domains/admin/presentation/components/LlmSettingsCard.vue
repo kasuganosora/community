@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * External services → LLM: providers (API keys are write-only and only shown
- * masked), which services use them (currently translation), translation mode
+ * masked), which services use them (translation and new-account moderation), translation mode
  * and cost limits, connection test and a daily usage summary.
  */
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -35,7 +35,7 @@ interface Draft {
 const loaded = ref<LlmSettings>()
 const drafts = ref<Draft[]>([])
 const editing = ref<string | null>(null)
-const translationService = ref('')
+const serviceBindings = ref<Record<string, string>>({})
 const tr = reactive<LlmTranslationSettings>({ enabled: false, mode: 'traditional', user_daily_limit: 50, daily_limit: 1000, user_per_minute: 10, allow_private: false })
 const usage = ref<LlmUsage>()
 const loading = ref(true), busy = ref(false), dirty = ref(false)
@@ -54,7 +54,11 @@ function install(s: LlmSettings) {
     api_key_set: p.api_key_set, api_key_mask: p.api_key_mask || '', timeout_seconds: num(p.timeout_seconds), max_tokens: num(p.max_tokens),
     temperature: typeof p.temperature === 'number' ? p.temperature : '', input_price_per_1m: num(p.input_price_per_1m), output_price_per_1m: num(p.output_price_per_1m), currency: p.currency || '',
   }))
-  translationService.value = s.services.translation || ''
+  const names = [...(s.service_names?.length ? s.service_names : ['translation', 'new_account_mod'])]
+  for (const key of Object.keys(s.services || {})) if (!names.includes(key)) names.push(key)
+  const next: Record<string, string> = {}
+  for (const name of names) next[name] = s.services?.[name] || ''
+  serviceBindings.value = next
   Object.assign(tr, s.translation)
   dirty.value = false
   editing.value = null
@@ -76,10 +80,23 @@ function addProvider() {
 function removeProvider(d: Draft) {
   if (!window.confirm(t('admin.Llm.removeConfirm', [d.name || d.model]))) return
   drafts.value = drafts.value.filter(x => x !== d)
-  if (translationService.value === d.ref) translationService.value = ''
+  for (const name of Object.keys(serviceBindings.value)) {
+    if (serviceBindings.value[name] === d.ref) serviceBindings.value[name] = ''
+  }
   touch()
 }
 const providerOptions = computed(() => drafts.value.map(d => ({ value: d.ref, label: d.name || d.model || t('admin.Llm.unnamed') })))
+function serviceLabel(name: string) {
+  if (name === 'translation') return t('admin.Llm.serviceTranslation')
+  if (name === 'new_account_mod') return t('admin.Llm.serviceNewAccountMod')
+  return name
+}
+function serviceHint(name: string) {
+  if (name === 'translation') return t('admin.Llm.serviceTranslationHint')
+  if (name === 'new_account_mod') return t('admin.Llm.serviceNewAccountModHint')
+  return ''
+}
+const serviceFields = computed(() => Object.keys(serviceBindings.value).map(name => ({ name, label: serviceLabel(name), hint: serviceHint(name) })))
 const errorField = ref('')
 
 function errorText(code?: string): string {
@@ -90,7 +107,9 @@ async function save() {
   busy.value = true; error.value = ''; notice.value = ''; errorField.value = ''
   const services: Record<string, string> = {}
   const providers = drafts.value.map((d, i) => {
-    if (translationService.value === d.ref) services.translation = d.id || `#${i}`
+    for (const [name, ref] of Object.entries(serviceBindings.value)) {
+      if (ref === d.ref) services[name] = d.id || `#${i}`
+    }
     const out: Record<string, unknown> = {
       id: d.id, name: d.name.trim(), type: d.type, base_url: d.base_url.trim(), chat_path: d.type === 'openai_compatible' ? d.chat_path.trim() : '', model: d.model.trim(),
       timeout_seconds: d.timeout_seconds || 0, max_tokens: d.max_tokens || 0, temperature: d.temperature === '' ? null : d.temperature,
@@ -157,7 +176,8 @@ onMounted(load)
                 <AdminBadge v-else-if="d.api_key" tone="warning">{{ $t('admin.Llm.keyPending') }}</AdminBadge>
                 <AdminBadge v-else-if="d.api_key_set" tone="success">{{ $t('admin.Llm.keySet', [d.api_key_mask]) }}</AdminBadge>
                 <AdminBadge v-else tone="neutral">{{ $t('admin.Llm.keyMissing') }}</AdminBadge>
-                <AdminBadge v-if="translationService === d.ref" tone="info">{{ $t('admin.Llm.usedByTranslation') }}</AdminBadge>
+                <AdminBadge v-if="serviceBindings.translation === d.ref" tone="info">{{ $t('admin.Llm.usedByTranslation') }}</AdminBadge>
+                <AdminBadge v-if="serviceBindings.new_account_mod === d.ref" tone="info">{{ $t('admin.Llm.usedByNewAccountMod') }}</AdminBadge>
               </span>
             </div>
             <div class="llm-provider__actions">
@@ -200,9 +220,9 @@ onMounted(load)
       <div><AdminButton :disabled="busy || drafts.length >= 20" @click="addProvider">{{ $t('admin.Llm.add') }}</AdminButton></div>
 
       <h3 class="llm-card__sub">{{ $t('admin.Llm.services') }}</h3>
-      <AdminField :label="$t('admin.Llm.serviceTranslation')" :hint="$t('admin.Llm.serviceTranslationHint')">
+      <AdminField v-for="svc in serviceFields" :key="svc.name" :label="svc.label" :hint="svc.hint">
         <template #default="{ id, describedBy }">
-          <select :id="id" v-model="translationService" :aria-describedby="describedBy" @change="touch">
+          <select :id="id" v-model="serviceBindings[svc.name]" :aria-describedby="describedBy" :data-testid="`llm-service-${svc.name}`" @change="touch">
             <option value="">{{ $t('admin.Llm.serviceNone') }}</option>
             <option v-for="o in providerOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
           </select>
@@ -219,7 +239,7 @@ onMounted(load)
           </select>
         </template>
       </AdminField>
-      <AdminAlert v-if="tr.mode === 'llm' && !translationService" tone="warning">{{ $t('admin.Llm.modeNeedsProvider') }}</AdminAlert>
+      <AdminAlert v-if="tr.mode === 'llm' && !serviceBindings.translation" tone="warning">{{ $t('admin.Llm.modeNeedsProvider') }}</AdminAlert>
       <AdminCheck v-model="tr.fallback_enabled" variant="switch" :label="$t('admin.Llm.fallbackEnabled')" :hint="tr.mode === 'llm' ? $t('admin.Llm.fallbackHintLlm') : $t('admin.Llm.fallbackHintTraditional')" @update:model-value="touch" />
       <AdminCheck v-model="tr.group_messages" variant="switch" :label="$t('admin.Llm.groupMessages')" :hint="$t('admin.Llm.groupMessagesHint')" @update:model-value="touch" />
       <AdminCheck v-if="tr.mode === 'llm' || tr.fallback_enabled" v-model="tr.allow_private" variant="switch" :label="$t('admin.Llm.allowPrivate')" :hint="$t('admin.Llm.allowPrivateHint')" @update:model-value="touch" />

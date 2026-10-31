@@ -283,6 +283,15 @@ func Set(key string, val any) {
 	settings[key] = val
 }
 
+// Unset drops a key from the in-memory cache so readers fall back to their
+// default. It does not delete a database row.
+func Unset(key string) {
+	Load()
+	mu.Lock()
+	delete(settings, key)
+	mu.Unlock()
+}
+
 // SaveToDB 将指定 keys 对应的内存缓存值持久化到数据库。
 //
 // 修复的问题：

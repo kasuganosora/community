@@ -503,7 +503,8 @@
       "s32": "Matrix-Dienst",
       "s33": "Datenmigration",
       "s34": "Vollständiges Backup derselben Domain prüfen und importieren.",
-      "s35": "Sperr-Einsprüche"
+      "s35": "Sperr-Einsprüche",
+      "s36": "Moderation neuer Konten"
     },
     "accessAdminApi": {
       "s1": "Statistik",
@@ -1706,6 +1707,20 @@
       "saved": "Gespeichert",
       "error": "Speichern fehlgeschlagen. Bitte erneut versuchen."
     },
+    "NewAccountMod": {
+      "title": "Moderation neuer Konten",
+      "description": "Ein Sprachmodell prüft die ersten eigenen Beiträge neuer Konten. Gespeicherte Werte gelten sofort.",
+      "enabled": "Moderation neuer Konten aktivieren",
+      "enabledHint": "Wenn aus, werden neue Konten nicht beobachtet und ausgehende Föderation wird nicht zurückgehalten.",
+      "observationN": "Beobachtete Beiträge (N)",
+      "observationNHint": "Die ersten N eigenen Beiträge jedes neuen lokalen Kontos (ohne Boosts) bleiben unter Beobachtung. Standard 20.",
+      "contextX": "Kontextbeiträge (X)",
+      "contextXHint": "Wie viele frühere Beiträge an das Modell gehen, neueste zuerst. Standard 8.",
+      "policy": "Seitenrichtlinie",
+      "policyHint": "Richtlinientext im Prompt an das Modell. Solange nichts gespeichert ist, wird der eingebaute Standard gezeigt. Ein leerer gespeicherter Wert sendet keinen Richtlinientext.",
+      "holdFederation": "Ausgehende Föderation zurückhalten, bis das Modell den Beitrag freigibt",
+      "holdFederationHint": "Solange ein Konto beobachtet wird, gehen Beiträge nicht an andere Server, bis das Modell sie freigibt. Standardmäßig an."
+    },
     "Llm": {
       "title": "LLM",
       "description": "Richte Anbieter großer Sprachmodelle ein und wähle, welche Funktionen sie nutzen. API-Schlüssel werden verschlüsselt gespeichert und nach dem Speichern nicht mehr angezeigt.",
@@ -1723,6 +1738,7 @@
       "keyPending": "Neuer Schlüssel noch nicht gespeichert",
       "keyWillClear": "Schlüssel wird gelöscht",
       "usedByTranslation": "Für Übersetzung verwendet",
+      "usedByNewAccountMod": "Für Moderation neuer Konten verwendet",
       "test": "Verbindung testen",
       "testOk": "Verbindung erfolgreich ({0} ms)",
       "testError": {
@@ -1766,6 +1782,8 @@
       "services": "Dienste, die das LLM nutzen",
       "serviceTranslation": "Übersetzung",
       "serviceTranslationHint": "Wird verwendet, wenn der Übersetzungsmodus LLM ist",
+      "serviceNewAccountMod": "Moderation neuer Konten",
+      "serviceNewAccountModHint": "Prüft Beiträge neuer Konten. Ohne Zuordnung nutzt die Funktion den für Übersetzung gewählten Anbieter.",
       "serviceNone": "Keiner",
       "translation": "Übersetzungseinstellungen",
       "translationEnabled": "Beitragsübersetzung aktivieren",

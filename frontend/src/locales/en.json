@@ -503,7 +503,8 @@
       "s32": "Matrix service",
       "s33": "Data migration",
       "s34": "Pre-check and import a full site backup from the same domain.",
-      "s35": "Suspension appeals"
+      "s35": "Suspension appeals",
+      "s36": "New-account moderation"
     },
     "accessAdminApi": {
       "s1": "Statistics",
@@ -1706,6 +1707,20 @@
       "saved": "Saved",
       "error": "Could not save. Please retry."
     },
+    "NewAccountMod": {
+      "title": "New-account moderation",
+      "description": "Use an LLM to review the first original posts from new accounts. Saved values apply immediately.",
+      "enabled": "Enable new-account moderation",
+      "enabledHint": "When off, new accounts are not watched and outbound federation is not held.",
+      "observationN": "Posts to watch (N)",
+      "observationNHint": "The first N original posts from each new local account (reposts excluded) stay under review. Default 20.",
+      "contextX": "Context posts (X)",
+      "contextXHint": "How many earlier posts are sent to the model, newest first. Default 8.",
+      "policy": "Site policy",
+      "policyHint": "Policy text included in the model prompt. Until this is saved, the built-in default is shown. Saving an empty value sends no policy text.",
+      "holdFederation": "Hold outbound federation until the model passes the post",
+      "holdFederationHint": "While an account is still under watch, posts are not delivered to other servers until the model passes them. On by default."
+    },
     "Llm": {
       "title": "LLM",
       "description": "Configure large language model providers and choose which features use them. API keys are stored encrypted and never shown again after saving.",
@@ -1723,6 +1738,7 @@
       "keyPending": "New key not saved yet",
       "keyWillClear": "Key will be cleared",
       "usedByTranslation": "Used for translation",
+      "usedByNewAccountMod": "Used for new-account moderation",
       "test": "Test connection",
       "testOk": "Connection OK ({0} ms)",
       "testError": {
@@ -1766,6 +1782,8 @@
       "services": "Services using the LLM",
       "serviceTranslation": "Translation",
       "serviceTranslationHint": "Used when the translation mode is LLM",
+      "serviceNewAccountMod": "New-account moderation",
+      "serviceNewAccountModHint": "Reviews posts from new accounts. If unset, that feature uses the provider bound to translation.",
       "serviceNone": "None",
       "translation": "Translation settings",
       "translationEnabled": "Enable post translation",

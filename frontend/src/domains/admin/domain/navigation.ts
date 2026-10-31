@@ -27,6 +27,7 @@ export const adminNavigation: AdminNavGroup[] = [
     item('/settings/branding', t('admin.navigation.s21'), 'palette', 'branding'),
     item('/moderation', t('admin.navigation.s1'), 'secured', 'settings', t('admin.navigation.s22')),
     item('/settings/moderation', t('admin.navigation.s23'), 'user-checked', 'settings'),
+    item('/settings/new-account-mod', t('admin.navigation.s36'), 'secured', 'settings'),
     item('/settings/email', t('admin.navigation.s24'), 'mail', 'settings'),
     item('/settings/storage', t('admin.navigation.s25'), 'cloud', 'settings'),
     item('/settings/security', t('admin.navigation.s26'), 'lock-on', 'settings'),
