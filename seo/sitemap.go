@@ -231,29 +231,40 @@ func publicProfiles(ctx context.Context, conn *gorm.DB) ([]string, error) {
 	return names, nil
 }
 
-// recentTags returns up to tagLimit hashtags that still have posts, most
-// recently used first. Hidden tags are left out so the sitemap only lists
-// pages that are allowed to be indexed.
+// recentTags returns up to tagLimit hashtags used on a public local post,
+// most recently used first. Hidden tags are left out so the sitemap only
+// lists pages that are allowed to be indexed.
+//
+// tags.last_status_used_at is never written: new posts and imports only
+// bump status_count. Requiring it to be set dropped every tag. Recency is
+// the newest public local status that still links the tag.
 func recentTags(ctx context.Context, conn *gorm.DB) ([]string, error) {
 	if tagLimit <= 0 {
 		return nil, nil
 	}
-	var tags []models.Tag
-	err := conn.WithContext(ctx).
-		Where("status_count > 0 AND last_status_used_at IS NOT NULL").
-		Order("last_status_used_at DESC, id DESC").
+	type row struct {
+		Name string
+	}
+	var rows []row
+	err := conn.WithContext(ctx).Table("tags").
+		Select("tags.name").
+		Joins("JOIN status_tags ON status_tags.tag_id = tags.id").
+		Joins("JOIN statuses ON statuses.id = status_tags.status_id AND statuses.deleted_at IS NULL AND statuses.scheduled_at IS NULL AND statuses.visibility = ? AND (statuses.reblog_id IS NULL OR statuses.reblog_id = 0) AND statuses.domain IS NULL", models.StatusVisibilityPublic).
+		Joins("JOIN accounts ON accounts.id = statuses.account_id AND accounts.domain IS NULL AND accounts.deleted_at IS NULL AND accounts.is_ban = ? AND accounts.require_signin_to_view = ?", false, false).
+		Group("tags.id, tags.name").
+		Order("MAX(statuses.created_at) DESC, tags.id DESC").
 		Limit(tagLimit + 100).
-		Find(&tags).Error
+		Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
 	names := make([]string, 0, tagLimit)
 	policy := moderation.Current()
-	for _, tag := range tags {
-		if policy.IsHiddenTag(tag.Name) {
+	for _, row := range rows {
+		if row.Name == "" || policy.IsHiddenTag(row.Name) {
 			continue
 		}
-		names = append(names, tag.Name)
+		names = append(names, row.Name)
 		if len(names) == tagLimit {
 			break
 		}
