@@ -12,6 +12,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/moderation"
+	"github.com/kasuganosora/community/systemsettings"
 )
 
 // ugcOpenPaths stay available to logged-out visitors in every mode: they
@@ -289,6 +290,7 @@ func RobotsTxt(c *gin.Context) {
 	if moderation.Current().UGCVisibilityForVisitor == moderation.UGCNone {
 		body += "Disallow: /@\nDisallow: /notes\n"
 	}
+	body += "Sitemap: " + strings.TrimRight(systemsettings.GetBaseURL(), "/") + "/sitemap.xml\n"
 	c.Header("Cache-Control", "public, max-age=300")
 	c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(body))
 }

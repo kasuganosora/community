@@ -1625,7 +1625,17 @@
       "s19": "Dégradé",
       "s20": "Erreur",
       "s21": "Impossible d’obtenir le bilan de santé du système, réessayez.",
-      "s22": "L’API client Matrix intégrée est inaccessible pour le moment, réessayez."
+      "s22": "L’API client Matrix intégrée est inaccessible pour le moment, réessayez.",
+      "s23": "Plan du site",
+      "s24": "Reconstruit le plan public : accueil, à propos, profils et tags. Il est aussi reconstruit une fois par jour.",
+      "s25": "Actualiser le plan du site",
+      "s26": "Actualisation…",
+      "s27": "Généré {0}. {1} profils, {2} tags, {3} URL.",
+      "s28": "Pas encore généré. Attendez la tâche quotidienne, ou actualisez maintenant.",
+      "s29": "Impossible de lire l’état du plan du site.",
+      "s30": "Plan du site actualisé.",
+      "s31": "Échec de l’actualisation. Réessayez.",
+      "s32": "Chargement de l’état du plan du site…"
     },
     "WebhooksAdminPage": {
       "s1": "N’envoie que les métadonnées de création, modification et suppression des posts locaux publics.",

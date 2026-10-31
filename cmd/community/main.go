@@ -42,6 +42,7 @@ import (
 	"github.com/kasuganosora/community/profileverify"
 	"github.com/kasuganosora/community/runtimeconfig"
 	"github.com/kasuganosora/community/search/indexsync"
+	"github.com/kasuganosora/community/seo"
 	"github.com/kasuganosora/community/server"
 	"github.com/kasuganosora/community/setup"
 	"github.com/kasuganosora/community/systemsettings"
@@ -172,6 +173,7 @@ func main() {
 	moderation.StartInactivityChecker(serviceContext)
 	translation.StartCacheJanitor(serviceContext)
 	startUnattachedMediaPurge(serviceContext)
+	seo.Start(serviceContext)
 
 	event.GetEventManager("status")
 

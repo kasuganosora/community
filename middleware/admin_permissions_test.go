@@ -57,4 +57,5 @@ func TestAdminCapabilityPathBoundaries(t *testing.T) {
 	require.EqualValues(t, models.PermissionDevops, adminRoutePermission("/api/v1/admin/federation/queue-bulk/delivery"))
 	require.EqualValues(t, models.PermissionManageFederation, adminRoutePermission("/api/v1/admin/federation/instances"))
 	require.EqualValues(t, models.PermissionManageWebhooks, adminRoutePermission("/api/v1/admin/webhook-deliveries"))
+	require.EqualValues(t, models.PermissionDevops, adminRoutePermission("/api/v1/admin/seo/sitemap"))
 }

@@ -40,6 +40,7 @@ import (
 	mediaproxyserve "github.com/kasuganosora/community/mediaproxy/serve"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/seo"
 	"net/http"
 )
 
@@ -129,6 +130,8 @@ func SetRouter(app gin.IRouter) {
 	// ===== ActivityPub 联邦端点 =====
 	// WebFinger / NodeInfo
 	app.GET("/robots.txt", RobotsTxt)
+	app.GET("/sitemap.xml", seo.Serve)
+	app.HEAD("/sitemap.xml", seo.Serve)
 	app.GET("/.well-known/webfinger", activitypub.WebFinger)
 	app.GET("/.well-known/host-meta", activitypub.HostMeta)
 	app.GET(defaultassets.Prefix+":name", defaultassets.Handler)
@@ -814,7 +817,11 @@ func SetRouter(app gin.IRouter) {
 	// 矩阵状态（管理员读取）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminRead})).
 		GET("/admin/matrix/status", admin.GetMatrixStatus).
-		GET("/admin/matrix/config", admin.GetMatrixConfig)
+		GET("/admin/matrix/config", admin.GetMatrixConfig).
+		GET("/admin/seo/sitemap", seo.AdminStatus)
+
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).
+		POST("/admin/seo/sitemap", seo.AdminRefresh)
 
 	// 矩阵管理（管理员写入）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWrite})).

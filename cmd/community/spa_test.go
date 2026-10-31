@@ -136,16 +136,40 @@ func TestFrontendAssetContentTypes(t *testing.T) {
 	}
 }
 
-// Status and profile pages are served as the static app shell: no post text,
-// OG description or oEmbed link is rendered server-side, so accounts that
-// require sign-in to view leak nothing to link unfurlers or crawlers.
+// Without a database the shell still must not invent post text. Public
+// pages get site metadata; a resolved post is covered in package seo.
+func TestSPAHomeIsIndexableAndDescribesTheFediverse(t *testing.T) {
+	app := newSPATestEngine(t)
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	body := w.Body.String()
+	for _, word := range []string{"misskey", "mastodon", "fediverse", `rel="canonical"`} {
+		if !strings.Contains(body, word) {
+			t.Fatalf("home shell missing %q: %s", word, body)
+		}
+	}
+	if strings.Contains(body, "noindex") {
+		t.Fatalf("home is noindex: %s", body)
+	}
+	w = httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/tags/golang", nil))
+	if strings.Contains(w.Body.String(), "noindex") {
+		t.Fatalf("public tag shell is noindex: %s", w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/admin", nil))
+	if !strings.Contains(w.Body.String(), "noindex") {
+		t.Fatalf("admin shell should be noindex: %s", w.Body.String())
+	}
+}
+
 func TestSPAShellRendersNoPostContent(t *testing.T) {
 	app := newSPATestEngine(t)
 	for _, p := range []string{"/@alice", "/@alice/status/123", "/notes/abc123"} {
 		w := httptest.NewRecorder()
 		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
-		if body := w.Body.String(); strings.Contains(body, "og:description") || strings.Contains(body, "oembed") {
-			t.Fatalf("%s: shell carries per-page metadata: %s", p, body)
+		if body := w.Body.String(); strings.Contains(body, "oembed") || strings.Contains(body, "poem") {
+			t.Fatalf("%s: shell carries post content: %s", p, body)
 		}
 	}
 }

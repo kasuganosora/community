@@ -65,7 +65,7 @@ func adminRoutePermission(path string) uint64 {
 		return models.PermissionManageRoles
 	case "invites":
 		return models.PermissionManageInvites
-	case "matrix", "thumbnails", "jobs", "queues", "system":
+	case "matrix", "thumbnails", "jobs", "queues", "system", "seo":
 		return models.PermissionDevops
 	default:
 		return 0
