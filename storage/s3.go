@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -86,6 +87,15 @@ type S3Backend struct {
 	client    *minio.Client
 	configErr error
 	legacy    *LocalBackend
+
+	probeMu            sync.Mutex
+	resolvedPublicBase string
+	probeNotBefore     time.Time
+	probeAttempts      int
+	// publicReachable, when set, replaces the live request used to see whether
+	// a public URL serves the probe object. Tests inject it. The results are
+	// (reachable, conclusive).
+	publicReachable func(rawURL string) (bool, bool)
 }
 
 // NewS3Backend creates the backend. A configuration problem does not fall
@@ -324,6 +334,10 @@ func (b *S3Backend) List(ctx context.Context, prefix string, fn func(ObjectInfo)
 	return ctx.Err()
 }
 
+// publicBaseProbeKey is a short-lived object used to see which public base
+// actually serves keys. It is removed after the check.
+const publicBaseProbeKey = "media/public-base-probe.txt"
+
 // PublicURL implements Backend.
 func (b *S3Backend) PublicURL(key string) string {
 	if b.cfg.PublicURL == "" {
@@ -335,7 +349,206 @@ func (b *S3Backend) PublicURL(key string) string {
 		return ""
 	}
 
-	return b.cfg.PublicURL + "/" + (&url.URL{Path: k}).EscapedPath()
+	return b.publicBaseForRedirect(context.Background()) + "/" + (&url.URL{Path: k}).EscapedPath()
+}
+
+// bucketSuffixPublicBase returns publicURL with a trailing /<bucket> removed.
+// ok is false when the configured URL is already the bucket root, or when it
+// shares a host with the S3 API (path-style https://endpoint/bucket/key).
+// A custom domain bound to the bucket serves keys at <domain>/<key>. A public
+// URL copied from an older builder that appended the bucket name
+// (<domain>/<bucket>/<key>) then 404s even though the object was stored.
+func bucketSuffixPublicBase(publicURL, bucket, endpoint string) (string, bool) {
+	publicURL = strings.TrimRight(strings.TrimSpace(publicURL), "/")
+	bucket = strings.Trim(strings.TrimSpace(bucket), "/")
+	if publicURL == "" || bucket == "" || strings.Contains(bucket, "/") {
+		return "", false
+	}
+
+	u, err := url.Parse(publicURL)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return "", false
+	}
+
+	if hostsEqual(u.Hostname(), endpointHostname(endpoint)) {
+		return "", false
+	}
+
+	rawPath := strings.Trim(u.Path, "/")
+	if rawPath == "" {
+		return "", false
+	}
+
+	segs := strings.Split(rawPath, "/")
+	last, err := url.PathUnescape(segs[len(segs)-1])
+	if err != nil || last != bucket {
+		return "", false
+	}
+
+	segs = segs[:len(segs)-1]
+	if len(segs) == 0 {
+		u.Path = ""
+	} else {
+		u.Path = "/" + strings.Join(segs, "/")
+	}
+
+	u.RawPath = ""
+
+	return strings.TrimRight(u.String(), "/"), true
+}
+
+func endpointHostname(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return ""
+	}
+
+	if !strings.Contains(endpoint, "://") {
+		endpoint = "https://" + endpoint
+	}
+
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return ""
+	}
+
+	return u.Hostname()
+}
+
+func hostsEqual(a, b string) bool {
+	return a != "" && strings.EqualFold(a, b)
+}
+
+func (b *S3Backend) publicBaseForRedirect(ctx context.Context) string {
+	b.probeMu.Lock()
+	defer b.probeMu.Unlock()
+
+	if b.resolvedPublicBase != "" {
+		return b.resolvedPublicBase
+	}
+
+	stripped, ok := bucketSuffixPublicBase(b.cfg.PublicURL, b.cfg.Bucket, b.cfg.Endpoint)
+	if !ok {
+		b.resolvedPublicBase = b.cfg.PublicURL
+
+		return b.resolvedPublicBase
+	}
+
+	if !b.probeNotBefore.IsZero() && time.Now().Before(b.probeNotBefore) {
+		return b.cfg.PublicURL
+	}
+
+	chosen, conclusive := b.probePublicBase(ctx, stripped)
+	if !conclusive {
+		b.probeAttempts++
+		// A private bucket, or a public one that has not exposed the probe
+		// yet, both look like "neither URL worked". Retry a few times, then
+		// keep the configured base so a quiet bucket is not probed forever.
+		if b.probeAttempts >= 3 {
+			b.resolvedPublicBase = b.cfg.PublicURL
+
+			return b.cfg.PublicURL
+		}
+
+		b.probeNotBefore = time.Now().Add(30 * time.Second)
+
+		return b.cfg.PublicURL
+	}
+
+	b.resolvedPublicBase = chosen
+	b.probeNotBefore = time.Time{}
+
+	return chosen
+}
+
+func (b *S3Backend) probePublicBase(ctx context.Context, stripped string) (string, bool) {
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+
+	if b.publicReachable == nil {
+		body := []byte("ok")
+		if err := b.Put(ctx, publicBaseProbeKey, bytes.NewReader(body), int64(len(body)), "text/plain"); err != nil {
+			log.Warn("public media URL check skipped: %v", err)
+
+			return b.cfg.PublicURL, false
+		}
+
+		defer func() {
+			dctx, dcancel := context.WithTimeout(context.Background(), 4*time.Second)
+			defer dcancel()
+
+			if err := b.Delete(dctx, publicBaseProbeKey); err != nil {
+				log.Warn("public media URL check cleanup failed: %v", err)
+			}
+		}()
+	}
+
+	reach := b.publicReachable
+	if reach == nil {
+		reach = func(raw string) (bool, bool) {
+			return reachableFromStatus(fetchPublicStatus(ctx, raw))
+		}
+	}
+
+	configured := strings.TrimRight(b.cfg.PublicURL, "/") + "/" + (&url.URL{Path: publicBaseProbeKey}).EscapedPath()
+	alternate := strings.TrimRight(stripped, "/") + "/" + (&url.URL{Path: publicBaseProbeKey}).EscapedPath()
+	confOK, confSure := reach(configured)
+	altOK, altSure := reach(alternate)
+
+	if !confSure || !altSure || (!confOK && !altOK) {
+		return b.cfg.PublicURL, false
+	}
+
+	if !confOK && altOK {
+		log.Warn("S3 public URL ends with the bucket name, but objects are served from the bucket root; media redirects omit that segment")
+
+		return stripped, true
+	}
+
+	return b.cfg.PublicURL, true
+}
+
+func fetchPublicStatus(ctx context.Context, rawURL string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return 0, err
+	}
+
+	req.Header.Set("Range", "bytes=0-0")
+
+	client := &http.Client{
+		Timeout: 4 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64))
+
+	return resp.StatusCode, nil
+}
+
+func reachableFromStatus(status int, err error) (bool, bool) {
+	if err != nil {
+		return false, false
+	}
+
+	if status >= 200 && status < 300 {
+		return true, true
+	}
+
+	switch status {
+	case http.StatusNotFound, http.StatusForbidden, http.StatusUnauthorized:
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 // PresignedURL returns a temporary GET URL for key.

@@ -44,7 +44,7 @@ func storageSettingsFields() []SettingsField {
 	}
 	fields[0].Options = []string{"local", "s3", "minio"}
 	fields[2].Description = "留空表示未设置。对象存储客户端在端点已填写且区域为空时使用 us-east-1；Cloudflare R2 填 auto。"
-	fields[7].Description = "可选。指向存储桶根目录的公开地址（如 R2 公开桶 https://pub-xxxx.r2.dev 或自定义域名）；对象 media/a.jpg 将从 <该地址>/media/a.jpg 访问。留空则由本站直接从存储桶读取并返回文件。"
+	fields[7].Description = "可选。指向存储桶根目录的公开地址（如 R2 公开桶 https://pub-xxxx.r2.dev 或自定义域名），不要在末尾加桶名；对象 media/a.jpg 将从 <该地址>/media/a.jpg 访问。若末尾仍是桶名且该路径访问不到对象、去掉后可以，重定向会改用较短的根地址。留空则由本站直接从存储桶读取并返回文件。"
 	fields[8].Options = []string{"auto", "true", "false"}
 	fields[8].Description = "true 使用 https://端点/桶名/对象 形式（R2、MinIO 推荐）；false 使用虚拟主机风格；auto 由客户端判断。"
 	return fields
