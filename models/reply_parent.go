@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kasuganosora/community/db/dialect"
 	"gorm.io/gorm"
 )
 
@@ -114,17 +115,8 @@ func RepairUnlinkedReplyParents(conn *gorm.DB, baseURL string) (int, error) {
 	if conn == nil || !conn.Migrator().HasTable(&Status{}) || !conn.Migrator().HasTable(&StatusContent{}) {
 		return 0, nil
 	}
-	host := replyHost(baseURL)
 	var ids []uint64
-	query := conn.Table("statuses").
-		Joins("LEFT JOIN status_contents ON status_contents.status_id = statuses.id").
-		Where("(statuses.in_reply_to_id IS NULL OR statuses.in_reply_to_id = 0) AND statuses.deleted_at IS NULL AND (statuses.reblog_id IS NULL OR statuses.reblog_id = 0)")
-	if host != "" {
-		query = query.Where("status_contents.content LIKE ? OR statuses.properties LIKE ?", "%"+host+"%", "%"+StatusPropReplyToURI+"%")
-	} else {
-		query = query.Where("statuses.properties LIKE ?", "%"+StatusPropReplyToURI+"%")
-	}
-	if err := query.Pluck("statuses.id", &ids).Error; err != nil {
+	if err := unlinkedReplyParentQuery(conn, baseURL).Pluck("statuses.id", &ids).Error; err != nil {
 		return 0, err
 	}
 	linked := 0
@@ -148,6 +140,31 @@ func RepairUnlinkedReplyParents(conn *gorm.DB, baseURL string) (int, error) {
 		}
 	}
 	return linked, nil
+}
+
+// unlinkedReplyParentQuery selects replies that may still need a local parent:
+// a stored inReplyTo address, or a local status URL in the body.
+func unlinkedReplyParentQuery(conn *gorm.DB, baseURL string) *gorm.DB {
+	host := replyHost(baseURL)
+	query := conn.Table("statuses").
+		Joins("LEFT JOIN status_contents ON status_contents.status_id = statuses.id").
+		Where("(statuses.in_reply_to_id IS NULL OR statuses.in_reply_to_id = 0) AND statuses.deleted_at IS NULL AND (statuses.reblog_id IS NULL OR statuses.reblog_id = 0)")
+	// statuses.properties is jsonb on PostgreSQL. LIKE (~~) is not defined for
+	// jsonb ("operator does not exist: jsonb ~~ unknown"), so match a text cast.
+	props := statusPropertiesText(conn)
+	if host != "" {
+		return query.Where("status_contents.content LIKE ? OR "+props+" LIKE ?", "%"+host+"%", "%"+StatusPropReplyToURI+"%")
+	}
+	return query.Where(props+" LIKE ?", "%"+StatusPropReplyToURI+"%")
+}
+
+// statusPropertiesText is the text form of statuses.properties. MySQL casts
+// JSON to CHAR; PostgreSQL and SQLite cast to TEXT.
+func statusPropertiesText(conn *gorm.DB) string {
+	if dialect.IsMySQL(conn) {
+		return "CAST(statuses.properties AS CHAR)"
+	}
+	return "CAST(statuses.properties AS TEXT)"
 }
 
 func storedParentFor(conn *gorm.DB, status *Status, baseURL string) (*Status, error) {
