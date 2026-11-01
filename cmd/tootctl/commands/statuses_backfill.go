@@ -21,22 +21,16 @@ func statusesBackfillCommands() []*cli.Command {
 		{
 			Name:  "repair-reply-parents",
 			Usage: "Link replies to parents this server already has",
-			Description: "Reads unlinked remote replies from their own origin and records inReplyTo when that parent is already stored.\n" +
-				"Does not fetch the parent. Local addresses stored on the reply are linked without any request. Safe to re-run.",
+			Description: "Reads unlinked remote replies from their own origin, newest first, and records inReplyTo when that parent is already stored.\n" +
+				"Does not fetch the parent. Local addresses stored on the reply are linked without any request.\n\n" +
+				"--limit is the page size (default 200). Each page continues with status ids older than the oldest id just examined. Pages repeat until none remain, or until --max-pages is reached.\n\n" +
+				"To pause and resume, set --max-pages and re-run with --after-id set to the printed oldest id. Repeat until the command says no older unlinked remote replies remain. Do not raise --limit to reach an older status.",
 			Flags: []cli.Flag{
-				&cli.IntFlag{Name: "limit", Value: 200, Usage: "maximum remote replies to read from their origin"},
+				&cli.IntFlag{Name: "limit", Value: 200, Usage: "remote replies to read per page; the next page continues with older ids"},
+				&cli.Uint64Flag{Name: "after-id", Usage: "resume with statuses older than this id (the oldest id printed by the previous run); 0 starts at the newest"},
+				&cli.IntFlag{Name: "max-pages", Usage: "stop after this many pages; 0 reads until no older unlinked remote replies remain"},
 			},
-			Action: func(c *cli.Context) error {
-				linked, err := activitypub.RecoverUnlinkedReplyParents(context.Background(), c.Int("limit"), func(ctx context.Context, uri string) (map[string]any, error) {
-					note, _, fetchErr := activitypub.NewResolver(nil, "").FetchCanonicalObject(ctx, uri)
-					return note, fetchErr
-				})
-				if err != nil {
-					return err
-				}
-				fmt.Printf("Linked %d reply parents\n", linked)
-				return nil
-			},
+			Action: repairReplyParents,
 		},
 		{
 			Name:  "fetch-quotes",
@@ -97,6 +91,44 @@ func statusesBackfillCommands() []*cli.Command {
 			Action: markBackfilled,
 		},
 	}
+}
+
+func repairReplyParents(c *cli.Context) error {
+	if c.Int("limit") < 0 || c.Int("max-pages") < 0 {
+		return errors.New("limit and max-pages must be zero or positive")
+	}
+	result, err := activitypub.RepairReplyParents(context.Background(), activitypub.ReplyParentRepair{
+		Limit:    c.Int("limit"),
+		AfterID:  c.Uint64("after-id"),
+		MaxPages: c.Int("max-pages"),
+		OnPage: func(page, examined, linked int, oldest uint64) {
+			fmt.Printf("page %d: examined %d remote replies, linked %d, oldest id %d\n", page, examined, linked, oldest)
+		},
+	}, func(ctx context.Context, uri string) (map[string]any, error) {
+		note, _, fetchErr := activitypub.NewResolver(nil, "").FetchCanonicalObject(ctx, uri)
+		return note, fetchErr
+	})
+	if err == nil || result.Linked > 0 || len(result.Examined) > 0 {
+		printReplyParentRepair(result)
+	}
+	return err
+}
+
+func printReplyParentRepair(result activitypub.ReplyParentRepairResult) {
+	fmt.Printf("Linked %d reply parents\n", result.Linked)
+	if len(result.Examined) > 0 {
+		fmt.Printf("Examined %d remote replies\n", len(result.Examined))
+	}
+	if result.Done {
+		fmt.Println("No older unlinked remote replies remain.")
+		return
+	}
+	if result.Cursor == 0 {
+		return
+	}
+	fmt.Printf("Oldest id examined: %d\n", result.Cursor)
+	fmt.Printf("Re-run with --after-id %d to continue with older ids.\n", result.Cursor)
+	fmt.Println("Each page reads --limit replies. Do not raise --limit to reach an older status.")
 }
 
 func markBackfilled(c *cli.Context) error {
