@@ -28,6 +28,11 @@ func NotificationVisible(n *models.Notification, currentAccount *models.Account)
 	if n == nil {
 		return false, nil
 	}
+	// Edits never enter the inbox. Historical rows stay stored but are hidden,
+	// including ones created when a non-edit save was labeled as an update.
+	if n.Type == models.NotificationTypeStatusUpdate {
+		return false, nil
+	}
 	conn := db.GetDB()
 	if currentAccount != nil && n.FromAccountId != 0 {
 		var sender models.Account

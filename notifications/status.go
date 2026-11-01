@@ -31,7 +31,10 @@ func init() {
 			safeGo("creatReblogNotification", func() { creatReblogNotification(status) }) // 创建boost notification
 			dispatchMentionNotification(status, false)
 		case "after_update":
-			safeGo("updateReblogNotification", func() { updateReblogNotification(status) })
+			// A status save is not an edit alert. Remote Updates often only
+			// refresh counters or reactions, and real edits are not inbox
+			// events either. Mention membership is still reconciled below.
+			updateReblogNotification(status)
 			dispatchMentionNotification(status, true)
 		case "after_delete":
 			safeGo("removeReblogNotification", func() { removeReblogNotification(status) })
@@ -292,10 +295,9 @@ func removeMentionNotification(status *models.Status) {
 	}
 }
 
-// updateMentionNotification 更新mention通知
-// 如果有新的mention账号，就创建新的mention通知
-// 如果有的账号不再是mention账号，就删除对应的通知
-// 给现有的账号发送更新status通知.
+// updateMentionNotification reconciles mention notifications after a status
+// save: new mentions are notified, removed mentions lose their row. People who
+// were already mentioned are not told the post was edited.
 func updateMentionNotification(status *models.Status) {
 	ids, err := mentionAccountIDs(db.GetDB(), status.Id)
 	if err != nil {
@@ -316,14 +318,12 @@ func updateMentionNotificationForAccounts(tx *gorm.DB, status *models.Status, ne
 	}
 
 	newMentionAccountListExistsMap := utils.GetExistsMap(newMentionAccountList)
-	removeIdCheckMap := make(map[uint64]bool)
 	// 找出那些需要删除的通知
 	needRemoveNsList := make([]*models.Notification, 0)
 
 	for _, oldNs := range oldNsList {
 		if _, ok := newMentionAccountListExistsMap[oldNs.AccountId]; !ok {
 			needRemoveNsList = append(needRemoveNsList, oldNs)
-			removeIdCheckMap[oldNs.AccountId] = true
 		}
 	}
 
@@ -370,31 +370,6 @@ func updateMentionNotificationForAccounts(tx *gorm.DB, status *models.Status, ne
 		err = createMentionBatch(tx, needCreateNsList, created)
 		if err != nil {
 			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] create mention notification error, status id %d", status.Id)))
-			return err
-		}
-	}
-
-	// 现有的用户发送更新通知
-	updateNfs := make([]*models.Notification, 0)
-
-	for _, oldNs := range oldNsList {
-		if _, ok := removeIdCheckMap[oldNs.AccountId]; ok {
-			continue
-		}
-
-		nf := &models.Notification{
-			Type:          models.NotificationTypeStatusUpdate,
-			StatusId:      status.Id,
-			AccountId:     oldNs.AccountId,
-			FromAccountId: status.AccountId,
-		}
-		updateNfs = append(updateNfs, nf)
-	}
-
-	if len(updateNfs) > 0 {
-		err = createMentionBatch(tx, updateNfs, created)
-		if err != nil {
-			log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateMentionNotification] create update notification error, status id %d", status.Id)))
 			return err
 		}
 	}
@@ -484,57 +459,10 @@ func removeReblogNotification(status *models.Status) {
 	}
 }
 
-// updateReblogNotification 更新转发通知
-// 告诉所有转发人，这篇文章被修改了.
-func updateReblogNotification(status *models.Status) {
-	if status.ReblogId == nil || *status.ReblogId == 0 {
-		return
-	}
-
-	reblogStatus, err := getReblogStatus(status)
-	if err != nil {
-		return
-	}
-
-	// 获取原来的转发通知
-	accountsId := make([]uint64, 0)
-
-	err = db.GetDB().Model(&models.Status{}).Where("reblog_id = ?", *status.ReblogId).Pluck("account_id", &accountsId).Error
-	if err != nil {
-		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] find reblog accounts error, status id %d", reblogStatus.Id)))
-		return
-	}
-
-	// 通知只发给本站用户
-	accounts, err := models.GetLocalAccounts(db.GetDB(), accountsId)
-	if err != nil {
-		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] get local accounts error, status id %d", reblogStatus.Id)))
-		return
-	}
-
-	// 发送帖子修改通知
-	nfList := make([]*models.Notification, 0)
-
-	for _, account := range accounts {
-		nf := &models.Notification{
-			FromAccountId: status.AccountId,
-			AccountId:     account.Id,
-			Type:          models.NotificationTypeStatusUpdate,
-			StatusId:      reblogStatus.Id,
-		}
-		nfList = append(nfList, nf)
-	}
-
-	if len(nfList) == 0 {
-		return
-	}
-
-	err = db.GetDB().Create(nfList).Error
-	if err != nil {
-		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[updateReblogNotification] create reblog notification error, status id %d", reblogStatus.Id)))
-		return
-	}
-}
+// updateReblogNotification does not notify. Rebloggers are not told a boosted
+// post was edited: status saves (including counter and reaction refreshes)
+// are not edit alerts. Create and delete of the boost itself are unchanged.
+func updateReblogNotification(*models.Status) {}
 
 // creatReblogNotification 创建转发通知
 // 通知原作者，有人转发了他的文章.

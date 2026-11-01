@@ -159,7 +159,7 @@ func TestUpdateReblogNotification_NilReblogIdSkips(t *testing.T) {
 	})
 }
 
-func TestUpdateReblogNotification_NotifiesRebloggers(t *testing.T) {
+func TestUpdateReblogNotification_DoesNotNotify(t *testing.T) {
 	notificationsStateMu.Lock()
 	defer notificationsStateMu.Unlock()
 
@@ -188,12 +188,10 @@ func TestUpdateReblogNotification_NotifiesRebloggers(t *testing.T) {
 
 	updateReblogNotification(boost)
 
-	// The reblogger (a local account) should get a status_update notification
-	// for the original status.
-	ns := allNotifications(t, gdb, reblogger.Id, models.NotificationTypeStatusUpdate)
-	require.Len(t, ns, 1, "reblogger should receive one status_update notification")
-	assert.Equal(t, original.Id, ns[0].StatusId)
-	assert.Equal(t, originalAuthor.Id, ns[0].FromAccountId)
+	// Rebloggers are not told the boosted post changed. Counter refreshes and
+	// real edits both used to be mislabeled as an edit notification.
+	assert.Empty(t, allNotifications(t, gdb, reblogger.Id, models.NotificationTypeStatusUpdate),
+		"reblogger must not receive an edit notification")
 }
 
 func TestRemoveReblogNotification_NilReblogIdSkips(t *testing.T) {

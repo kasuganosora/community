@@ -29,6 +29,9 @@ func NotificationTimeline(c *gin.Context) {
 	account := controllers.MustGetAccount(c)
 
 	query := db.GetDB().Model(&models.Notification{}).Where("account_id = ?", account.Id)
+	// Status edits are not notifications. Drop them in the query as well as in
+	// the serializer so an all-edit page cannot end the timeline early.
+	query = query.Where("type <> ?", models.NotificationTypeStatusUpdate)
 
 	if len(req.ExcludeTypes) > 0 {
 		typeIds := make([]int, 0, len(req.ExcludeTypes))

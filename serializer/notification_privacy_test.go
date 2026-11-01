@@ -9,6 +9,17 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestStatusEditNotificationsStayOutOfInbox(t *testing.T) {
+	visible, err := NotificationVisible(&models.Notification{
+		Type:          models.NotificationTypeStatusUpdate,
+		AccountId:     2,
+		FromAccountId: 1,
+		StatusId:      9,
+	}, nil)
+	require.NoError(t, err)
+	require.False(t, visible)
+}
+
 func TestHistoricalNotificationVisibilityRevocation(t *testing.T) {
 	withTestDBMigrated(t, &models.Status{}, &models.StatusToAccount{}, &models.Block{}, &models.Follow{})
 	conn := db.GetDB().Session(&gorm.Session{SkipHooks: true})
