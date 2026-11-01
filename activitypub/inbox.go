@@ -348,7 +348,12 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 
 	err = activityDB(ctx).Where("origin_uri = ?", objectID).First(&existingStatus).Error
 	if err == nil {
-		// Status already exists, skip
+		// A reply may have been stored before its parent was known. Link it
+		// now so mention notifications can show what was replied to.
+		if linkErr := backfillReplyParent(ctx, &existingStatus, inReplyTo); linkErr != nil {
+			c.JSON(500, gin.H{"error": "failed to resolve reply"})
+			return
+		}
 		c.JSON(200, gin.H{"status": "accepted"})
 
 		return
@@ -1818,6 +1823,42 @@ func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string) (*models.
 	return importFetchedStatus(ctx, statusURI, statusData)
 }
 
+// rememberReplyParent records a reply target that is already stored here.
+// Missing parents stay unlinked; reading a notification must not fetch them.
+func rememberReplyParent(ctx context.Context, status *models.Status, inReplyTo string) error {
+	if status == nil || inReplyTo == "" || (status.InReplyToId != nil && *status.InReplyToId != 0) {
+		return nil
+	}
+	parent, err := findInboundParent(ctx, inReplyTo)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	status.InReplyToId = &parent.Id
+	status.InReplyToAccountId = &parent.AccountId
+	return nil
+}
+
+// backfillReplyParent repairs a reply that was saved before its parent
+// could be matched, so a later delivery still exposes that parent.
+func backfillReplyParent(ctx context.Context, status *models.Status, inReplyTo string) error {
+	if status == nil || status.Id == 0 {
+		return nil
+	}
+	if err := rememberReplyParent(ctx, status, inReplyTo); err != nil {
+		return err
+	}
+	if status.InReplyToId == nil {
+		return nil
+	}
+	return activityDB(ctx).Model(&models.Status{}).Where("id = ?", status.Id).Updates(map[string]any{
+		"in_reply_to_id":         status.InReplyToId,
+		"in_reply_to_account_id": status.InReplyToAccountId,
+	}).Error
+}
+
 // importFetchedStatus stores an already fetched, canonical status object.
 func importFetchedStatus(ctx context.Context, statusURI string, statusData map[string]any) (*models.Status, error) {
 	var err error
@@ -1907,14 +1948,10 @@ func importFetchedStatus(ctx context.Context, statusURI string, statusData map[s
 		status.Domain = &host
 	}
 
-	// Set in-reply-to if present
-	if inReplyTo != "" {
-		var parentStatus models.Status
-
-		err := activityDB(ctx).Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ?", inReplyTo, inReplyTo, inReplyTo).First(&parentStatus).Error
-		if err == nil {
-			status.InReplyToId = &parentStatus.Id
-		}
+	// Link a parent this server already has. A numeric local id
+	// (/users/:name/statuses/:id) is not stored in local_object_uri.
+	if err = rememberReplyParent(ctx, &status, inReplyTo); err != nil {
+		return nil, err
 	}
 
 	statusHost := ""
