@@ -57,14 +57,24 @@ func triggerStatusEvent(tx *gorm.DB, e event.Event) {
 // its status events only after the commit. Live-stream consumers reload the
 // row from SQL as soon as they receive the event, so publishing from inside the
 // still-open create transaction made them miss newly created local posts.
-func CreateStatusCommitted(conn *gorm.DB, status *Status) error {
+func CreateStatusCommitted(conn *gorm.DB, status *Status, beforeCommit ...func(*gorm.DB) error) error {
 	ctx := conn.Statement.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	ctx, publish := BeginDeferredStatusEvents(ctx)
 	if err := conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return tx.Create(status).Error
+		if err := tx.Create(status).Error; err != nil {
+			return err
+		}
+		for _, fn := range beforeCommit {
+			if fn != nil {
+				if err := fn(tx); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
 	}); err != nil {
 		return err
 	}

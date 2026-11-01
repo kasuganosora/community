@@ -200,7 +200,9 @@
       "s22": "Не удалось удалить",
       "s23": "Этот пост соответствует текущим условиям публичных рекомендаций.",
       "s24": "{0} «Не интересно» и «не рекомендовать автора» влияют только на рекомендации и не блокируют аккаунт. Посмотреть и отменить можно в настройках.",
-      "s25": "Понятно"
+      "s25": "Понятно",
+      "localOnly": "Только локально",
+      "localOnlyHint": "Эта запись не отправлена на другие серверы."
     },
     "PostComposer": {
       "uploadComplete": "Загружено",
@@ -1378,7 +1380,7 @@
       "s10": "Загрузка апелляций…",
       "s11": "Список апелляций, прокручивается по горизонтали",
       "s12": "Апелляция",
-      "s13": "ID аккаунта",
+      "s13": "Аккаунт",
       "s14": "ID записи",
       "s15": "Состояние",
       "s16": "Отправлена",
@@ -1392,13 +1394,13 @@
       "s24": "Апелляция #{0}",
       "s25": "Текст апелляции",
       "s26": "Текст не указан",
-      "s27": "Заметка модератора (необязательно)",
-      "s28": "Заметка видна только модераторам",
+      "s27": "Ответ (виден автору апелляции)",
+      "s28": "Объясните решение автору апелляции",
       "s29": "Принять",
       "s30": "Отклонить",
       "s31": "Принять апелляцию #{0}? Это только записывает решение и не снимает блокировку.",
       "s32": "Отклонить апелляцию #{0}?",
-      "s33": "Заметка модератора",
+      "s33": "Ответ",
       "s34": "Без заметки",
       "s35": "Рассмотрена",
       "s36": "Чтобы вернуть вход, снимите блокировку в управлении пользователями.",
@@ -1829,6 +1831,31 @@
       "fallbackHintTraditional": "Если традиционный сервис выдаёт ошибку, тайм-аут или пустой/неизменённый текст, повторить через LLM. Ограничения приватности для LLM сохраняются.",
       "groupMessages": "Разрешить перевод сообщений групповых чатов",
       "groupMessagesHint": "Сообщения групп — не публичные посты. По умолчанию: включено, если основной движок — собственный традиционный сервис, иначе выключено. Сообщения непубличных групп отправляются в LLM, только если разрешён приватный контент."
+    },
+    "Reviews": {
+      "title": "Post reviews",
+      "description": "Review new accounts’ posts, resolve flagged cases and release held posts.",
+      "refresh": "Refresh list",
+      "loading": "Loading reviews…",
+      "error": "Unable to load reviews. Please retry.",
+      "pending": "Pending",
+      "processing": "Reviewing",
+      "failed": "Waiting to retry",
+      "flag": "Needs human review",
+      "unconfigured": "Waiting for a review service",
+      "disabled": "Automatic review is disabled. Moderators can still approve existing posts manually.",
+      "unconfiguredHint": "No review service is configured. Bind an LLM in system settings or review the posts here.",
+      "approve": "Approve",
+      "retry": "Review again",
+      "confirm": "Approve this post by {'@'}{0}? A held post will resume federation after approval.",
+      "approved": "Review approved.",
+      "retried": "The post has been queued for review again.",
+      "held": "Held until review passes",
+      "notHeld": "Federation is not paused",
+      "empty": "No reviews need attention.",
+      "emptyPost": "This post has no text. Open the original post to inspect its attachments.",
+      "unavailable": "Account unavailable",
+      "viewPost": "View post"
     }
   },
   "auth": {
@@ -1972,7 +1999,10 @@
       "s21": "Напишите текст апелляции",
       "s22": "Более ранние апелляции",
       "s23": "Запись #{0}",
-      "s24": "Запись не указана"
+      "s24": "Запись не указана",
+      "refresh": "Refresh appeal status",
+      "unavailable": "There is no automatic suspension eligible for an online appeal. Please contact your site administrator.",
+      "alreadyReviewed": "This appeal has been reviewed. Read the response below and refresh after your account access is restored."
     }
   },
   "bookmark": {

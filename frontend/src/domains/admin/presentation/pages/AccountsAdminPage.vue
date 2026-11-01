@@ -165,7 +165,11 @@ async function removeAccount() {
   finally { busy.value = false }
 }
 async function page(delta: number) { offset.value = Math.max(0, offset.value + delta * limit); await load() }
-onMounted(() => { load(); window.addEventListener('keydown', onDetailKey) })
+function openLinkedAccount(value: unknown) {
+  if (typeof value === 'string' && /^[1-9]\d*$/.test(value)) void detail(value)
+}
+watch(() => route.query.account, openLinkedAccount)
+onMounted(() => { load(); openLinkedAccount(route.query.account); window.addEventListener('keydown', onDetailKey) })
 onBeforeUnmount(() => { listRequest++; detailRequest++; document.body.style.overflow = ''; window.removeEventListener('keydown', onDetailKey) })
 </script>
 <template>

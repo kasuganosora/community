@@ -17,6 +17,7 @@ export const adminNavigation: AdminNavGroup[] = [
     item('/announcements', t('admin.navigation.s12'), 'loudspeaker', 'announcements'),
     item('/advertisements', t('admin.navigation.s13'), 'image', 'branding'),
     item('/reports', t('admin.navigation.s14'), 'flag', 'reports'),
+    item('/new-account-reviews', t('admin.Reviews.title'), 'flag', 'reports'),
     item('/appeals', t('admin.navigation.s35'), 'chat', 'reports'),
     item('/discovery', t('admin.navigation.s15'), 'browse', 'settings', t('admin.navigation.s16')),
     item('/audit-logs', t('admin.navigation.s17'), 'history', 'audit'),

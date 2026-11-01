@@ -200,7 +200,9 @@
       "s22": "削除に失敗しました",
       "s23": "この投稿は現在の公開おすすめ条件に一致しています。",
       "s24": "{0}「興味なし」や「作者をおすすめしない」はおすすめにのみ影響し、アカウントをブロックするものではありません。設定で確認・取り消しができます。",
-      "s25": "了解"
+      "s25": "了解",
+      "localOnly": "ローカルのみ",
+      "localOnlyHint": "この投稿は他のサーバーに送信されていません。"
     },
     "PostComposer": {
       "uploadComplete": "アップロード済み",
@@ -1378,7 +1380,7 @@
       "s10": "異議を読み込み中…",
       "s11": "異議の一覧。横にスクロールできます",
       "s12": "異議",
-      "s13": "アカウント ID",
+      "s13": "アカウント",
       "s14": "投稿 ID",
       "s15": "状態",
       "s16": "送信日時",
@@ -1392,13 +1394,13 @@
       "s24": "異議 #{0}",
       "s25": "異議の内容",
       "s26": "説明はありません",
-      "s27": "対応メモ（任意）",
-      "s28": "管理者だけに見えるメモ",
+      "s27": "返信（申立人に表示されます）",
+      "s28": "申立人に判断の理由を説明してください",
       "s29": "承認",
       "s30": "却下",
       "s31": "異議 #{0} を承認しますか？決定を記録するだけで、凍結は解除されません。",
       "s32": "異議 #{0} を却下しますか？",
-      "s33": "管理者メモ",
+      "s33": "返信",
       "s34": "メモなし",
       "s35": "対応日時",
       "s36": "ログインを戻すには、ユーザー管理で凍結を解除してください。",
@@ -1829,6 +1831,31 @@
       "fallbackHintTraditional": "従来型サービスが失敗・タイムアウト・空または未変更のテキストを返した場合、LLM で再試行します。LLM のプライバシー制限は引き続き適用されます。",
       "groupMessages": "グループチャットのメッセージ翻訳を許可",
       "groupMessagesHint": "グループのメッセージは公開投稿ではありません。既定：主エンジンがセルフホストの従来型サービスならオン、それ以外はオフ。非公開グループのメッセージは、非公開コンテンツが許可されている場合のみ LLM に送信されます。"
+    },
+    "Reviews": {
+      "title": "Post reviews",
+      "description": "Review new accounts’ posts, resolve flagged cases and release held posts.",
+      "refresh": "Refresh list",
+      "loading": "Loading reviews…",
+      "error": "Unable to load reviews. Please retry.",
+      "pending": "Pending",
+      "processing": "Reviewing",
+      "failed": "Waiting to retry",
+      "flag": "Needs human review",
+      "unconfigured": "Waiting for a review service",
+      "disabled": "Automatic review is disabled. Moderators can still approve existing posts manually.",
+      "unconfiguredHint": "No review service is configured. Bind an LLM in system settings or review the posts here.",
+      "approve": "Approve",
+      "retry": "Review again",
+      "confirm": "Approve this post by {'@'}{0}? A held post will resume federation after approval.",
+      "approved": "Review approved.",
+      "retried": "The post has been queued for review again.",
+      "held": "Held until review passes",
+      "notHeld": "Federation is not paused",
+      "empty": "No reviews need attention.",
+      "emptyPost": "This post has no text. Open the original post to inspect its attachments.",
+      "unavailable": "Account unavailable",
+      "viewPost": "View post"
     }
   },
   "auth": {
@@ -1972,7 +1999,10 @@
       "s21": "異議の内容を入力してください",
       "s22": "以前の異議",
       "s23": "投稿 #{0}",
-      "s24": "投稿なし"
+      "s24": "投稿なし",
+      "refresh": "Refresh appeal status",
+      "unavailable": "There is no automatic suspension eligible for an online appeal. Please contact your site administrator.",
+      "alreadyReviewed": "This appeal has been reviewed. Read the response below and refresh after your account access is restored."
     }
   },
   "bookmark": {

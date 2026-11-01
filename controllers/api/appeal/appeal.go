@@ -29,6 +29,36 @@ func List(c *gin.Context) {
 	for i := range rows {
 		out = append(out, appealJSON(&rows[i]))
 	}
+	// Keep the array response for existing API clients. The web page also
+	// needs the current case so it never offers a second or ineligible appeal.
+	if c.Query("include_context") == "true" {
+		var suspension gin.H
+		suspended := account.IsBan
+		if value, ok := c.Get("user"); ok {
+			if user, ok := value.(*models.User); ok && user.IsBan {
+				suspended = true
+			}
+		}
+		if account.IsBan {
+			conn := db.GetDB().WithContext(c.Request.Context())
+			job, err := newacctmod.SuspensionJob(conn, account.Id, 0)
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load suspension"})
+				return
+			}
+			if err == nil {
+				suspension = gin.H{"status_id": strconv.FormatUint(job.StatusID, 10), "can_appeal": true}
+				var count int64
+				if err := conn.Model(&newacctmod.Appeal{}).Where("account_id = ? AND suspension_key = ?", account.Id, newacctmod.SuspensionKeyFor(account.Id, job.StatusID)).Count(&count).Error; err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list appeals"})
+					return
+				}
+				suspension["can_appeal"] = count == 0
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"items": out, "suspended": suspended, "suspension": suspension})
+		return
+	}
 	c.JSON(http.StatusOK, out)
 }
 
@@ -103,9 +133,29 @@ func AdminList(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list appeals"})
 		return
 	}
+	ids := make([]uint64, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.AccountID)
+	}
+	var accounts []models.Account
+	if len(ids) > 0 {
+		if err := db.GetDB().WithContext(c.Request.Context()).Select("id", "username", "domain").Where("id IN ?", ids).Find(&accounts).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load appeal accounts"})
+			return
+		}
+	}
+	accts := make(map[uint64]string)
+	for _, a := range accounts {
+		accts[a.Id] = a.Username
+		if a.Domain != nil && *a.Domain != "" {
+			accts[a.Id] += "@" + *a.Domain
+		}
+	}
 	out := make([]gin.H, 0, len(rows))
 	for i := range rows {
-		out = append(out, appealJSON(&rows[i]))
+		item := appealJSON(&rows[i])
+		item["account_acct"] = accts[rows[i].AccountID]
+		out = append(out, item)
 	}
 	c.JSON(http.StatusOK, out)
 }

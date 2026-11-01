@@ -27,6 +27,7 @@ type Status struct {
 	Sensitive          bool           `json:"sensitive"`
 	SpoilerText        string         `json:"spoiler_text"`
 	Visibility         string         `json:"visibility"`
+	LocalOnly          bool           `json:"local_only,omitempty"`
 	Language           *string        `json:"language"`
 	Uri                string         `json:"uri"`
 	Url                string         `json:"url"`
@@ -79,6 +80,7 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 	}
 
 	ret.Sensitive = status.Sensitive
+	ret.LocalOnly = status.LocalOnly
 	for _, a := range status.Attachments {
 		if a != nil && a.Sensitive {
 			ret.Sensitive = true

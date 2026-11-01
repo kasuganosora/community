@@ -224,6 +224,8 @@ export interface MastodonEmojiReaction {
 export type MastodonReplyPreview = Pick<MastodonStatus, 'id' | 'account' | 'created_at' | 'content' | 'spoiler_text' | 'sensitive' | 'emojis' | 'filtered'>
 
 export interface MastodonStatus {
+  /** Federation is paused or this post is restricted to this instance. */
+  local_only?: boolean
   /** Authorized, one-level reply context supplied in the same response. */
   reply?: MastodonReplyPreview | null
   emoji_reactions?: MastodonEmojiReaction[]

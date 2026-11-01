@@ -200,7 +200,9 @@
       "s22": "Delete failed",
       "s23": "This post matches the current public discovery criteria.",
       "s24": "{0} “Not interested” and “stop recommending this author” only affect discovery; they don’t block the account. You can review and undo them in Settings.",
-      "s25": "Got it"
+      "s25": "Got it",
+      "localOnly": "Local only",
+      "localOnlyHint": "This post has not been sent to other servers."
     },
     "PostComposer": {
       "uploadComplete": "Uploaded",
@@ -1378,7 +1380,7 @@
       "s10": "Loading appeals…",
       "s11": "Appeal list, scrolls horizontally",
       "s12": "Appeal",
-      "s13": "Account ID",
+      "s13": "Account",
       "s14": "Post ID",
       "s15": "State",
       "s16": "Submitted",
@@ -1392,13 +1394,13 @@
       "s24": "Appeal #{0}",
       "s25": "Appeal",
       "s26": "No text provided",
-      "s27": "Moderator note (optional)",
-      "s28": "A note visible only to moderators",
+      "s27": "Response (visible to the appellant)",
+      "s28": "Explain the decision to the appellant",
       "s29": "Accept",
       "s30": "Reject",
       "s31": "Accept appeal #{0}? This only records the decision and does not unsuspend the account.",
       "s32": "Reject appeal #{0}?",
-      "s33": "Moderator note",
+      "s33": "Response",
       "s34": "No note",
       "s35": "Resolved",
       "s36": "To restore sign-in, unsuspend the account in user management.",
@@ -1829,6 +1831,31 @@
       "fallbackHintTraditional": "When the traditional service fails, times out or returns empty/unchanged text, retry with the LLM. Privacy limits for the LLM still apply.",
       "groupMessages": "Allow translating group chat messages",
       "groupMessagesHint": "Group messages are not public posts. Default: on when the primary engine is a self-hosted traditional service, off otherwise. Messages of non-public groups are only sent to the LLM when private content is allowed."
+    },
+    "Reviews": {
+      "title": "Post reviews",
+      "description": "Review new accounts’ posts, resolve flagged cases and release held posts.",
+      "refresh": "Refresh list",
+      "loading": "Loading reviews…",
+      "error": "Unable to load reviews. Please retry.",
+      "pending": "Pending",
+      "processing": "Reviewing",
+      "failed": "Waiting to retry",
+      "flag": "Needs human review",
+      "unconfigured": "Waiting for a review service",
+      "disabled": "Automatic review is disabled. Moderators can still approve existing posts manually.",
+      "unconfiguredHint": "No review service is configured. Bind an LLM in system settings or review the posts here.",
+      "approve": "Approve",
+      "retry": "Review again",
+      "confirm": "Approve this post by {'@'}{0}? A held post will resume federation after approval.",
+      "approved": "Review approved.",
+      "retried": "The post has been queued for review again.",
+      "held": "Held until review passes",
+      "notHeld": "Federation is not paused",
+      "empty": "No reviews need attention.",
+      "emptyPost": "This post has no text. Open the original post to inspect its attachments.",
+      "unavailable": "Account unavailable",
+      "viewPost": "View post"
     }
   },
   "auth": {
@@ -1972,7 +1999,10 @@
       "s21": "Please write an appeal",
       "s22": "Earlier appeals",
       "s23": "Post #{0}",
-      "s24": "No linked post"
+      "s24": "No linked post",
+      "refresh": "Refresh appeal status",
+      "unavailable": "There is no automatic suspension eligible for an online appeal. Please contact your site administrator.",
+      "alreadyReviewed": "This appeal has been reviewed. Read the response below and refresh after your account access is restored."
     }
   },
   "bookmark": {

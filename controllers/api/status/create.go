@@ -233,15 +233,14 @@ func Create(c *gin.Context) {
 		}
 		createDB = createDB.WithContext(models.WithStructuredRecipientIDs(c.Request.Context(), recipients))
 	}
-	newacctmod.PrepareCreate(status, currentAccount)
-	err = models.CreateStatusCommitted(createDB, status)
+	review := newacctmod.PrepareCreate(createDB, status, currentAccount)
+	err = models.CreateStatusCommitted(createDB, status, review)
 	if err != nil {
 		_ = c.Error(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create status"})
 
 		return
 	}
-	newacctmod.Enqueue(db.GetDB(), status)
 
 	now := time.Now()
 	currentAccount.LastStatusAt = &now

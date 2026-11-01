@@ -40,6 +40,7 @@ func call(t *testing.T, handler gin.HandlerFunc, account *models.Account, method
 		c.Set("account", account)
 	}
 	handler(c)
+	c.Writer.WriteHeaderNow()
 	return w
 }
 
@@ -99,4 +100,72 @@ func TestResolveAppealOnce(t *testing.T) {
 
 	w2 := resolveCall(t, admin, `{"accept":false}`)
 	require.Equal(t, http.StatusUnprocessableEntity, w2.Code)
+}
+
+func TestAppealContextExplainsEligibilityAndClosedCases(t *testing.T) {
+	conn := appealDB(t)
+	account := &models.Account{Id: 7, Username: "held", IsBan: true}
+	request := func() map[string]any {
+		w := call(t, List, account, "GET", "/api/v1/appeals?include_context=true", "")
+		require.Equal(t, 200, w.Code, w.Body.String())
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		return body
+	}
+	require.Nil(t, request()["suspension"])
+	require.NoError(t, conn.Create(&newacctmod.ReviewJob{StatusID: 15, AccountID: 7, State: "done", Verdict: "suspend", NextAttemptAt: time.Now()}).Error)
+	require.Equal(t, true, request()["suspension"].(map[string]any)["can_appeal"])
+	row, err := newacctmod.CreateAppeal(conn, 7, 15, "please review")
+	require.NoError(t, err)
+	_, err = newacctmod.ResolveAppeal(conn, row.ID, 1, false, "reviewed")
+	require.NoError(t, err)
+	require.Equal(t, false, request()["suspension"].(map[string]any)["can_appeal"])
+	account.IsBan = false
+	require.Equal(t, false, request()["suspended"])
+	require.Nil(t, request()["suspension"])
+	legacy := call(t, List, account, "GET", "/api/v1/appeals", "")
+	var items []any
+	require.NoError(t, json.Unmarshal(legacy.Body.Bytes(), &items))
+	require.Len(t, items, 1)
+}
+
+func TestReviewsListShowsHeldPostAndModeratorActionIsValidated(t *testing.T) {
+	conn := appealDB(t)
+	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.Status{}, &models.StatusContent{}))
+	account := &models.Account{Id: 7, Username: "alice", Acct: "alice", DisplayName: "Alice"}
+	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(account).Error)
+	post := &models.Status{Id: 15, AccountId: 7, LocalOnly: true, Content: models.StatusContent{Content: "needs review"}}
+	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(post).Error)
+	job := &newacctmod.ReviewJob{StatusID: 15, AccountID: 7, State: "done", Verdict: "flag", NextAttemptAt: time.Now()}
+	require.NoError(t, conn.Create(job).Error)
+	w := call(t, Reviews, account, "GET", "/api/v1/admin/new-account-reviews", "")
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var body struct {
+		Items   []map[string]any `json:"items"`
+		HasMore bool             `json:"has_more"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Len(t, body.Items, 1)
+	require.Equal(t, "alice", body.Items[0]["acct"])
+	require.Equal(t, "needs review", body.Items[0]["text"])
+	require.Equal(t, true, body.Items[0]["held"])
+	require.Equal(t, true, body.Items[0]["actionable"])
+	require.False(t, body.HasMore)
+	w = call(t, Review, nil, "POST", "/api/v1/admin/new-account-reviews/1", `{"action":"approve"}`)
+	require.Equal(t, 401, w.Code)
+	w = call(t, Review, account, "POST", "/api/v1/admin/new-account-reviews/invalid", `{"action":"delete"}`)
+	require.Equal(t, 422, w.Code)
+}
+
+func TestUserLevelSuspensionDoesNotSendAppealPageBackHome(t *testing.T) {
+	_ = appealDB(t)
+	w := call(t, func(c *gin.Context) {
+		c.Set("user", &models.User{IsBan: true})
+		List(c)
+	}, &models.Account{Id: 7}, "GET", "/api/v1/appeals?include_context=true", "")
+	require.Equal(t, 200, w.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, true, body["suspended"])
+	require.Nil(t, body["suspension"])
 }

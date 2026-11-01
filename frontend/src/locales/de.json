@@ -200,7 +200,9 @@
       "s22": "Löschen fehlgeschlagen",
       "s23": "Dieser Beitrag erfüllt die aktuellen Kriterien für öffentliche Empfehlungen.",
       "s24": "{0} „Kein Interesse“ und „Autor nicht mehr empfehlen“ wirken nur auf Empfehlungen und blockieren das Konto nicht. In den Einstellungen kannst du sie ansehen und rückgängig machen.",
-      "s25": "Verstanden"
+      "s25": "Verstanden",
+      "localOnly": "Nur lokal",
+      "localOnlyHint": "Dieser Beitrag wurde nicht an andere Server gesendet."
     },
     "PostComposer": {
       "uploadComplete": "Hochgeladen",
@@ -1378,7 +1380,7 @@
       "s10": "Einsprüche werden geladen…",
       "s11": "Liste der Einsprüche, horizontal scrollbar",
       "s12": "Einspruch",
-      "s13": "Konto-ID",
+      "s13": "Konto",
       "s14": "Beitrags-ID",
       "s15": "Status",
       "s16": "Eingereicht",
@@ -1392,13 +1394,13 @@
       "s24": "Einspruch #{0}",
       "s25": "Text des Einspruchs",
       "s26": "Kein Text",
-      "s27": "Moderationsnotiz (optional)",
-      "s28": "Notiz nur für Moderatoren",
+      "s27": "Antwort (für die betroffene Person sichtbar)",
+      "s28": "Erläutere der betroffenen Person die Entscheidung",
       "s29": "Annehmen",
       "s30": "Ablehnen",
       "s31": "Einspruch #{0} annehmen? Das speichert nur die Entscheidung und hebt die Sperre nicht auf.",
       "s32": "Einspruch #{0} ablehnen?",
-      "s33": "Moderationsnotiz",
+      "s33": "Antwort",
       "s34": "Keine Notiz",
       "s35": "Entschieden",
       "s36": "Zum Wiederherstellen der Anmeldung die Sperre in der Nutzerverwaltung aufheben.",
@@ -1829,6 +1831,31 @@
       "fallbackHintTraditional": "Wenn der klassische Dienst fehlschlägt, eine Zeitüberschreitung hat oder leeren/unveränderten Text liefert, mit dem LLM erneut versuchen. Die Datenschutzgrenzen für das LLM gelten weiterhin.",
       "groupMessages": "Übersetzen von Gruppenchat-Nachrichten erlauben",
       "groupMessagesHint": "Gruppennachrichten sind keine öffentlichen Beiträge. Standard: an, wenn die primäre Engine ein selbst gehosteter klassischer Dienst ist, sonst aus. Nachrichten nicht öffentlicher Gruppen werden nur an das LLM gesendet, wenn private Inhalte erlaubt sind."
+    },
+    "Reviews": {
+      "title": "Post reviews",
+      "description": "Review new accounts’ posts, resolve flagged cases and release held posts.",
+      "refresh": "Refresh list",
+      "loading": "Loading reviews…",
+      "error": "Unable to load reviews. Please retry.",
+      "pending": "Pending",
+      "processing": "Reviewing",
+      "failed": "Waiting to retry",
+      "flag": "Needs human review",
+      "unconfigured": "Waiting for a review service",
+      "disabled": "Automatic review is disabled. Moderators can still approve existing posts manually.",
+      "unconfiguredHint": "No review service is configured. Bind an LLM in system settings or review the posts here.",
+      "approve": "Approve",
+      "retry": "Review again",
+      "confirm": "Approve this post by {'@'}{0}? A held post will resume federation after approval.",
+      "approved": "Review approved.",
+      "retried": "The post has been queued for review again.",
+      "held": "Held until review passes",
+      "notHeld": "Federation is not paused",
+      "empty": "No reviews need attention.",
+      "emptyPost": "This post has no text. Open the original post to inspect its attachments.",
+      "unavailable": "Account unavailable",
+      "viewPost": "View post"
     }
   },
   "auth": {
@@ -1972,7 +1999,10 @@
       "s21": "Bitte den Einspruch ausfüllen",
       "s22": "Frühere Einsprüche",
       "s23": "Beitrag #{0}",
-      "s24": "Kein verknüpfter Beitrag"
+      "s24": "Kein verknüpfter Beitrag",
+      "refresh": "Refresh appeal status",
+      "unavailable": "There is no automatic suspension eligible for an online appeal. Please contact your site administrator.",
+      "alreadyReviewed": "This appeal has been reviewed. Read the response below and refresh after your account access is restored."
     }
   },
   "bookmark": {

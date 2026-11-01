@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import BrandMark from '@/shared/components/common/BrandMark.vue'
 import LanguagePicker from '@/shared/components/common/LanguagePicker.vue'
-import { appealApi, type Appeal } from '../../infrastructure/appealApi'
-import { authApi } from '../../infrastructure/authApi'
+import { appealApi, type Appeal, type AppealContext } from '../../infrastructure/appealApi'
+import { clearAppealSession } from '@/shared/api/appealSession'
 import { useAuthStore } from '../stores/authStore'
 import { t } from '@/shared/i18n'
 
@@ -12,7 +12,8 @@ const router = useRouter()
 const authStore = useAuthStore()
 const appeals = ref<Appeal[]>([])
 const text = ref('')
-const statusId = ref('')
+const suspension = ref<AppealContext['suspension']>(null)
+let request = 0
 const loading = ref(true)
 const busy = ref(false)
 const error = ref('')
@@ -37,40 +38,46 @@ function statusLabel(id: string) {
   return !id || id === '0' ? t('auth.AppealPage.s24') : t('auth.AppealPage.s23', [id])
 }
 
-async function load() {
+async function load(clearError = true) {
+  const version = ++request
   loading.value = true
-  error.value = ''
+  if (clearError) error.value = ''
   try {
-    appeals.value = await appealApi.list()
+    const result = await appealApi.context()
+    if (version !== request) return
+    if (!result.suspended) {
+      clearAppealSession()
+      await authStore.fetchCurrentUser()
+      if (version === request) await router.replace({ name: 'home' })
+      return
+    }
+    appeals.value = result.items
+    suspension.value = result.suspension
+    ready.value = true
   } catch (e) {
-    appeals.value = []
-    error.value = message(e)
+    if (version === request && !error.value) error.value = message(e)
   } finally {
-    loading.value = false
+    if (version === request) loading.value = false
   }
 }
 
 async function submit() {
+  if (busy.value || loading.value || !suspension.value?.can_appeal) return
   const body = text.value.trim()
   if (!body) {
     error.value = t('auth.AppealPage.s21')
     return
   }
-  const status = statusId.value.trim()
-  if (status && !/^[1-9]\d*$/.test(status)) {
-    error.value = t('apiError.appealInvalidStatus')
-    return
-  }
   busy.value = true
   error.value = ''
   try {
-    const created = await appealApi.create(body, status || undefined)
+    const created = await appealApi.create(body, suspension.value.status_id)
     text.value = ''
-    statusId.value = ''
+    suspension.value = { ...suspension.value, can_appeal: false }
     appeals.value = [created, ...appeals.value.filter(appeal => appeal.id !== created.id)]
   } catch (e) {
     error.value = message(e)
-    await load()
+    await load(false)
   } finally {
     busy.value = false
   }
@@ -80,17 +87,8 @@ async function signOut() {
   await authStore.logout(true, false)
 }
 
-onMounted(async () => {
-  try {
-    await authApi.verifyCredentials()
-    await router.replace({ name: 'home' })
-    return
-  } catch {
-    // A suspended session cannot load the profile. The appeal routes still work.
-  }
-  ready.value = true
-  await load()
-})
+onMounted(() => load())
+onBeforeUnmount(() => { request++ })
 </script>
 
 <template>
@@ -99,8 +97,11 @@ onMounted(async () => {
       <div class="appeal-logo"><BrandMark :size="40" /></div>
       <h1>{{ $t('auth.AppealPage.s1') }}</h1>
       <p class="appeal-lead">{{ $t('auth.AppealPage.s2') }}</p>
-      <p v-if="loading" role="status">{{ $t('auth.AppealPage.s7') }}</p>
+      <p v-if="loading" role="status" aria-live="polite">{{ $t('auth.AppealPage.s7') }}</p>
       <p v-if="error" class="appeal-error" role="alert">{{ error }}</p>
+      <button type="button" class="btn btn--ghost" :disabled="loading || busy" @click="load()">{{ $t('auth.AppealPage.refresh') }}</button>
+      <p v-if="ready && !suspension" class="appeal-hint">{{ $t('auth.AppealPage.unavailable') }}</p>
+      <p v-else-if="ready && suspension && !suspension.can_appeal && !openAppeal" class="appeal-hint">{{ $t('auth.AppealPage.alreadyReviewed') }}</p>
 
       <article v-if="openAppeal" class="appeal-case" :aria-label="$t('auth.AppealPage.s9')">
         <h2>{{ $t('auth.AppealPage.s9') }}</h2>
@@ -109,16 +110,13 @@ onMounted(async () => {
         <p class="appeal-meta">{{ statusLabel(openAppeal.status_id) }} · {{ when(openAppeal.created_at) }}</p>
       </article>
 
-      <form v-else-if="ready && !loading" class="appeal-form" @submit.prevent="submit">
+      <form v-else-if="ready && suspension?.can_appeal" class="appeal-form" @submit.prevent="submit">
         <p v-if="!appeals.length" class="appeal-hint">{{ $t('auth.AppealPage.s20') }}</p>
         <p class="appeal-hint">{{ $t('auth.AppealPage.s18') }}</p>
         <label class="appeal-field">{{ $t('auth.AppealPage.s3') }}
-          <textarea v-model="text" rows="6" maxlength="5000" required :placeholder="$t('auth.AppealPage.s4')" />
+          <textarea v-model="text" rows="6" maxlength="5000" :disabled="busy" required :placeholder="$t('auth.AppealPage.s4')" />
         </label>
-        <label class="appeal-field">{{ $t('auth.AppealPage.s5') }}
-          <input v-model="statusId" inputmode="numeric" autocomplete="off" pattern="[0-9]*" />
-        </label>
-        <button class="btn btn--primary appeal-submit" type="submit" :disabled="busy">{{ busy ? $t('auth.AppealPage.s8') : $t('auth.AppealPage.s6') }}</button>
+        <button class="btn btn--primary appeal-submit" type="submit" :disabled="busy || loading">{{ busy ? $t('auth.AppealPage.s8') : $t('auth.AppealPage.s6') }}</button>
       </form>
 
       <section v-if="history.length" class="appeal-history">
@@ -133,7 +131,7 @@ onMounted(async () => {
         </article>
       </section>
 
-      <button type="button" class="btn btn--ghost appeal-signout" @click="signOut">{{ $t('auth.AppealPage.s19') }}</button>
+      <button type="button" class="btn btn--ghost appeal-signout" :disabled="busy" @click="signOut">{{ $t('auth.AppealPage.s19') }}</button>
       <div class="appeal-lang"><LanguagePicker compact /></div>
     </section>
   </main>

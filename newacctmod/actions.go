@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/kasuganosora/community/activitypub"
-	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -32,6 +31,13 @@ func ApplyPass(ctx context.Context, conn *gorm.DB, statusID uint64, token, reaso
 		if err := models.StatusLoadAllQuery(tx.Clauses(clause.Locking{Strength: "UPDATE"})).First(&s, statusID).Error; err != nil {
 			return err
 		}
+		var author models.Account
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&author, s.AccountId).Error; err != nil {
+			return err
+		}
+		if author.IsBan || author.DeletionRequestedAt != nil {
+			return finishJob(tx, statusID, token, "skipped", "author is unavailable")
+		}
 		if !s.LocalOnly {
 			return finishJob(tx, statusID, token, "pass", reason)
 		}
@@ -48,16 +54,17 @@ func ApplyPass(ctx context.Context, conn *gorm.DB, statusID uint64, token, reaso
 
 // ApplyFlag files a spam Report and leaves the status local_only.
 func ApplyFlag(ctx context.Context, conn *gorm.DB, statusID, accountID uint64, token, reason string) error {
+	reporterID := uint64(0)
+	if ia, _, err := activitypub.EnsureInstanceActor(ctx); err == nil && ia != nil {
+		reporterID = ia.Id
+	}
+	if reporterID == 0 {
+		reporterID = accountID
+	}
+
 	return conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := assertLease(tx, statusID, token); err != nil {
 			return err
-		}
-		reporterID := uint64(0)
-		if ia, _, err := activitypub.EnsureInstanceActor(ctx); err == nil && ia != nil {
-			reporterID = ia.Id
-		}
-		if reporterID == 0 {
-			reporterID = accountID
 		}
 		report := &models.Report{
 			AccountId:       reporterID,
@@ -67,7 +74,7 @@ func ApplyFlag(ctx context.Context, conn *gorm.DB, statusID, accountID uint64, t
 		}
 		report.SetCategory("Spam")
 		if err := tx.Omit("ActionTakenByAccountId", "AssignedAccountId").Create(report).Error; err != nil {
-			log.Warn("newacctmod: report status %d: %v", statusID, err)
+			return fmt.Errorf("create review report for status %d: %w", statusID, err)
 		}
 		return finishJob(tx, statusID, token, "flag", reason)
 	})

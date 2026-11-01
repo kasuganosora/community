@@ -192,6 +192,7 @@ function onMenuClick(data: { value?: unknown }) {
           <AccountLink :account="displayStatus.account" class="post-card__username">@{{ displayAccount(displayStatus.account.acct) }}</AccountLink>
           <span class="post-card__dot">·</span>
           <RelativeTime :datetime="displayStatus.created_at" />
+          <span v-if="displayStatus.local_only" class="post-card__edited" :title="$t('shared.PostCard.localOnlyHint')">{{ $t('shared.PostCard.localOnly') }}</span>
           <span v-if="wasEdited(displayStatus)" class="post-card__edited" :title="$t('shared.PostCard.s3')">{{ $t('shared.PostCard.s4') }}</span>
           <span v-if="visibility" class="post-card__visibility" :title="visibility.label">
             <t-icon :name="visibility.icon" :size="14" />

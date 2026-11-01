@@ -867,6 +867,10 @@ func registerAppealRoutes(auth *gin.RouterGroup) {
 		GET("/admin/appeals", appealapi.AdminList)
 	auth.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteReports})).
 		POST("/admin/appeals/:id/resolve", appealapi.Resolve)
+	auth.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadReports})).
+		GET("/admin/new-account-reviews", appealapi.Reviews)
+	auth.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminWriteReports})).
+		POST("/admin/new-account-reviews/:id", appealapi.Review)
 }
 
 // safeRegisterRoutes runs a route-group registration and fails fast if it

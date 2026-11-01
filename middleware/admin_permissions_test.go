@@ -50,6 +50,9 @@ func TestDelegatedAdminCapabilityAndOAuthScopeBothRequired(t *testing.T) {
 	require.Equal(t, 403, request("/api/v1/admin/measures", false, false))
 }
 func TestAdminCapabilityPathBoundaries(t *testing.T) {
+	for _, path := range []string{"/api/v1/admin/appeals", "/api/v2/admin/appeals/1/resolve", "/api/v1/admin/new-account-reviews", "/api/v2/admin/new-account-reviews/1"} {
+		require.EqualValues(t, models.PermissionManageReports, adminRoutePermission(path))
+	}
 	require.EqualValues(t, 0, adminRoutePermission("/api/v1/admin/invites-private"))
 	require.EqualValues(t, 0, adminRoutePermission("/api/v1/admin/unknown"))
 	require.EqualValues(t, models.PermissionDevops, adminRoutePermission("/api/v1/admin/federation/jobs/1"))
@@ -58,4 +61,26 @@ func TestAdminCapabilityPathBoundaries(t *testing.T) {
 	require.EqualValues(t, models.PermissionManageFederation, adminRoutePermission("/api/v1/admin/federation/instances"))
 	require.EqualValues(t, models.PermissionManageWebhooks, adminRoutePermission("/api/v1/admin/webhook-deliveries"))
 	require.EqualValues(t, models.PermissionDevops, adminRoutePermission("/api/v1/admin/seo/sitemap"))
+}
+
+func TestReportModeratorsCanReachAppealsAndPostReviews(t *testing.T) {
+	setup := testutil.NewTestSetup(t, testutil.WithModels(&models.Role{}, &models.RoleUser{}))
+	database.SetTestMode()
+	database.SetTestDB(setup.GormDB())
+	t.Cleanup(database.ResetTestDB)
+	role := models.Role{Name: "reviewer", Permissions: models.PermissionManageReports}
+	require.NoError(t, setup.GormDB().Create(&role).Error)
+	require.NoError(t, setup.GormDB().Create(&models.RoleUser{RoleID: uint64(role.ID), UserID: 71}).Error)
+	for _, path := range []string{"/api/v1/admin/appeals", "/api/v1/admin/new-account-reviews"} {
+		router := gin.New()
+		router.Use(func(c *gin.Context) {
+			c.Set("token_data", &models.AuthTokenData{AuthType: models.AuthTokenTypeWeb})
+			c.Set("user", &models.User{Id: 71})
+			c.Next()
+		})
+		router.GET(path, CheckScopeMiddleware(Scope{Type: models.AppScopeTypeAdmin, Value: models.AppScopeAdminReadReports}), func(c *gin.Context) { c.Status(204) })
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		require.Equal(t, 204, w.Code, path)
+	}
 }

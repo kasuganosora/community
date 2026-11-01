@@ -200,7 +200,9 @@
       "s22": "Échec de la suppression",
       "s23": "Ce post correspond aux critères actuels de découverte publique.",
       "s24": "{0} « Pas intéressé » et « ne plus recommander l’auteur » n’affectent que la découverte et ne bloquent pas le compte. Vous pouvez les consulter et les annuler dans les paramètres.",
-      "s25": "Compris"
+      "s25": "Compris",
+      "localOnly": "Local uniquement",
+      "localOnlyHint": "Cette publication n’a pas été envoyée à d’autres serveurs."
     },
     "PostComposer": {
       "uploadComplete": "Envoyé",
@@ -1378,7 +1380,7 @@
       "s10": "Chargement des recours…",
       "s11": "Liste des recours, défilement horizontal",
       "s12": "Recours",
-      "s13": "ID du compte",
+      "s13": "Compte",
       "s14": "ID du post",
       "s15": "État",
       "s16": "Envoyé",
@@ -1392,13 +1394,13 @@
       "s24": "Recours #{0}",
       "s25": "Texte du recours",
       "s26": "Aucun texte",
-      "s27": "Note de modération (facultative)",
-      "s28": "Note visible seulement par les modérateurs",
+      "s27": "Réponse (visible par la personne concernée)",
+      "s28": "Expliquez votre décision à la personne concernée",
       "s29": "Accepter",
       "s30": "Refuser",
       "s31": "Accepter le recours #{0} ? Cela enregistre seulement la décision et ne lève pas la suspension.",
       "s32": "Refuser le recours #{0} ?",
-      "s33": "Note de modération",
+      "s33": "Réponse",
       "s34": "Aucune note",
       "s35": "Traité",
       "s36": "Pour rétablir la connexion, levez la suspension dans la gestion des comptes.",
@@ -1829,6 +1831,31 @@
       "fallbackHintTraditional": "Si le service classique échoue, expire ou renvoie un texte vide/inchangé, réessayer avec le LLM. Les limites de confidentialité du LLM s’appliquent toujours.",
       "groupMessages": "Autoriser la traduction des messages de groupe",
       "groupMessagesHint": "Les messages de groupe ne sont pas des publications publiques. Par défaut : activé si le moteur principal est un service classique auto-hébergé, désactivé sinon. Les messages des groupes non publics ne sont envoyés au LLM que si le contenu privé est autorisé."
+    },
+    "Reviews": {
+      "title": "Post reviews",
+      "description": "Review new accounts’ posts, resolve flagged cases and release held posts.",
+      "refresh": "Refresh list",
+      "loading": "Loading reviews…",
+      "error": "Unable to load reviews. Please retry.",
+      "pending": "Pending",
+      "processing": "Reviewing",
+      "failed": "Waiting to retry",
+      "flag": "Needs human review",
+      "unconfigured": "Waiting for a review service",
+      "disabled": "Automatic review is disabled. Moderators can still approve existing posts manually.",
+      "unconfiguredHint": "No review service is configured. Bind an LLM in system settings or review the posts here.",
+      "approve": "Approve",
+      "retry": "Review again",
+      "confirm": "Approve this post by {'@'}{0}? A held post will resume federation after approval.",
+      "approved": "Review approved.",
+      "retried": "The post has been queued for review again.",
+      "held": "Held until review passes",
+      "notHeld": "Federation is not paused",
+      "empty": "No reviews need attention.",
+      "emptyPost": "This post has no text. Open the original post to inspect its attachments.",
+      "unavailable": "Account unavailable",
+      "viewPost": "View post"
     }
   },
   "auth": {
@@ -1972,7 +1999,10 @@
       "s21": "Rédigez le recours",
       "s22": "Recours précédents",
       "s23": "Post #{0}",
-      "s24": "Aucun post lié"
+      "s24": "Aucun post lié",
+      "refresh": "Refresh appeal status",
+      "unavailable": "There is no automatic suspension eligible for an online appeal. Please contact your site administrator.",
+      "alreadyReviewed": "This appeal has been reviewed. Read the response below and refresh after your account access is restored."
     }
   },
   "bookmark": {

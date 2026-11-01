@@ -56,3 +56,15 @@ describe('PostCard reply context', () => {
     wrapper.unmount()
   })
 })
+
+it('shows when federation is paused and removes the label after release', async () => {
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
+  await router.push('/')
+  const account = { id: 'author', username: 'alice', acct: 'alice' } as MastodonAccount
+  const status = { id: 'held', account, local_only: true, visibility: 'public', content: 'hello', media_attachments: [], created_at: new Date().toISOString() } as unknown as MastodonStatus
+  const wrapper = shallowMount(PostCard, { props: { status }, global: { plugins: [createPinia(), router] } })
+  expect(wrapper.text()).toContain('仅本站')
+  await wrapper.setProps({ status: { ...status, local_only: false } })
+  expect(wrapper.text()).not.toContain('仅本站')
+  wrapper.unmount()
+})

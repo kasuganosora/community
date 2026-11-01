@@ -36,7 +36,7 @@ func adminRoutePermission(path string) uint64 {
 		return models.PermissionViewDashboard
 	case "accounts":
 		return models.PermissionManageUsers
-	case "reports", "statuses":
+	case "reports", "statuses", "appeals", "new-account-reviews":
 		return models.PermissionManageReports
 	case "relays", "instances", "federation-jobs", "federation", "domain_blocks", "domain_allows":
 		return models.PermissionManageFederation

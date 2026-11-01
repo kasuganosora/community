@@ -46,10 +46,15 @@ func Process(ctx context.Context, conn *gorm.DB, statusID uint64) error {
 	}
 	current, prior, err := gatherContext(conn, job.AccountID, job.StatusID, ContextX())
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return finishJob(conn.WithContext(ctx), job.StatusID, token, "skipped", "post no longer exists")
+		}
 		return requeue(conn, &job, token, err)
 	}
 	if h := RunHeuristic(conn, job.AccountID, job.StatusID, current); h.Reject {
-		return finishOrRequeue(ctx, conn, &job, token, ApplySuspend(ctx, conn, job.StatusID, job.AccountID, token, "heuristic: "+h.Reason))
+		// Repeated greetings or links alone do not establish advertising spam.
+		// Keep the evidence for a moderator instead of automatically banning.
+		return finishOrRequeue(ctx, conn, &job, token, ApplyFlag(ctx, conn, job.StatusID, job.AccountID, token, "heuristic: "+h.Reason))
 	}
 	v, err := judgeLLM(ctx, current, prior)
 	if err != nil {

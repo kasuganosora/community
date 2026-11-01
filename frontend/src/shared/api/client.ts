@@ -1,7 +1,7 @@
 import axios from 'axios'
 import type { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import type { ApiErrorData } from '@/shared/types/mastodon'
-import { isAppealSession, isLocalSignOut, markAppealSession } from './appealSession'
+import { clearAppealSession, isAppealSession, isLocalSignOut, markAppealSession } from './appealSession'
 import { applyStallRetry } from './stallRetry'
 import { isSlowConnection, networkInformation, type NetworkInformationLike } from '@/shared/utils/network'
 
@@ -38,6 +38,7 @@ export const tokenService = {
     }
   },
   set(token: string): void {
+    if (token !== this.get()) clearAppealSession()
     try {
       localStorage.setItem(AUTH_TOKEN_KEY, token)
     } catch {
@@ -45,6 +46,7 @@ export const tokenService = {
     }
   },
   clear(): void {
+    clearAppealSession()
     try {
       localStorage.removeItem(AUTH_TOKEN_KEY)
     } catch {
@@ -63,7 +65,7 @@ export function setAuthExpiredCallback(cb: () => void) {
 // Reentrancy guard: when multiple requests fail with 401 simultaneously,
 // only the first one triggers the auth-expired flow.
 let isHandling401 = false
-let appealProbe: Promise<boolean> | null = null
+let appealProbe: { token: string; promise: Promise<boolean> } | null = null
 
 export function isAppealApiPath(url: string | undefined): boolean {
   if (!url) return false
@@ -85,15 +87,23 @@ function requestBearer(config: InternalAxiosRequestConfig | undefined): string |
   const fromGetter = typeof headers?.get === 'function' ? headers.get('Authorization') : undefined
   const raw = fromGetter || (headers as { Authorization?: unknown } | undefined)?.Authorization
   if (typeof raw === 'string' && raw.startsWith('Bearer ')) return raw.slice('Bearer '.length)
-  return tokenService.get()
+  return null
 }
 
 async function probeAppeals(token: string): Promise<boolean> {
-  const res = await fetch(`${API_BASE_URL}/api/v1/appeals`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-    credentials: 'same-origin',
-  })
-  return res.ok
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), requestTimeout())
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/appeals`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      credentials: 'same-origin', signal: controller.signal,
+    })
+    // A transient failure cannot establish that a token expired.
+    if (res.status >= 500 || res.status === 429) throw new Error('Appeal check unavailable')
+    return res.ok
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /**
@@ -102,18 +112,20 @@ async function probeAppeals(token: string): Promise<boolean> {
  */
 export function retainSuspendedAppealSession(url: string | undefined, token: string | null): Promise<boolean> {
   if (isLocalSignOut() || isCredentialRequest(url) || isAppealApiPath(url)) return Promise.resolve(false)
+  if (!token || token !== tokenService.get()) return Promise.resolve(false)
   if (isAppealSession()) return Promise.resolve(true)
-  if (!token) return Promise.resolve(false)
-  if (!appealProbe) {
-    appealProbe = probeAppeals(token).then(ok => {
-      if (ok && !isLocalSignOut()) {
+  if (!appealProbe || appealProbe.token !== token) {
+    const probe = { token, promise: Promise.resolve(false) }
+    probe.promise = probeAppeals(token).then(ok => {
+      if (ok && !isLocalSignOut() && token === tokenService.get()) {
         markAppealSession()
         return true
       }
       return false
-    }).catch(() => false).finally(() => { appealProbe = null })
+    }).finally(() => { if (appealProbe === probe) appealProbe = null })
+    appealProbe = probe
   }
-  return appealProbe
+  return appealProbe.promise
 }
 
 // Request interceptor
@@ -199,10 +211,16 @@ client.interceptors.response.use(
     // sign-in to view), not an expired session: let the page explain it.
     const gated = (error.response?.data as { code?: string } | undefined)?.code === 'SIGNIN_REQUIRED'
     const requestUrl = error.config?.url
+    const bearer = requestBearer(error.config)
     const authRejection = (readApiMessage(error.response?.data) || '').trim().toLowerCase() === 'unauthorized'
-    if (error.response?.status === 401 && !gated && !isLocalSignOut() && !isCredentialRequest(requestUrl)) {
-      const keep = authRejection && await retainSuspendedAppealSession(requestUrl, requestBearer(error.config))
-      if (!keep && !isHandling401) {
+    if (error.response?.status === 401 && bearer === tokenService.get() && !gated && !isLocalSignOut() && !isCredentialRequest(requestUrl)) {
+      let keep: boolean
+      try {
+        keep = authRejection && await retainSuspendedAppealSession(requestUrl, bearer)
+      } catch {
+        return Promise.reject(Object.assign(new Error(TIMEOUT_MESSAGE), { code: 'ERR_NETWORK' }))
+      }
+      if (!keep && bearer === tokenService.get() && !isHandling401) {
         isHandling401 = true
         try {
           // Call callback first — it may want to use the token for refresh
@@ -214,7 +232,7 @@ client.interceptors.response.use(
             }
           }
           // Clear token after callback so it can still access old token if needed
-          tokenService.clear()
+          if (bearer === tokenService.get()) tokenService.clear()
           // Fallback: hard redirect only if no callback set
           if (!authExpiredCallback) {
             window.location.href = '/login'
