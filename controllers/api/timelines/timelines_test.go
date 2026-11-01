@@ -781,6 +781,37 @@ func TestNotificationTimeline_ExcludeTypes(t *testing.T) {
 	}
 }
 
+func TestNotificationTimeline_OmitsStatusEdits(t *testing.T) {
+	testDB := setupTestDB(t)
+	setGlobalTestDB(t, testDB)
+
+	now := time.Now()
+	account := makeAccount(1)
+	fromAccount := makeAccount(2)
+	require.NoError(t, testDB.Create(fromAccount).Error)
+
+	for _, ntype := range []uint8{models.NotificationTypeStatusUpdate, models.NotificationTypeFollow} {
+		n := &models.Notification{
+			Type:          ntype,
+			AccountId:     1,
+			FromAccountId: 2,
+			CreatedAt:     &now,
+			UpdatedAt:     &now,
+		}
+		require.NoError(t, testDB.Create(n).Error)
+	}
+
+	c, w := newTestContext(t, "GET", "/api/v1/notifications", "limit=10")
+	setAccount(c, account)
+	safeHandler(t, func() { NotificationTimeline(c) })
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result []map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
+	require.Len(t, result, 1)
+	assert.Equal(t, "follow", result[0]["type"])
+}
+
 func TestNotificationTimeline_FilterByType(t *testing.T) {
 	testDB := setupTestDB(t)
 	setGlobalTestDB(t, testDB)

@@ -1,10 +1,13 @@
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import NotificationsPage from '../NotificationsPage.vue'
 import { notificationApi } from '../../../infrastructure/notificationApi'
-import type { MastodonAccount, MastodonNotification, MastodonStatus } from '@/shared/types/mastodon'
+import type { MastodonAccount, MastodonNotification, MastodonNotificationWithStatus, MastodonStatus } from '@/shared/types/mastodon'
 
 const actor = {
   id: 'actor',
@@ -128,7 +131,7 @@ describe('notification actor links', () => {
     wrapper.unmount()
   })
 
-  it.each(['reblog', 'emoji_reaction', 'poll', 'update', 'status'] as const)(
+  it.each(['reblog', 'emoji_reaction', 'poll', 'status'] as const)(
     'keeps the %s avatar and name on the actor profile while the row still opens the status',
     async (type) => {
       const { router, wrapper } = await mountPage([notification(type)])
@@ -154,6 +157,53 @@ describe('notification actor links', () => {
       wrapper.unmount()
     },
   )
+
+  it('lines the type icon, avatar and action up on one row, with the preview below the action', async () => {
+    const { wrapper } = await mountPage([notification('favourite'), notification('follow', false)])
+    const like = wrapper.findAll('.notification-body')[0]
+    expect(like).toBeTruthy()
+    for (const selector of ['.notification-icon', '.notification-avatar', '.notification-text', '.notification-preview', '.notification-dismiss']) {
+      expect(like.get(selector).element.parentElement).toBe(like.element)
+    }
+    expect(like.find('.notification-content').exists()).toBe(false)
+    expect(like.get('.notification-icon svg').classes()).toContain('t-icon-heart-filled')
+    expect(like.get('.notification-icon svg').classes()).not.toContain('t-icon-chat')
+    const follow = wrapper.findAll('.notification-body')[1]
+    expect(follow.find('.notification-preview').exists()).toBe(false)
+    expect(follow.get('.notification-avatar').element.parentElement).toBe(follow.element)
+    expect(follow.get('.notification-text').element.parentElement).toBe(follow.element)
+    wrapper.unmount()
+  })
+
+  it('marks an emoji reaction with the reaction itself instead of the reply bubble', async () => {
+    const reaction = notification('emoji_reaction') as MastodonNotificationWithStatus
+    reaction.emoji_reaction = { name: '👍', count: 1, me: false }
+    const { wrapper } = await mountPage([reaction])
+    const icon = wrapper.get('.notification-icon')
+    expect(icon.find('t-icon-stub').exists()).toBe(false)
+    expect(icon.find('.notification-reaction-mark').exists()).toBe(true)
+    expect(wrapper.get('.notification-text').text()).toContain('回应了你的帖子')
+    expect(wrapper.get('.notification-name').element.tagName).toBe('A')
+    // jsdom does not apply the SFC stylesheet, so lock the hover rule in source.
+    // Global `a:hover` underlines links; the name rule has to win and stay plain.
+    const pageSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../NotificationsPage.vue'), 'utf8')
+    const nameRule = pageSource.match(/a\.notification-name:hover[\s\S]*?\{[^}]*\}/)?.[0] ?? ''
+    expect(nameRule).toContain('text-decoration: none')
+    expect(nameRule).not.toContain('underline')
+    const fallback = (await mountPage([notification('emoji_reaction')])).wrapper
+    expect(fallback.get('.notification-icon svg').classes()).toContain('t-icon-happy')
+    expect(fallback.get('.notification-icon svg').classes()).not.toContain('t-icon-chat')
+    fallback.unmount()
+    wrapper.unmount()
+  })
+
+  it('hides edit notifications that are not real edits', async () => {
+    const { wrapper } = await mountPage([notification('update'), notification('favourite')])
+    expect(wrapper.findAll('.notification-item')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('编辑了一条帖子')
+    expect(wrapper.get('.notification-icon svg').classes()).toContain('t-icon-heart-filled')
+    wrapper.unmount()
+  })
 
   it('shows the post a mention replies to, while the actor avatar and name still open that person', async () => {
     const mention = notification('mention')

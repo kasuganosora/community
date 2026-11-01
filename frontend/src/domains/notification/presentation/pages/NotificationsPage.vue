@@ -2,12 +2,12 @@
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import ReactionLabel from '@/shared/components/post/ReactionLabel.vue'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
 import type { MastodonNotification, NotificationType } from '@/shared/types/mastodon'
 import { notificationApi } from '../../infrastructure/notificationApi'
-import { notificationTarget, notificationText, notificationQuery, type NotificationFilter } from '../../domain/notification'
+import { isInboxNotification, notificationIcon, notificationTarget, notificationText, notificationQuery, type NotificationFilter } from '../../domain/notification'
 import { stripHtml } from '@/shared/utils/sanitize'
 import { isInteractiveClick } from '@/shared/utils/dom'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
@@ -40,6 +40,7 @@ const feed = usePaginatedList<MastodonNotification>(
   PAGE_SIZE,
 )
 const { items: notifications, loading, error, hasMore } = feed
+const shown = computed(() => notifications.value.filter(n => isInboxNotification(n.type)))
 const { markRead } = useNotificationUnread()
 // The newest loaded notification is what the user has now seen.
 watch(() => (filter.value === 'all' ? notifications.value[0]?.id : undefined), (id) => { if (id) void markRead(id) })
@@ -57,22 +58,9 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions((id, 
   }
 })
 
-function getNotificationIcon(type: NotificationType) {
-  switch (type) {
-    case 'emoji_reaction': return 'chat'
-    case 'favourite': return 'heart-filled'
-    case 'reblog': return 'swap'
-    case 'follow': return 'user-add'
-    case 'follow_request': return 'user-add'
-    case 'mention': return 'chat'
-    case 'poll': return 'chart-bar'
-    case 'update': return 'edit'
-    default: return 'notification'
-  }
-}
-
 function getNotificationColor(type: NotificationType) {
   switch (type) {
+    case 'emoji_reaction': return 'var(--accent-pink)'
     case 'favourite': return 'var(--accent-pink)'
     case 'reblog': return 'var(--accent-green)'
     case 'follow': return 'var(--accent-blue)'
@@ -145,7 +133,7 @@ watch(filter, () => {
     <div class="page-header notifications-header">
       <h1 class="page-header__title">{{ $t('notification.NotificationsPage.s1') }}</h1>
       <button
-        v-if="notifications.length > 0 && !confirmClear"
+        v-if="shown.length > 0 && !confirmClear"
         type="button"
         class="btn btn--ghost btn--sm"
         @click="confirmClear = true"
@@ -161,7 +149,7 @@ watch(filter, () => {
 
     <TabBar v-model="filter" :options="FILTERS" :label="$t('notification.NotificationsPage.s6')" />
 
-    <div v-if="error && notifications.length === 0" class="empty-state" role="alert">
+    <div v-if="error && shown.length === 0" class="empty-state" role="alert">
       <div class="empty-state__icon">
         <t-icon name="error-circle" :size="48" />
       </div>
@@ -170,7 +158,7 @@ watch(filter, () => {
       <button type="button" class="btn btn--secondary btn--sm" @click="feed.refresh">{{ $t('notification.NotificationsPage.s8') }}</button>
     </div>
 
-    <div v-else-if="!loading && notifications.length === 0" class="empty-state">
+    <div v-else-if="!loading && shown.length === 0" class="empty-state">
       <div class="empty-state__icon">
         <t-icon name="notification" :size="48" />
       </div>
@@ -182,7 +170,7 @@ watch(filter, () => {
 
     <div v-else class="notifications-list" role="list" :aria-label="$t('notification.NotificationsPage.s1')">
       <div
-        v-for="notification in notifications"
+        v-for="notification in shown"
         :key="notification.id"
         class="notification-item"
         role="listitem"
@@ -204,27 +192,26 @@ watch(filter, () => {
             @click="open(notification, $event)"
           >
             <div class="notification-icon" :style="{ color: getNotificationColor(notification.type) }">
-              <t-icon :name="getNotificationIcon(notification.type)" :size="24" />
+              <ReactionLabel v-if="notification.type === 'emoji_reaction' && notification.emoji_reaction" class="notification-reaction-mark" :reaction="notification.emoji_reaction" />
+              <t-icon v-else :name="notificationIcon(notification.type)" :size="24" />
             </div>
-            <div class="notification-content">
-              <AccountLink :account="notification.account" class="notification-avatar" :aria-label="notification.account.display_name || notification.account.username">
-                <UserAvatar :account="notification.account" :size="32" />
+            <AccountLink :account="notification.account" class="notification-avatar" :aria-label="notification.account.display_name || notification.account.username">
+              <UserAvatar :account="notification.account" :size="32" />
+            </AccountLink>
+            <div class="notification-text">
+              <AccountLink :account="notification.account" class="notification-name">
+                <strong><EmojiText :text="notification.account.display_name || notification.account.username" :emojis="notification.account.emojis" /></strong>
               </AccountLink>
-              <div class="notification-text">
-                <AccountLink :account="notification.account" class="notification-name">
-                  <strong><EmojiText :text="notification.account.display_name || notification.account.username" :emojis="notification.account.emojis" /></strong>
-                </AccountLink>
-                <template v-if="notification.type === 'emoji_reaction' && notification.emoji_reaction">{{ $t('notification.NotificationsPage.s12') }} <ReactionLabel :reaction="notification.emoji_reaction" /> {{ $t('notification.NotificationsPage.s13') }}</template>
-                <template v-else>{{ notificationText(notification.type, isOwnPoll(notification)) }}</template>
-                <RelativeTime :datetime="notification.created_at" class="notification-time" />
-              </div>
-              <router-link v-if="notification.status" class="notification-preview" :to="notificationTarget(notification)">
-                <EmojiText
-                  :text="notification.status.spoiler_text ? $t('notification.NotificationsPage.s14', [notification.status.spoiler_text]) : getPreview(notification.status.content)"
-                  :emojis="notification.status.emojis"
-                />
-              </router-link>
+              <template v-if="notification.type === 'emoji_reaction' && notification.emoji_reaction">{{ $t('notification.NotificationsPage.s12') }} <ReactionLabel :reaction="notification.emoji_reaction" /> {{ $t('notification.NotificationsPage.s13') }}</template>
+              <template v-else>{{ notificationText(notification.type, isOwnPoll(notification)) }}</template>
+              <RelativeTime :datetime="notification.created_at" class="notification-time" />
             </div>
+            <router-link v-if="notification.status" class="notification-preview" :to="notificationTarget(notification)">
+              <EmojiText
+                :text="notification.status.spoiler_text ? $t('notification.NotificationsPage.s14', [notification.status.spoiler_text]) : getPreview(notification.status.content)"
+                :emojis="notification.status.emojis"
+              />
+            </router-link>
             <button
               type="button"
               class="notification-dismiss"
@@ -243,7 +230,7 @@ watch(filter, () => {
     <p v-else-if="error && notifications.length > 0" class="notifications-more-error" role="alert">
       {{ error }} <button type="button" class="btn btn--ghost btn--sm" @click="feed.loadMore">{{ $t('notification.NotificationsPage.s8') }}</button>
     </p>
-    <p v-else-if="!hasMore && notifications.length > 0" class="notifications-end">{{ $t('notification.NotificationsPage.s16') }}</p>
+    <p v-else-if="!hasMore && shown.length > 0" class="notifications-end">{{ $t('notification.NotificationsPage.s16') }}</p>
   </div>
 </template>
 
@@ -305,8 +292,11 @@ watch(filter, () => {
 }
 
 .notification-body {
-  display: flex;
-  gap: var(--space-3);
+  display: grid;
+  grid-template-columns: 2.75rem auto minmax(0, 1fr) auto;
+  column-gap: var(--space-3);
+  row-gap: var(--space-1);
+  align-items: center;
   padding: var(--space-3) var(--gutter);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -324,13 +314,14 @@ watch(filter, () => {
   transition-duration: 0s;
 }
 
-/* Type glyph in the avatar column: the only colour on the row. */
+/* Type glyph shares the first row with the avatar and the action sentence. */
 .notification-icon {
-  flex-shrink: 0;
-  width: 2.75rem;
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
+  align-items: center;
   justify-content: flex-end;
-  padding-top: var(--space-0);
+  height: 2rem;
 }
 
 .notification-icon :deep(svg) {
@@ -338,12 +329,20 @@ watch(filter, () => {
   height: 1.625rem;
 }
 
-.notification-content {
-  flex: 1;
-  min-width: 0;
+.notification-icon :deep(.notification-reaction-mark) {
+  font-size: 1.375rem;
+  line-height: 1;
+  gap: 0;
+}
+
+.notification-icon :deep(.notification-reaction-mark.reaction-label img) {
+  width: 1.375rem;
+  height: 1.375rem;
 }
 
 .notification-avatar {
+  grid-column: 2;
+  grid-row: 1;
   display: inline-flex;
   border-radius: 50%;
   line-height: 0;
@@ -362,24 +361,27 @@ watch(filter, () => {
   outline-offset: 2px;
 }
 
-.notification-name {
+.notification-body :deep(a.notification-name),
+.notification-body :deep(a.notification-name:hover),
+.notification-body :deep(a.notification-name:focus),
+.notification-body :deep(a.notification-name:focus-visible),
+.notification-body :deep(a.notification-avatar),
+.notification-body :deep(a.notification-avatar:hover),
+.notification-body :deep(a.notification-avatar:focus),
+.notification-body :deep(a.notification-avatar:focus-visible) {
   color: inherit;
   text-decoration: none;
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .notification-name:hover {
-    text-decoration: underline;
-    text-decoration-thickness: 1px;
-    text-underline-offset: 2px;
-  }
-}
-
 .notification-text {
-  margin-top: var(--space-2);
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+  margin-top: 0;
   font-size: var(--text-body);
   line-height: var(--leading-body);
   color: var(--color-label-secondary);
+  overflow-wrap: anywhere;
 }
 
 .notification-text strong {
@@ -389,7 +391,9 @@ watch(filter, () => {
 }
 
 .notification-preview {
-  margin-top: var(--space-1);
+  grid-column: 3;
+  grid-row: 2;
+  margin-top: 0;
   font-size: var(--text-subhead);
   line-height: var(--leading-subhead);
   color: var(--color-label-secondary);
@@ -406,13 +410,15 @@ watch(filter, () => {
 }
 
 .notification-dismiss {
+  grid-column: 4;
+  grid-row: 1;
   flex-shrink: 0;
-  align-self: flex-start;
+  align-self: center;
   display: grid;
   place-items: center;
   width: 2rem;
   height: 2rem;
-  margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2)) 0 0;
+  margin: 0;
   border-radius: var(--radius-full);
   color: var(--color-label-tertiary);
   transition:

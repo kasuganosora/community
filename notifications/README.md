@@ -26,7 +26,7 @@
 | `NotificationTypeFollow` | `follow` | 有人关注了你 / 关注了你创建的列表 |
 | `NotificationTypeFollowRequest` | `follow_request` | 有人发起了关注请求 |
 | `NotificationTypePoll` | `poll` | 你参与的投票已结束 |
-| `NotificationTypeStatusUpdate` | `status_update` | 你转发/被提及的 status 被编辑 |
+| `NotificationTypeStatusUpdate` | `update` | 不再发送，也不出现在通知箱。帖子保存（含只刷新计数或表情的更新）不是编辑通知 |
 | `NotificationTypeAdminReport` | `admin_report` | 你提交的举报已被处理 |
 | `NotificationTypeAddList` | `add_list` | 有人把你加入了他的列表 |
 
@@ -64,8 +64,8 @@ notifications/
 | `favourite` | `favourite` | `favouriteNotification` |
 | `unfavourite` | `favourite` | `unfavouriteNotification` |
 
-- **Mention**：编辑 status 时会 diff 新旧提及列表，对新增账号创建通知、对移除账号删除通知、对保留账号发送 `status_update` 通知。
-- **Reblog**：通知原始 status 的作者（解析 reblog 链，使用原始 status id）。
+- **Mention**：编辑 status 时会 diff 新旧提及列表，对新增账号创建通知、对移除账号删除通知。已经提及过的人不会再收到编辑通知。
+- **Reblog**：通知原始 status 的作者（解析 reblog 链，使用原始 status id）。之后的保存不会给转发者发送编辑通知。
 - **Favourite**：通知原始 status 的作者；取消收藏时按 `from_account_id` 精确删除对应通知，避免误删他人通知。
 
 #### `poll.go` — 投票结束通知

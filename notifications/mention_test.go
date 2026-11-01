@@ -132,10 +132,11 @@ func TestUpdateMentionNotification_AddsAndRemoves(t *testing.T) {
 	require.Len(t, addedNs, 1, "newly mentioned user should get a mention notification")
 	assert.Equal(t, status.Id, addedNs[0].StatusId)
 
-	// "keep" should get a status_update notification (it was already mentioned).
-	updateNs := allNotifications(t, gdb, keep.Id, models.NotificationTypeStatusUpdate)
-	require.Len(t, updateNs, 1, "retained mention should get a status_update notification")
-	assert.Equal(t, status.Id, updateNs[0].StatusId)
+	// Already-mentioned people keep the mention. A save is not an edit alert,
+	// even when the save did not change the post text.
+	assert.Empty(t, allNotifications(t, gdb, keep.Id, models.NotificationTypeStatusUpdate),
+		"retained mention must not get an edit notification")
+	assert.Len(t, allNotifications(t, gdb, keep.Id, models.NotificationTypeMention), 1)
 }
 
 func TestUpdateMentionNotification_NoChangesKeepsExisting(t *testing.T) {
@@ -157,9 +158,9 @@ func TestUpdateMentionNotification_NoChangesKeepsExisting(t *testing.T) {
 
 	updateMentionNotification(status)
 
-	// Mention notification remains, and a status_update is created for the retained mention.
+	// Mention notification remains. No edit notification is created.
 	assert.Len(t, allNotifications(t, gdb, m1.Id, models.NotificationTypeMention), 1)
-	assert.Len(t, allNotifications(t, gdb, m1.Id, models.NotificationTypeStatusUpdate), 1)
+	assert.Empty(t, allNotifications(t, gdb, m1.Id, models.NotificationTypeStatusUpdate))
 }
 
 // ---------------------------------------------------------------------------
