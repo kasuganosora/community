@@ -250,7 +250,7 @@ func recentTags(ctx context.Context, conn *gorm.DB) ([]string, error) {
 		Select("tags.name").
 		Joins("JOIN status_tags ON status_tags.tag_id = tags.id").
 		Joins("JOIN statuses ON statuses.id = status_tags.status_id AND statuses.deleted_at IS NULL AND statuses.scheduled_at IS NULL AND statuses.visibility = ? AND (statuses.reblog_id IS NULL OR statuses.reblog_id = 0) AND statuses.domain IS NULL", models.StatusVisibilityPublic).
-		Joins("JOIN accounts ON accounts.id = statuses.account_id AND accounts.domain IS NULL AND accounts.deleted_at IS NULL AND accounts.is_ban = ? AND accounts.require_signin_to_view = ?", false, false).
+		Joins("JOIN accounts ON accounts.id = statuses.account_id AND accounts.domain IS NULL AND accounts.deleted_at IS NULL AND accounts.deletion_requested_at IS NULL AND accounts.is_ban = ? AND accounts.require_signin_to_view = ?", false, false).
 		Group("tags.id, tags.name").
 		Order("MAX(statuses.created_at) DESC, tags.id DESC").
 		Limit(tagLimit + 100).

@@ -409,7 +409,8 @@ func resolveStatus(conn *gorm.DB, base, site, acct string, id uint64) Document {
 		if err != nil {
 			return notFound(site)
 		}
-		if original.Visibility == models.StatusVisibilityPrivate || original.Visibility == models.StatusVisibilityDirect {
+		if original.Account == nil || original.Account.IsBan || original.Account.DeletionRequestedAt != nil ||
+			original.Visibility == models.StatusVisibilityPrivate || original.Visibility == models.StatusVisibilityDirect {
 			return notFound(site)
 		}
 		shown = &original

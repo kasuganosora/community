@@ -197,3 +197,67 @@ func TestParseMinAge(t *testing.T) {
 	require.True(t, Enabled(""))
 	require.False(t, Enabled("off"))
 }
+
+func TestPurgePreservesImportedLibraryAndReferencedAssets(t *testing.T) {
+	conn := openDB(t)
+	backend := storagetest.NewMemory()
+	t.Cleanup(storage.SetDefault(backend))
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	require.NoError(t, conn.Exec(`CREATE TABLE data_transfer_receipts (kind text, target_id integer)`).Error)
+	library := seedMedia(t, conn, "imports/drive.png", nil, old)
+	putObjects(t, backend, library)
+	require.NoError(t, conn.Exec(`INSERT INTO data_transfer_receipts (kind, target_id) VALUES ('media', ?)`, library.Id).Error)
+	for _, ref := range []struct{ table, column string }{
+		{"avatar_decorations", "image_url"}, {"advertisements", "image_url"},
+		{"emojis", "url"}, {"system_settings", "val"},
+	} {
+		require.NoError(t, conn.Exec("CREATE TABLE "+ref.table+" ("+ref.column+" text)").Error)
+		if ref.table == "emojis" {
+			require.NoError(t, conn.Exec("ALTER TABLE emojis ADD COLUMN static_url text").Error)
+		}
+		row := seedMedia(t, conn, "imports/"+ref.table+".png", nil, old)
+		putObjects(t, backend, row)
+		// A shared asset remains protected even if a post that used it was deleted.
+		require.NoError(t, conn.Model(row).UpdateColumn("detached_at", old).Error)
+		require.NoError(t, conn.Exec("INSERT INTO "+ref.table+" ("+ref.column+") VALUES (?)", "https://site.example/media/"+strconv.FormatUint(row.Id, 10)+"/image.png").Error)
+	}
+	stats, err := Purge(context.Background(), conn, Options{MinAge: DefaultMinAge})
+	require.NoError(t, err)
+	require.Equal(t, 5, stats.ReferencedKept)
+	require.Zero(t, stats.Removed)
+	require.True(t, objectExists(t, backend, library.StorageKey()))
+	// Removing an imported post still starts the ordinary redraft window.
+	require.NoError(t, conn.Model(library).UpdateColumn("detached_at", old).Error)
+	stats, err = Purge(context.Background(), conn, Options{MinAge: DefaultMinAge})
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.Removed)
+}
+
+func TestBackgroundSweepsAdvancePastProtectedRowsAndWrap(t *testing.T) {
+	conn := openDB(t)
+	backend := storagetest.NewMemory()
+	t.Cleanup(storage.SetDefault(backend))
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	avatar := seedMedia(t, conn, "avatar.png", nil, old)
+	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(&models.Account{
+		Id: 1, Username: "owner", Acct: "owner", Avatar: "/media/" + strconv.FormatUint(avatar.Id, 10) + "/avatar.png",
+	}).Error)
+	garbage := seedMedia(t, conn, "unused.png", nil, old)
+	putObjects(t, backend, garbage)
+	opts := Options{MinAge: DefaultMinAge, Limit: 1}
+	first, err := sweep(context.Background(), conn, &opts)
+	require.NoError(t, err)
+	require.Equal(t, 1, first.ProfileKept)
+	second, err := sweep(context.Background(), conn, &opts)
+	require.NoError(t, err)
+	require.Equal(t, 1, second.Removed)
+	require.False(t, objectExists(t, backend, garbage.StorageKey()))
+	_, err = sweep(context.Background(), conn, &opts)
+	require.NoError(t, err)
+	require.Zero(t, opts.AfterID)
+	// Once the profile changes, the next cycle can reclaim its previous image.
+	require.NoError(t, conn.Model(&models.Account{}).Where("id = 1").UpdateColumn("avatar", "").Error)
+	last, err := sweep(context.Background(), conn, &opts)
+	require.NoError(t, err)
+	require.Equal(t, 1, last.Removed)
+}

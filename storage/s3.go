@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -334,10 +333,6 @@ func (b *S3Backend) List(ctx context.Context, prefix string, fn func(ObjectInfo)
 	return ctx.Err()
 }
 
-// publicBaseProbeKey is a short-lived object used to see which public base
-// actually serves keys. It is removed after the check.
-const publicBaseProbeKey = "media/public-base-probe.txt"
-
 // PublicURL implements Backend.
 func (b *S3Backend) PublicURL(key string) string {
 	if b.cfg.PublicURL == "" {
@@ -349,7 +344,7 @@ func (b *S3Backend) PublicURL(key string) string {
 		return ""
 	}
 
-	return b.publicBaseForRedirect(context.Background()) + "/" + (&url.URL{Path: k}).EscapedPath()
+	return b.publicBaseForRedirect(context.Background(), k) + "/" + (&url.URL{Path: k}).EscapedPath()
 }
 
 // bucketSuffixPublicBase returns publicURL with a trailing /<bucket> removed.
@@ -419,7 +414,7 @@ func hostsEqual(a, b string) bool {
 	return a != "" && strings.EqualFold(a, b)
 }
 
-func (b *S3Backend) publicBaseForRedirect(ctx context.Context) string {
+func (b *S3Backend) publicBaseForRedirect(ctx context.Context, key string) string {
 	b.probeMu.Lock()
 	defer b.probeMu.Unlock()
 
@@ -438,19 +433,17 @@ func (b *S3Backend) publicBaseForRedirect(ctx context.Context) string {
 		return b.cfg.PublicURL
 	}
 
-	chosen, conclusive := b.probePublicBase(ctx, stripped)
+	chosen, conclusive := b.probePublicBase(ctx, stripped, key)
 	if !conclusive {
 		b.probeAttempts++
-		// A private bucket, or a public one that has not exposed the probe
-		// yet, both look like "neither URL worked". Retry a few times, then
-		// keep the configured base so a quiet bucket is not probed forever.
+		// Missing objects and temporary network/CDN failures are inconclusive.
+		// Back off without permanently caching the potentially broken base.
+		delay := 30 * time.Second
 		if b.probeAttempts >= 3 {
-			b.resolvedPublicBase = b.cfg.PublicURL
-
-			return b.cfg.PublicURL
+			delay = 5 * time.Minute
 		}
 
-		b.probeNotBefore = time.Now().Add(30 * time.Second)
+		b.probeNotBefore = time.Now().Add(delay)
 
 		return b.cfg.PublicURL
 	}
@@ -461,28 +454,13 @@ func (b *S3Backend) publicBaseForRedirect(ctx context.Context) string {
 	return chosen
 }
 
-func (b *S3Backend) probePublicBase(ctx context.Context, stripped string) (string, bool) {
+func (b *S3Backend) probePublicBase(ctx context.Context, stripped, key string) (string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 
-	if b.publicReachable == nil {
-		body := []byte("ok")
-		if err := b.Put(ctx, publicBaseProbeKey, bytes.NewReader(body), int64(len(body)), "text/plain"); err != nil {
-			log.Warn("public media URL check skipped: %v", err)
-
-			return b.cfg.PublicURL, false
-		}
-
-		defer func() {
-			dctx, dcancel := context.WithTimeout(context.Background(), 4*time.Second)
-			defer dcancel()
-
-			if err := b.Delete(dctx, publicBaseProbeKey); err != nil {
-				log.Warn("public media URL check cleanup failed: %v", err)
-			}
-		}()
-	}
-
+	// Probe the requested object without writing to the bucket. A fixed test
+	// key could overwrite a real file, race with other server processes and
+	// fail for credentials intentionally restricted to reads.
 	reach := b.publicReachable
 	if reach == nil {
 		reach = func(raw string) (bool, bool) {
@@ -490,8 +468,8 @@ func (b *S3Backend) probePublicBase(ctx context.Context, stripped string) (strin
 		}
 	}
 
-	configured := strings.TrimRight(b.cfg.PublicURL, "/") + "/" + (&url.URL{Path: publicBaseProbeKey}).EscapedPath()
-	alternate := strings.TrimRight(stripped, "/") + "/" + (&url.URL{Path: publicBaseProbeKey}).EscapedPath()
+	configured := strings.TrimRight(b.cfg.PublicURL, "/") + "/" + (&url.URL{Path: key}).EscapedPath()
+	alternate := strings.TrimRight(stripped, "/") + "/" + (&url.URL{Path: key}).EscapedPath()
 	confOK, confSure := reach(configured)
 	altOK, altSure := reach(alternate)
 

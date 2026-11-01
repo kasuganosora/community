@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
@@ -49,6 +50,8 @@ type Options struct {
 	Now time.Time
 	// Limit is the maximum number of rows examined. Zero uses DefaultSweepLimit.
 	Limit int
+	// AfterID resumes a bounded sweep; background passes wrap after reaching the end.
+	AfterID uint64
 	// DryRun reports what would be deleted and does not change anything.
 	DryRun bool
 	// Out receives one line per candidate. Nil discards the detail.
@@ -57,15 +60,17 @@ type Options struct {
 
 // Stats is the outcome of one purge pass.
 type Stats struct {
-	Candidates   int
-	Removed      int
-	WouldRemove  int
-	Objects      int
-	SharedKept   int
-	ProfileKept  int
-	Reattached   int
-	Failed       int
-	StoppedEarly bool
+	Candidates     int
+	Removed        int
+	WouldRemove    int
+	Objects        int
+	SharedKept     int
+	ProfileKept    int
+	ReferencedKept int
+	LastID         uint64
+	Reattached     int
+	Failed         int
+	StoppedEarly   bool
 }
 
 // Enabled reports whether the background purge should run. Empty is on.
@@ -119,7 +124,7 @@ func Purge(ctx context.Context, conn *gorm.DB, opts Options) (Stats, error) {
 	cutoff := opts.Now.Add(-opts.MinAge)
 	var stats Stats
 	var failed error
-	var lastID uint64
+	lastID := opts.AfterID
 
 	for stats.Candidates < opts.Limit {
 		if err := ctx.Err(); err != nil {
@@ -149,6 +154,7 @@ func Purge(ctx context.Context, conn *gorm.DB, opts Options) (Stats, error) {
 			}
 
 			stats.Candidates++
+			stats.LastID = id
 			outcome, err := purgeOne(ctx, conn, id, cutoff, opts)
 			if err != nil {
 				stats.Failed++
@@ -176,6 +182,8 @@ func Purge(ctx context.Context, conn *gorm.DB, opts Options) (Stats, error) {
 				}
 			case outcomeProfile:
 				stats.ProfileKept++
+			case outcomeReferenced:
+				stats.ReferencedKept++
 			case outcomeReattached:
 				stats.Reattached++
 			}
@@ -202,6 +210,7 @@ type outcome int
 const (
 	outcomeReattached outcome = iota
 	outcomeProfile
+	outcomeReferenced
 	outcomeShared
 	outcomeRemoved
 )
@@ -244,6 +253,16 @@ func purgeOne(ctx context.Context, conn *gorm.DB, id uint64, cutoff time.Time, o
 			result = outcomeProfile
 			printf(opts.Out, "media %d kept: still used as a profile image\n", row.Id)
 
+			return nil
+		}
+
+		referenced, err := assetUses(tx, &row)
+		if err != nil {
+			return err
+		}
+		if referenced {
+			result = outcomeReferenced
+			printf(opts.Out, "media %d kept: imported library or site asset\n", row.Id)
 			return nil
 		}
 
@@ -366,6 +385,46 @@ func profileUses(tx *gorm.DB, row *models.MediaAttachment) (bool, error) {
 	}
 
 	return n > 0, nil
+}
+
+// Imported files can belong to a drive, private archive, emoji, decoration or
+// site branding without belonging to a status. Import receipts are durable
+// ownership records, not abandoned uploads. A later status deletion explicitly
+// starts their retention window; assets still referring to the URL stay alive.
+func assetUses(tx *gorm.DB, row *models.MediaAttachment) (bool, error) {
+	if row.DetachedAt == nil && tx.Migrator().HasTable("data_transfer_receipts") {
+		var n int64
+		if err := tx.Table("data_transfer_receipts").Where("kind = ? AND target_id = ?", "media", row.Id).Count(&n).Error; err != nil {
+			return false, err
+		}
+		if n > 0 {
+			return true, nil
+		}
+	}
+	like := "%/media/" + strconv.FormatUint(row.Id, 10) + "/%"
+	for _, ref := range []struct{ table, column string }{
+		{"avatar_decorations", "image_url"},
+		{"advertisements", "image_url"},
+		{"emojis", "url"},
+		{"emojis", "static_url"},
+		{"system_settings", "val"},
+	} {
+		if !tx.Migrator().HasTable(ref.table) {
+			continue
+		}
+		var n int64
+		column := ref.column
+		if ref.table == "system_settings" && dialect.IsPostgres(tx) {
+			column = "CAST(val AS TEXT)"
+		}
+		if err := tx.Table(ref.table).Where(column+" LIKE ?", like).Count(&n).Error; err != nil {
+			return false, err
+		}
+		if n > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func storageShared(tx *gorm.DB, row *models.MediaAttachment) (bool, error) {

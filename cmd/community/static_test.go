@@ -93,8 +93,8 @@ func TestFrontendPrecompressedAndCacheHeaders(t *testing.T) {
 	if w := get("/theme-init.js", "br"); w.Body.String() != "THEME" || w.Header().Get("Cache-Control") != cacheRevalidate || w.Header().Get("Vary") != "" {
 		t.Errorf("theme-init: body=%q cc=%q", w.Body.String(), w.Header().Get("Cache-Control"))
 	}
-	if w := get("/explore", "br"); w.Header().Get("Cache-Control") != "no-store" || w.Body.String() != "<html>" {
-		t.Errorf("index: cc=%q", w.Header().Get("Cache-Control"))
+	if w := get("/explore", "br"); w.Header().Get("Cache-Control") != "no-store" || !strings.Contains(w.Body.String(), "<html>") || !strings.Contains(w.Body.String(), `property="og:title"`) {
+		t.Errorf("index: cc=%q body=%q", w.Header().Get("Cache-Control"), w.Body.String())
 	}
 	// Update-controlling files must never be served from a CDN/HTTP cache.
 	if w := get("/sw.js", ""); w.Body.String() != "SW" || w.Header().Get("Cache-Control") != "no-cache, no-store, must-revalidate" || w.Header().Get("Service-Worker-Allowed") != "/" {

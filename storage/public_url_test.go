@@ -122,11 +122,40 @@ func TestAlignPublicBaseRetriesAfterAnInconclusiveProbe(t *testing.T) {
 		PublicURL: "https://cdn.example/files-bucket",
 	})
 	b.publicReachable = func(string) (bool, bool) { return false, false }
-	assert.Equal(t, "https://cdn.example/files-bucket/media/a.png", b.PublicURL("media/a.png"))
+	for i := 0; i < 4; i++ {
+		b.probeNotBefore = time.Now().Add(-time.Second)
+		assert.Equal(t, "https://cdn.example/files-bucket/media/a.png", b.PublicURL("media/a.png"))
+	}
+	assert.Empty(t, b.resolvedPublicBase, "temporary failures must not permanently pin a broken URL")
 
 	b.probeNotBefore = b.probeNotBefore.Add(-time.Hour)
 	b.publicReachable = func(rawURL string) (bool, bool) {
 		return !strings.Contains(rawURL, "/files-bucket/"), true
 	}
 	assert.Equal(t, "https://cdn.example/media/a.png", b.PublicURL("media/a.png"))
+}
+
+func TestPublicBaseProbeUsesRequestedObjectWithoutMutatingBucket(t *testing.T) {
+	var methods, paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		paths = append(paths, r.URL.Path)
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if r.URL.Path == "/media/existing.png" {
+			_, _ = w.Write([]byte("image"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	b := NewS3Backend(S3Config{
+		Endpoint: srv.URL, Bucket: "files", AccessKey: "read-only", SecretKey: "read-only",
+		PublicURL: strings.Replace(srv.URL, "127.0.0.1", "localhost", 1) + "/files",
+	})
+	assert.Equal(t, strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)+"/media/existing.png", b.PublicURL("media/existing.png"))
+	assert.Equal(t, []string{"GET", "GET"}, methods)
+	assert.Equal(t, []string{"/files/media/existing.png", "/media/existing.png"}, paths)
 }

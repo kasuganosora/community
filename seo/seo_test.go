@@ -183,6 +183,9 @@ func TestSitemapListsHomeAboutProfilesAndTagsOnly(t *testing.T) {
 	linkTag(t, conn, 13, "abroad")
 	makeStatusAt(t, conn, 14, alice.Id, models.StatusVisibilityPrivate, newer, nil)
 	linkTag(t, conn, 14, "quiet")
+	deleting := makeAccount(t, conn, 5, "deleting", func(a *models.Account) { a.DeletionRequestedAt = &newer })
+	makeStatusAt(t, conn, 15, deleting.Id, models.StatusVisibilityPublic, newer, nil)
+	linkTag(t, conn, 15, "deleted-account-tag")
 
 	stats, err := Refresh(context.Background(), true)
 	require.NoError(t, err)
@@ -198,6 +201,7 @@ func TestSitemapListsHomeAboutProfilesAndTagsOnly(t *testing.T) {
 	require.Contains(t, xml, "<loc>https://social.example/@alice</loc>")
 	require.Contains(t, xml, "<loc>https://social.example/@bob</loc>")
 	require.NotContains(t, xml, "/@carol")
+	require.NotContains(t, xml, "deleted-account-tag")
 	require.Contains(t, xml, "<loc>https://social.example/tags/newer</loc>")
 	require.Contains(t, xml, "<loc>https://social.example/tags/mid</loc>")
 	require.Contains(t, xml, "<loc>https://social.example/tags/older</loc>")
@@ -304,4 +308,29 @@ func linkTag(t *testing.T, conn *gorm.DB, statusID uint64, name string) {
 	require.NoError(t, conn.Create(tag).Error)
 	require.Nil(t, tag.LastStatusUsedAt)
 	require.NoError(t, conn.Create(&models.StatusTag{StatusId: statusID, TagId: tag.Id}).Error)
+}
+
+func TestBoostMetadataDoesNotExposeUnavailableOriginalAuthor(t *testing.T) {
+	defer useExampleSite(t)()
+	for _, state := range []string{"suspended", "deleting", "deleted"} {
+		t.Run(state, func(t *testing.T) {
+			conn := openSEO(t)
+			makeAccount(t, conn, 1, "booster", nil)
+			makeAccount(t, conn, 2, "original", nil)
+			makeStatus(t, conn, 10, 2, models.StatusVisibilityPublic, "unavailable-author-secret")
+			makeStatus(t, conn, 11, 1, models.StatusVisibilityPublic, "")
+			require.NoError(t, conn.Model(&models.Status{}).Where("id = 11").UpdateColumn("reblog_id", 10).Error)
+			switch state {
+			case "suspended":
+				require.NoError(t, conn.Model(&models.Account{}).Where("id = 2").UpdateColumn("is_ban", true).Error)
+			case "deleting":
+				require.NoError(t, conn.Model(&models.Account{}).Where("id = 2").UpdateColumn("deletion_requested_at", time.Now()).Error)
+			case "deleted":
+				require.NoError(t, conn.Model(&models.Account{}).Where("id = 2").UpdateColumn("deleted_at", time.Now()).Error)
+			}
+			doc := Resolve(conn, "/@booster/status/11")
+			require.Equal(t, 404, doc.Code)
+			require.NotContains(t, string(Inject([]byte(shell), doc)), "unavailable-author-secret")
+		})
+	}
 }

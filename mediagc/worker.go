@@ -25,7 +25,7 @@ func Start(ctx context.Context, conn *gorm.DB, opts Options) {
 		run := func() {
 			sweepCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()
-			stats, err := Purge(sweepCtx, conn, opts)
+			stats, err := sweep(sweepCtx, conn, &opts)
 			if err != nil || stats.Failed > 0 {
 				log.Warn("unattached media purge: removed %d, failed %d: %v", stats.Removed, stats.Failed, err)
 				return
@@ -44,4 +44,16 @@ func Start(ctx context.Context, conn *gorm.DB, opts Options) {
 			}
 		}
 	}()
+}
+
+func sweep(ctx context.Context, conn *gorm.DB, opts *Options) (Stats, error) {
+	stats, err := Purge(ctx, conn, *opts)
+	// Protected rows and failing storage objects must not permanently occupy
+	// the first page and starve every later attachment. Wrap to retry them.
+	if stats.LastID != 0 && (stats.StoppedEarly || ctx.Err() != nil) {
+		opts.AfterID = stats.LastID
+	} else {
+		opts.AfterID = 0
+	}
+	return stats, err
 }
