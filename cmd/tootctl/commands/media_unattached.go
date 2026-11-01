@@ -50,7 +50,7 @@ func purgeUnattachedMedia(c *cli.Context) error {
 	}
 
 	_, _ = fmt.Fprintf(out, "Unattached media older than %s - %s\n", minAge, mode)
-	stats, err := mediagc.Purge(c.Context, db.GetDB(), mediagc.Options{
+	stats, err := mediagc.PurgeRemaining(c.Context, db.GetDB(), mediagc.Options{
 		MinAge: minAge,
 		DryRun: !deleteRows,
 		Limit:  2000,

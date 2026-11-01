@@ -233,6 +233,49 @@ func TestPurgePreservesImportedLibraryAndReferencedAssets(t *testing.T) {
 	require.Equal(t, 1, stats.Removed)
 }
 
+func TestPurgePreservesImportedAliasesAfterThePostIsDeleted(t *testing.T) {
+	conn := openDB(t)
+	backend := storagetest.NewMemory()
+	t.Cleanup(storage.SetDefault(backend))
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	aliased := seedMedia(t, conn, "imports/alias.png", nil, old)
+	putObjects(t, backend, aliased)
+	require.NoError(t, conn.Model(aliased).UpdateColumn("detached_at", old).Error)
+	require.NoError(t, conn.Exec(`CREATE TABLE data_transfer_media_aliases (media_attachment_id integer)`).Error)
+	require.NoError(t, conn.Exec(`INSERT INTO data_transfer_media_aliases (media_attachment_id) VALUES (?)`, aliased.Id).Error)
+	ordinary := seedMedia(t, conn, "imports/ordinary.png", nil, old)
+	putObjects(t, backend, ordinary)
+	require.NoError(t, conn.Model(ordinary).UpdateColumn("detached_at", old).Error)
+
+	stats, err := Purge(context.Background(), conn, Options{MinAge: DefaultMinAge})
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.ReferencedKept)
+	require.Equal(t, 1, stats.Removed)
+	require.True(t, objectExists(t, backend, aliased.StorageKey()))
+	require.False(t, objectExists(t, backend, ordinary.StorageKey()))
+}
+
+func TestPurgeRemainingContinuesPastProtectedRows(t *testing.T) {
+	conn := openDB(t)
+	backend := storagetest.NewMemory()
+	t.Cleanup(storage.SetDefault(backend))
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	avatar := seedMedia(t, conn, "avatar.png", nil, old)
+	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(&models.Account{
+		Id: 1, Username: "owner", Acct: "owner", Avatar: "/media/" + strconv.FormatUint(avatar.Id, 10) + "/avatar.png",
+	}).Error)
+	garbage := seedMedia(t, conn, "unused.png", nil, old)
+	putObjects(t, backend, garbage)
+
+	stats, err := PurgeRemaining(context.Background(), conn, Options{MinAge: DefaultMinAge, Limit: 1})
+	require.NoError(t, err)
+	require.Equal(t, 1, stats.ProfileKept)
+	require.Equal(t, 1, stats.Removed)
+	require.False(t, stats.StoppedEarly)
+	require.False(t, objectExists(t, backend, garbage.StorageKey()))
+	require.NoError(t, conn.First(&models.MediaAttachment{}, avatar.Id).Error)
+}
+
 func TestBackgroundSweepsAdvancePastProtectedRowsAndWrap(t *testing.T) {
 	conn := openDB(t)
 	backend := storagetest.NewMemory()

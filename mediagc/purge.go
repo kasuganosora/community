@@ -205,6 +205,46 @@ func Purge(ctx context.Context, conn *gorm.DB, opts Options) (Stats, error) {
 	return stats, nil
 }
 
+// PurgeRemaining repeats Purge until the scan is exhausted. A single pass
+// stops after Limit rows, and protected rows stay in the candidate set, so
+// calling Purge again from the start never reaches later attachments.
+func PurgeRemaining(ctx context.Context, conn *gorm.DB, opts Options) (Stats, error) {
+	var total Stats
+	for {
+		if err := ctx.Err(); err != nil {
+			total.StoppedEarly = true
+			return total, err
+		}
+
+		stats, err := Purge(ctx, conn, opts)
+		addStats(&total, stats)
+		stuck := stats.StoppedEarly && (stats.LastID == 0 || stats.LastID == opts.AfterID)
+		if err != nil || !stats.StoppedEarly || stuck {
+			total.StoppedEarly = stats.StoppedEarly
+			if stats.LastID != 0 {
+				total.LastID = stats.LastID
+			}
+
+			return total, err
+		}
+
+		opts.AfterID = stats.LastID
+		total.LastID = stats.LastID
+	}
+}
+
+func addStats(total *Stats, stats Stats) {
+	total.Candidates += stats.Candidates
+	total.Removed += stats.Removed
+	total.WouldRemove += stats.WouldRemove
+	total.Objects += stats.Objects
+	total.SharedKept += stats.SharedKept
+	total.ProfileKept += stats.ProfileKept
+	total.ReferencedKept += stats.ReferencedKept
+	total.Reattached += stats.Reattached
+	total.Failed += stats.Failed
+}
+
 type outcome int
 
 const (
@@ -391,10 +431,21 @@ func profileUses(tx *gorm.DB, row *models.MediaAttachment) (bool, error) {
 // site branding without belonging to a status. Import receipts are durable
 // ownership records, not abandoned uploads. A later status deletion explicitly
 // starts their retention window; assets still referring to the URL stay alive.
+// An imported public alias points at the row by id, including after the post
+// that used the file was deleted.
 func assetUses(tx *gorm.DB, row *models.MediaAttachment) (bool, error) {
 	if row.DetachedAt == nil && tx.Migrator().HasTable("data_transfer_receipts") {
 		var n int64
 		if err := tx.Table("data_transfer_receipts").Where("kind = ? AND target_id = ?", "media", row.Id).Count(&n).Error; err != nil {
+			return false, err
+		}
+		if n > 0 {
+			return true, nil
+		}
+	}
+	if tx.Migrator().HasTable("data_transfer_media_aliases") {
+		var n int64
+		if err := tx.Table("data_transfer_media_aliases").Where("media_attachment_id = ?", row.Id).Count(&n).Error; err != nil {
 			return false, err
 		}
 		if n > 0 {

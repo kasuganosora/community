@@ -132,7 +132,7 @@ func TestAppealContextExplainsEligibilityAndClosedCases(t *testing.T) {
 func TestReviewsListShowsHeldPostAndModeratorActionIsValidated(t *testing.T) {
 	conn := appealDB(t)
 	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.Status{}, &models.StatusContent{}))
-	account := &models.Account{Id: 7, Username: "alice", Acct: "alice", DisplayName: "Alice"}
+	account := &models.Account{Id: 7, Username: "alice", Acct: "alice@__LOCAL__", DisplayName: "Alice"}
 	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(account).Error)
 	post := &models.Status{Id: 15, AccountId: 7, LocalOnly: true, Content: models.StatusContent{Content: "needs review"}}
 	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(post).Error)
