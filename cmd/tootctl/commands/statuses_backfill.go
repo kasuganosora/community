@@ -19,6 +19,26 @@ import (
 func statusesBackfillCommands() []*cli.Command {
 	return []*cli.Command{
 		{
+			Name:  "repair-reply-parents",
+			Usage: "Link replies to parents this server already has",
+			Description: "Reads unlinked remote replies from their own origin and records inReplyTo when that parent is already stored.\n" +
+				"Does not fetch the parent. Local addresses stored on the reply are linked without any request. Safe to re-run.",
+			Flags: []cli.Flag{
+				&cli.IntFlag{Name: "limit", Value: 200, Usage: "maximum remote replies to read from their origin"},
+			},
+			Action: func(c *cli.Context) error {
+				linked, err := activitypub.RecoverUnlinkedReplyParents(context.Background(), c.Int("limit"), func(ctx context.Context, uri string) (map[string]any, error) {
+					note, _, fetchErr := activitypub.NewResolver(nil, "").FetchCanonicalObject(ctx, uri)
+					return note, fetchErr
+				})
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Linked %d reply parents\n", linked)
+				return nil
+			},
+		},
+		{
 			Name:  "fetch-quotes",
 			Usage: "Import the quoted posts of recent remote quote posts and link them",
 			Flags: []cli.Flag{

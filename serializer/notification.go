@@ -5,6 +5,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 	"strconv"
@@ -97,6 +98,9 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 
 	if n.Status != nil {
 		if err = n.Status.CheckAndLoadAllExtendFields(db.GetDB()); err != nil {
+			return ret, err
+		}
+		if err = models.LinkStoredReplyParents(db.GetDB(), []*models.Status{n.Status}, systemsettings.GetBaseURL()); err != nil {
 			return ret, err
 		}
 
@@ -199,6 +203,9 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 			return ret, err
 		}
 
+		if err = models.LinkStoredReplyParents(db.GetDB(), _statuses, systemsettings.GetBaseURL()); err != nil {
+			return ret, err
+		}
 		statuses, err = ToStatuses(_statuses, currentAccount)
 		if err != nil {
 			return ret, err

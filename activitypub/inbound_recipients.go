@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -117,29 +116,7 @@ func sameURIOrigin(a, b string) bool {
 }
 
 func findInboundParent(ctx context.Context, uri string) (*models.Status, error) {
-	var status models.Status
-	if sameURIOrigin(uri, systemsettings.GetBaseURL()) {
-		err := activityDB(ctx).Preload("ToAccounts").Where("local_object_uri = ?", uri).First(&status).Error
-		if err == nil {
-			return &status, nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
-		}
-	}
-	prefix := strings.TrimRight(systemsettings.GetBaseURL(), "/") + "/users/"
-	if strings.HasPrefix(uri, prefix) {
-		parts := strings.Split(strings.TrimPrefix(uri, prefix), "/")
-		if len(parts) == 3 && parts[1] == "statuses" {
-			id, err := strconv.ParseUint(parts[2], 10, 64)
-			if err == nil {
-				err = activityDB(ctx).Preload("ToAccounts").Joins("JOIN accounts ON accounts.id = statuses.account_id").Where("statuses.id = ? AND accounts.username = ? AND accounts.domain IS NULL AND (accounts.local_actor_uri = '' OR accounts.local_actor_uri IS NULL) AND (statuses.local_object_uri = '' OR statuses.local_object_uri IS NULL)", id, parts[0]).First(&status).Error
-				return &status, err
-			}
-		}
-	}
-	err := activityDB(ctx).Preload("ToAccounts").Where("origin_uri = ? OR origin_url = ? OR local_object_uri = ?", uri, uri, uri).First(&status).Error
-	return &status, err
+	return models.FindReplyParent(activityDB(ctx), systemsettings.GetBaseURL(), uri)
 }
 
 func persistIncomingStatus(ctx context.Context, conn *gorm.DB, status *models.Status) error {

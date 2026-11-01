@@ -82,6 +82,7 @@ var ScripsType = []MigrationScript{
 	AddDeliveryTargetCooldownScript{},
 	NewAccountModScript{},
 	MediaDetachedAtScript{},
+	ReplyParentBackfillScript{},
 }
 
 type MigrationScript interface {
