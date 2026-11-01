@@ -27,7 +27,7 @@ type Status struct {
 	Sensitive          bool           `json:"sensitive"`
 	SpoilerText        string         `json:"spoiler_text"`
 	Visibility         string         `json:"visibility"`
-	LocalOnly          bool           `json:"local_only,omitempty"`
+	LocalOnly          bool           `json:"local_only"`
 	Language           *string        `json:"language"`
 	Uri                string         `json:"uri"`
 	Url                string         `json:"url"`

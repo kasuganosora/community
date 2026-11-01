@@ -146,10 +146,7 @@ func AdminList(c *gin.Context) {
 	}
 	accts := make(map[uint64]string)
 	for _, a := range accounts {
-		accts[a.Id] = a.Username
-		if a.Domain != nil && *a.Domain != "" {
-			accts[a.Id] += "@" + *a.Domain
-		}
+		accts[a.Id] = publicAcct(&a)
 	}
 	out := make([]gin.H, 0, len(rows))
 	for i := range rows {
@@ -207,6 +204,18 @@ func requireLocal(c *gin.Context) *models.Account {
 		return nil
 	}
 	return account
+}
+
+// publicAcct is the handle people see. The accounts.acct column stores
+// local users as username@__LOCAL__, which is not a profile URL.
+func publicAcct(a *models.Account) string {
+	if a == nil {
+		return ""
+	}
+	if a.Domain != nil && *a.Domain != "" {
+		return a.Username + "@" + *a.Domain
+	}
+	return a.Username
 }
 
 func appealJSON(a *newacctmod.Appeal) gin.H {

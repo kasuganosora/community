@@ -62,7 +62,7 @@ func Reviews(c *gin.Context) {
 		s, statusExists := byStatus[job.StatusID]
 		items = append(items, gin.H{
 			"id": strconv.FormatUint(job.ID, 10), "account_id": strconv.FormatUint(job.AccountID, 10),
-			"status_id": strconv.FormatUint(job.StatusID, 10), "acct": a.Acct, "display_name": a.DisplayName,
+			"status_id": strconv.FormatUint(job.StatusID, 10), "acct": publicAcct(&a), "display_name": a.DisplayName,
 			"text": s.Content.EditableText(), "held": s.LocalOnly, "state": job.State, "verdict": job.Verdict,
 			"reason": job.Reason, "last_error": job.LastError, "attempts": job.Attempts, "created_at": job.CreatedAt,
 			"actionable": accountExists && statusExists && a.IsLocal() && !a.IsBan && a.DeletionRequestedAt == nil,
