@@ -3,6 +3,7 @@ import { flushPromises, shallowMount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { reactive } from 'vue'
 import PostDetailPage from '../PostDetailPage.vue'
+import PostCard from '@/shared/components/post/PostCard.vue'
 import { postApi } from '../../../infrastructure/postApi'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 
@@ -25,6 +26,19 @@ const row = (id: string) => ({
 type Context = { ancestors: MastodonStatus[]; descendants: MastodonStatus[] }
 function mountPage() { return shallowMount(PostDetailPage, { global: { plugins: [createPinia()] } }) }
 afterEach(() => { vi.restoreAllMocks(); route.params.statusId = 'a' })
+
+it('shows the parent above a reply once context includes it', async () => {
+  const parent = row('parent')
+  parent.content = '<p>original post</p>'
+  vi.spyOn(postApi, 'getStatus').mockResolvedValue(row('reply'))
+  vi.spyOn(postApi, 'getContext').mockResolvedValue({ ancestors: [parent], descendants: [] })
+  const wrapper = mountPage()
+  await flushPromises()
+  const cards = wrapper.findAllComponents(PostCard)
+  expect(cards.length).toBeGreaterThan(0)
+  expect(cards[0].props('status').id).toBe('parent')
+  wrapper.unmount()
+})
 
 describe('post detail partial loading', () => {
   it('shows the post before replies finish and retries only a failed reply request', async () => {

@@ -291,7 +291,7 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	attributedTo := attributedToURI(object)
 	publishedStr, _ := object["published"].(string)
 	summary, _ := object["summary"].(string)
-	inReplyTo, _ := object["inReplyTo"].(string)
+	inReplyTo := noteInReplyTo(object["inReplyTo"])
 	sensitive, _ := object["sensitive"].(bool)
 
 	// "content" is HTML; "source.content" is the author's raw source (plain
@@ -1825,19 +1825,29 @@ func fetchAndCreateRemoteStatus(ctx context.Context, statusURI string) (*models.
 
 // rememberReplyParent records a reply target that is already stored here.
 // Missing parents stay unlinked; reading a notification must not fetch them.
+func noteInReplyTo(value any) string {
+	return strings.TrimSpace(objectID(value))
+}
+
 func rememberReplyParent(ctx context.Context, status *models.Status, inReplyTo string) error {
+	inReplyTo = strings.TrimSpace(inReplyTo)
 	if status == nil || inReplyTo == "" || (status.InReplyToId != nil && *status.InReplyToId != 0) {
 		return nil
 	}
 	parent, err := findInboundParent(ctx, inReplyTo)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
+		models.SetReplyToURI(status, inReplyTo)
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	if parent.Id != 0 && parent.Id == status.Id {
+		return nil
+	}
 	status.InReplyToId = &parent.Id
 	status.InReplyToAccountId = &parent.AccountId
+	models.SetReplyToURI(status, "")
 	return nil
 }
 
@@ -1850,13 +1860,7 @@ func backfillReplyParent(ctx context.Context, status *models.Status, inReplyTo s
 	if err := rememberReplyParent(ctx, status, inReplyTo); err != nil {
 		return err
 	}
-	if status.InReplyToId == nil {
-		return nil
-	}
-	return activityDB(ctx).Model(&models.Status{}).Where("id = ?", status.Id).Updates(map[string]any{
-		"in_reply_to_id":         status.InReplyToId,
-		"in_reply_to_account_id": status.InReplyToAccountId,
-	}).Error
+	return activityDB(ctx).Model(status).Select("InReplyToId", "InReplyToAccountId", "Properties").Updates(status).Error
 }
 
 // importFetchedStatus stores an already fetched, canonical status object.
@@ -1874,7 +1878,7 @@ func importFetchedStatus(ctx context.Context, statusURI string, statusData map[s
 	summary = htmlsafe.StripTags(summary)
 	publishedStr, _ := statusData["published"].(string)
 	authorURI := attributedToURI(statusData)
-	inReplyTo, _ := statusData["inReplyTo"].(string)
+	inReplyTo := noteInReplyTo(statusData["inReplyTo"])
 
 	// The author must be hosted where the object is: otherwise any server
 	// could publish a note "by" someone else and have it boosted in.

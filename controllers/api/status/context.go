@@ -6,6 +6,7 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
+	"github.com/kasuganosora/community/systemsettings"
 	"gorm.io/gorm"
 )
 
@@ -24,6 +25,13 @@ func Context(c *gin.Context) {
 	// Thread membership is not authorization for any individual message.
 	abortUnlessVisible(c, db.GetDB(), status, account)
 	var err error
+
+	// A reply saved before its parent was linked can still name that parent
+	// locally. Resolve it here so the thread does not need another fetch.
+	if err := models.LinkStoredReplyParents(db.GetDB(), []*models.Status{status}, systemsettings.GetBaseURL()); err != nil {
+		controllers.AbortIfError(c, err)
+		return
+	}
 
 	// Get ancestors (parent statuses in the thread)
 	ancestors := make([]*models.Status, 0)
@@ -93,6 +101,9 @@ func getAncestors(dbConn *gorm.DB, statusId uint64, limit int) []*models.Status 
 
 		err := query.First(parent, currentId).Error
 		if err != nil {
+			break
+		}
+		if linkErr := models.LinkStoredReplyParents(dbConn, []*models.Status{parent}, systemsettings.GetBaseURL()); linkErr != nil {
 			break
 		}
 

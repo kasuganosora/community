@@ -304,6 +304,12 @@ func (r *Resolver) ResolveStatus(ctx context.Context, uri string) (*models.Statu
 
 // fetchCanonicalObject fetches uri and, when the returned id differs, fetches
 // that id and requires it to identify itself.
+// FetchCanonicalObject reads one remote object. Reply repair uses it on the
+// reply's own origin, not on the parent.
+func (r *Resolver) FetchCanonicalObject(ctx context.Context, uri string) (map[string]any, string, error) {
+	return r.fetchCanonicalObject(ctx, uri)
+}
+
 func (r *Resolver) fetchCanonicalObject(ctx context.Context, uri string) (map[string]any, string, error) {
 	obj, err := r.client.FetchObject(ctx, uri)
 	if err != nil {
