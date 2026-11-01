@@ -157,7 +157,7 @@ describe('notification actor links', () => {
 
   it('shows the post a mention replies to, while the actor avatar and name still open that person', async () => {
     const mention = notification('mention')
-    const parentAuthor = { id: 'parent-author', username: 'luna', acct: 'luna', display_name: 'Luna', emojis: [] }
+    const parentAuthor = { id: 'parent-author', username: 'luna', acct: 'luna', display_name: 'Luna', emojis: [] } as unknown as MastodonAccount
     mention.status = {
       ...status,
       account: actor,
