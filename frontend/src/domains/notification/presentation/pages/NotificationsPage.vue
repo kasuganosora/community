@@ -14,6 +14,7 @@ import { usePaginatedList } from '@/shared/composables/usePaginatedList'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
+import AccountLink from '@/shared/components/common/AccountLink.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import TabBar from '@/shared/components/common/TabBar.vue'
@@ -198,29 +199,31 @@ watch(filter, () => {
         <template v-else>
           <div
             class="notification-body"
-            role="link"
-            tabindex="0"
+            role="group"
             :aria-label="`${notification.account.display_name || notification.account.username} ${notificationText(notification.type, isOwnPoll(notification))}`"
             @click="open(notification, $event)"
-            @keydown.enter.self="open(notification)"
           >
             <div class="notification-icon" :style="{ color: getNotificationColor(notification.type) }">
               <t-icon :name="getNotificationIcon(notification.type)" :size="24" />
             </div>
             <div class="notification-content">
-              <UserAvatar :account="notification.account" :size="32" />
+              <AccountLink :account="notification.account" class="notification-avatar" :aria-label="notification.account.display_name || notification.account.username">
+                <UserAvatar :account="notification.account" :size="32" />
+              </AccountLink>
               <div class="notification-text">
-                <strong><EmojiText :text="notification.account.display_name || notification.account.username" :emojis="notification.account.emojis" /></strong>
+                <AccountLink :account="notification.account" class="notification-name">
+                  <strong><EmojiText :text="notification.account.display_name || notification.account.username" :emojis="notification.account.emojis" /></strong>
+                </AccountLink>
                 <template v-if="notification.type === 'emoji_reaction' && notification.emoji_reaction">{{ $t('notification.NotificationsPage.s12') }} <ReactionLabel :reaction="notification.emoji_reaction" /> {{ $t('notification.NotificationsPage.s13') }}</template>
                 <template v-else>{{ notificationText(notification.type, isOwnPoll(notification)) }}</template>
                 <RelativeTime :datetime="notification.created_at" class="notification-time" />
               </div>
-              <div v-if="notification.status" class="notification-preview">
+              <router-link v-if="notification.status" class="notification-preview" :to="notificationTarget(notification)">
                 <EmojiText
                   :text="notification.status.spoiler_text ? $t('notification.NotificationsPage.s14', [notification.status.spoiler_text]) : getPreview(notification.status.content)"
                   :emojis="notification.status.emojis"
                 />
-              </div>
+              </router-link>
             </div>
             <button
               type="button"
@@ -340,6 +343,38 @@ watch(filter, () => {
   min-width: 0;
 }
 
+.notification-avatar {
+  display: inline-flex;
+  border-radius: 50%;
+  line-height: 0;
+  text-decoration: none;
+}
+
+.notification-avatar:hover,
+.notification-avatar:focus-visible {
+  text-decoration: none;
+}
+
+.notification-avatar:focus-visible,
+.notification-name:focus-visible,
+.notification-preview:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.notification-name {
+  color: inherit;
+  text-decoration: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .notification-name:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+  }
+}
+
 .notification-text {
   margin-top: var(--space-2);
   font-size: var(--text-body);
@@ -358,10 +393,16 @@ watch(filter, () => {
   font-size: var(--text-subhead);
   line-height: var(--leading-subhead);
   color: var(--color-label-secondary);
+  text-decoration: none;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.notification-preview:hover {
+  color: var(--color-label-secondary);
+  text-decoration: none;
 }
 
 .notification-dismiss {
