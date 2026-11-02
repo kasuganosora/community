@@ -14,7 +14,9 @@ import { MessagePlugin } from '@/shared/ui/feedback'
 import ReportDialog from '@/domains/user/presentation/components/ReportDialog.vue'
 import {
   useStatusActions, applyStatusUpdate, deletedStatusIds, editedStatuses,
+  markStatusDeleted, refreshStreamedStatus,
 } from '../../presentation/composables/useStatusActions'
+import { useFeedStream, type FeedStreamStatus } from '@/shared/composables/useFeedStream'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import AccountLink from '@/shared/components/common/AccountLink.vue'
 import PostContent from '@/shared/components/post/PostContent.vue'
@@ -144,17 +146,130 @@ watch(() => route.params.statusId, (id) => { if (id) loadPost() })
 watch(sessionEpoch, () => { void loadPost() }, { flush: 'sync' })
 watch(heading, (title) => { setDocumentTitle(title) })
 
+// The notification socket only refreshes the badge. Replies from followed
+// accounts, and replies that mention you, are already delivered as status ids
+// on the home stream. While this thread is open, append those that belong here.
+const streamTarget = computed(() => authStore.currentUser ? 'stream=user' : '')
+const streamedReplyLoads = new Set<string>()
+
+function routeStatusId(): string {
+  const id = route.params.statusId
+  return typeof id === 'string' ? id : ''
+}
+
+function focusedIds(): Set<string> {
+  const ids = new Set<string>()
+  const routeId = routeStatusId()
+  if (routeId) ids.add(routeId)
+  if (status.value?.id) ids.add(status.value.id)
+  if (status.value?.reblog?.id) ids.add(status.value.reblog.id)
+  return ids
+}
+
+/** Statuses a new row can reply to: the open post and replies already shown under it. */
+function replyParentIds(): Set<string> {
+  const ids = focusedIds()
+  for (const item of descendants.value) ids.add(item.id)
+  return ids
+}
+
+function threadContains(id: string): boolean {
+  if (focusedIds().has(id)) return true
+  return ancestors.value.some(item => item.id === id) || descendants.value.some(item => item.id === id)
+}
+
+function bumpReplyCount(parentId: string | null | undefined) {
+  if (!parentId) return
+  const bump = (item: MastodonStatus | null | undefined) => {
+    if (item?.id === parentId) item.replies_count = (item.replies_count || 0) + 1
+  }
+  bump(status.value)
+  bump(status.value?.reblog)
+  for (const item of ancestors.value) bump(item)
+  for (const item of descendants.value) bump(item)
+}
+
+/** Insert one reply in the same tree order a refresh would use, without duplicating it. */
+function insertReply(reply: MastodonStatus) {
+  if (!reply?.id || reply.reblog?.id || threadContains(reply.id)) return
+  const parentId = reply.in_reply_to_id == null ? '' : String(reply.in_reply_to_id)
+  if (!parentId || !replyParentIds().has(parentId)) return
+  const list = descendants.value
+  if (focusedIds().has(parentId)) {
+    list.push(reply)
+  } else {
+    const start = list.findIndex(item => item.id === parentId)
+    if (start < 0) {
+      list.push(reply)
+      bumpReplyCount(parentId)
+      return
+    }
+    let end = start + 1
+    const subtree = new Set([parentId])
+    while (end < list.length && list[end]?.in_reply_to_id && subtree.has(String(list[end].in_reply_to_id))) {
+      subtree.add(list[end].id)
+      end++
+    }
+    list.splice(end, 0, reply)
+  }
+  bumpReplyCount(parentId)
+}
+
+async function adoptStreamedReply(id: string) {
+  if (threadContains(id) || streamedReplyLoads.has(id)) return
+  streamedReplyLoads.add(id)
+  const epoch = sessionEpoch.value
+  try {
+    const reply = await postApi.getStatus(id)
+    if (epoch !== sessionEpoch.value) return
+    insertReply(reply)
+  } catch { /* hidden, deleted, or not a reply in this thread */ }
+  finally { streamedReplyLoads.delete(id) }
+}
+
+function onStreamedStatus(message: FeedStreamStatus) {
+  const id = message.id
+  if (!/^\d+$/.test(id)) return
+  if (message.event === 'delete') {
+    if (!threadContains(id)) return
+    ancestors.value = ancestors.value.filter(item => item.id !== id)
+    descendants.value = descendants.value.filter(item => item.id !== id)
+    if (focusedIds().has(id)) markStatusDeleted(id)
+    return
+  }
+  if (message.event === 'status.update') {
+    if (threadContains(id)) void refreshStreamedStatus(id)
+    return
+  }
+  if (message.event === 'update') return adoptStreamedReply(id)
+}
+
+/** After a real socket gap, pick up replies the live id path did not see. */
+async function catchUpThread() {
+  if (loading.value || contextLoading.value) return
+  const version = requestVersion
+  const statusId = routeStatusId()
+  if (!statusId) return
+  try {
+    const data = await postApi.getContext(statusId)
+    if (version !== requestVersion || statusId !== routeStatusId()) return
+    for (const reply of data.descendants) insertReply(reply)
+    contextError.value = null
+  } catch { /* keep the open thread; the next gap tries again */ }
+}
+
+useFeedStream(streamTarget, async (reason) => {
+  if (reason === 'gap') await catchUpThread()
+}, { poll: false, onStatus: onStreamedStatus })
+
 // Leave the page when the main post is deleted from its menu.
 watch(() => mainStatus.value && deletedStatusIds.has(mainStatus.value.id), (gone) => {
   if (gone) goBack()
 })
 
 function onReplied(reply: MastodonStatus) {
-  descendants.value.push(reply)
-  if (status.value) {
-    const target = status.value.reblog ?? status.value
-    target.replies_count = (target.replies_count || 0) + 1
-  }
+  const parent = reply.in_reply_to_id ?? (status.value?.reblog ?? status.value)?.id
+  insertReply(parent && parent !== reply.in_reply_to_id ? { ...reply, in_reply_to_id: parent } : reply)
 }
 
 function focusReply() {

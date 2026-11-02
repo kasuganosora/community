@@ -149,6 +149,9 @@ export function useFeedStream(target: Ref<string>, revalidate: (reason?: FeedSyn
     return remain > HINT_DEBOUNCE_MS ? remain : HINT_DEBOUNCE_MS
   }
   function schedule(options?: { gap?: boolean, soon?: boolean, poll?: boolean }) {
+    // An empty query means "not subscribed" (for example a logged-out thread).
+    // Do not fall through to the server's default home stream.
+    if (!target.value) return
     const next: FeedSyncReason = options?.poll ? 'poll' : options?.gap ? 'gap' : 'sync'
     if (!dirty || rank(next) >= rank(pending)) pending = next
     dirty = true
@@ -327,11 +330,11 @@ export function useFeedStream(target: Ref<string>, revalidate: (reason?: FeedSyn
     clearTimeout(debounce); debounce = undefined
     clearTimeout(hideTimer); hideTimer = undefined
     revision = ''; dirty = false; pending = 'sync'; failures = 0
-    if (!mounted || document.hidden) return
+    if (!mounted || document.hidden || !target.value) return
     if (options?.gap) downSince = 0
     schedule(options?.gap ? { gap: true } : isTimelineFeed(target.value) ? { poll: true } : undefined)
     const mine = generation
-    void Promise.resolve().then(() => { if (mine === generation && mounted && !document.hidden) connect(mine) })
+    void Promise.resolve().then(() => { if (mine === generation && mounted && !document.hidden && target.value) connect(mine) })
   }
   function onVisibility() {
     if (document.hidden) {
