@@ -186,6 +186,17 @@ describe('feed invalidation stream', () => {
     expect(callback).toHaveBeenCalledTimes(1)
   })
 
+  it('does not open a socket when the query is empty', async () => {
+    const { callback } = setup(vi.fn().mockResolvedValue(true), '')
+    await flushPromises()
+    window.dispatchEvent(new Event('focus'))
+    window.dispatchEvent(new Event('online'))
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(120_000)
+    expect(fetcher).not.toHaveBeenCalled()
+    expect(callback).not.toHaveBeenCalled()
+  })
+
   it('reports streamed status ids on home without an HTTP revalidate', async () => {
     const seen: FeedStreamStatus[] = []
     const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=user', status => { seen.push(status) })
