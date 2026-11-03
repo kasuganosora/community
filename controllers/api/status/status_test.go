@@ -19,6 +19,7 @@ import (
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/tests/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1204,6 +1205,33 @@ func TestContext_WithReplyThread(t *testing.T) {
 	require.Len(t, response.Descendants, 1)
 	require.Equal(t, strconv.FormatUint(parent.Id, 10), response.Ancestors[0].Id)
 	require.Equal(t, strconv.FormatUint(replyStatus.Id, 10), response.Descendants[0].Id)
+}
+
+func TestContext_StoredReplyURI(t *testing.T) {
+	ts := newContextSQLiteSetup(t)
+	parent := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityPublic
+	})
+	base := systemsettings.GetBaseURL()
+	uri := base + "/users/" + ts.acct.Username + "/statuses/" + strconv.FormatUint(parent.Id, 10)
+	reply := ts.fix.CreateStatus(ts.acct, func(s *models.Status) {
+		s.Visibility = models.StatusVisibilityPublic
+		s.Properties = map[string]any{models.StatusPropReplyToURI: uri}
+	})
+
+	c, w := newGinContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(reply.Id, 10)}})
+	setAccount(c, ts.acct)
+	safeHandler(c, Context)
+
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var response ContextResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.Len(t, response.Ancestors, 1)
+	require.Equal(t, strconv.FormatUint(parent.Id, 10), response.Ancestors[0].Id)
+	var saved models.Status
+	require.NoError(t, ts.db.First(&saved, reply.Id).Error)
+	require.NotNil(t, saved.InReplyToId)
+	require.Equal(t, parent.Id, *saved.InReplyToId)
 }
 
 // ============== Translation Tests ==============
