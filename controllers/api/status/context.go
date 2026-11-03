@@ -2,6 +2,7 @@ package status
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
@@ -26,9 +27,9 @@ func Context(c *gin.Context) {
 	abortUnlessVisible(c, db.GetDB(), status, account)
 	var err error
 
-	// A reply saved before its parent was linked can still name that parent
-	// locally. Resolve it here so the thread does not need another fetch.
-	if err := models.LinkStoredReplyParents(db.GetDB(), []*models.Status{status}, systemsettings.GetBaseURL()); err != nil {
+	// A reply whose parent is not stored yet is fetched from its origin
+	// (signed, for authorized-fetch servers) and linked before the walk.
+	if err := activitypub.LoadMissingReplyAncestors(c.Request.Context(), status); err != nil {
 		controllers.AbortIfError(c, err)
 		return
 	}

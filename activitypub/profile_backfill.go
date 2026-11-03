@@ -730,7 +730,10 @@ func objectID(v any) string {
 	case string:
 		return t
 	case map[string]any:
-		id, _ := t["id"].(string)
+		if id, _ := t["id"].(string); id != "" {
+			return id
+		}
+		id, _ := t["@id"].(string)
 		return id
 	}
 	return ""

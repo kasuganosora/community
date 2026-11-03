@@ -12,8 +12,13 @@ import (
 )
 
 // StatusPropReplyToURI keeps an ActivityPub inReplyTo address when the parent
-// was not stored yet. Later reads resolve it locally; they never fetch it.
+// was not stored yet. Thread views fetch that address with a signed request.
+// Other reads only resolve a parent that is already stored.
 const StatusPropReplyToURI = "reply_to_uri"
+
+// StatusPropReplyParentChecked marks a remote status whose ActivityPub object
+// was read and had no inReplyTo. Thread views do not fetch it again.
+const StatusPropReplyParentChecked = "reply_parent_checked"
 
 var statusURLInText = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
@@ -200,7 +205,40 @@ func persistReplyLink(conn *gorm.DB, status, parent *Status) error {
 	status.InReplyToId = &parent.Id
 	status.InReplyToAccountId = &parent.AccountId
 	SetReplyToURI(status, "")
-	return conn.Session(&gorm.Session{SkipHooks: true}).Model(status).Select("InReplyToId", "InReplyToAccountId", "Properties").Updates(status).Error
+	if err := conn.Session(&gorm.Session{SkipHooks: true}).Model(status).Select("InReplyToId", "InReplyToAccountId", "Properties").Updates(status).Error; err != nil {
+		return err
+	}
+	// The reply was stored before its parent, so the create hook never counted it.
+	return bumpCounter(conn, "statuses", "id", parent.Id, "replies_count", 1)
+}
+
+// LinkReplyParent records child as a reply to parent. A child that is already
+// linked, or a parent that is the child itself, is left unchanged.
+func LinkReplyParent(conn *gorm.DB, child, parent *Status) error {
+	if conn == nil || !needsReplyLink(child) || parent == nil || parent.Id == 0 || parent.Id == child.Id {
+		return nil
+	}
+	return persistReplyLink(conn, child, parent)
+}
+
+// ReplyParentChecked reports whether the remote object was already read and
+// had no inReplyTo.
+func ReplyParentChecked(status *Status) bool {
+	if status == nil || status.Properties == nil {
+		return false
+	}
+	return status.Properties[StatusPropReplyParentChecked] == "1"
+}
+
+// MarkReplyParentChecked records that the remote object has no inReplyTo.
+func MarkReplyParentChecked(status *Status) {
+	if status == nil {
+		return
+	}
+	if status.Properties == nil {
+		status.Properties = map[string]any{}
+	}
+	status.Properties[StatusPropReplyParentChecked] = "1"
 }
 
 func needsReplyLink(status *Status) bool {

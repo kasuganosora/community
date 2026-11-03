@@ -42,6 +42,9 @@ type Resolver struct {
 	cacheTTL     time.Duration
 	// noQuoteFetch stops imported posts from fetching their own quotes.
 	noQuoteFetch bool
+	// skipReplyFetch records inReplyTo but does not import the parent.
+	// Thread loading walks that chain itself, one signed fetch at a time.
+	skipReplyFetch bool
 	// profileBackfill marks every status it imports as profile backfill:
 	// kept out of timelines and notifications (see backfillProfile).
 	profileBackfill bool
@@ -502,26 +505,34 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 	content = htmlsafe.Sanitize(content)
 	summary = htmlsafe.StripTags(summary)
 	publishedStr, _ := obj["published"].(string)
-	inReplyTo, _ := obj["inReplyTo"].(string)
+	inReplyTo := noteInReplyTo(obj["inReplyTo"])
 	sensitive, _ := obj["sensitive"].(bool)
 
 	// Parse published time
 	publishedAt := utils.ParseRFC3339(publishedStr)
 
-	// Find in_reply_to status if specified
+	// Find in_reply_to status if specified. A failed fetch must keep the URI:
+	// authorized-fetch servers answer unsigned GETs with 401, and dropping
+	// the error here left the reply with no parent and nothing to retry.
 	var (
 		inReplyToID        *uint64
 		inReplyToAccountID *uint64
+		parentFetchErr     error
 	)
 
-	if inReplyTo != "" {
+	if inReplyTo != "" && inReplyTo != uri && !r.skipReplyFetch {
 		replyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		replyStatus, err := r.ResolveStatus(replyCtx, inReplyTo)
-		if err == nil {
+		if err == nil && replyStatus != nil && replyStatus.Id != 0 {
 			inReplyToID = &replyStatus.Id
 			inReplyToAccountID = &replyStatus.AccountId
+		} else {
+			parentFetchErr = err
+			if parentFetchErr == nil {
+				parentFetchErr = errors.New("reply parent was not stored")
+			}
 		}
 	}
 
@@ -552,6 +563,14 @@ func (r *Resolver) createStatusFromObject(obj map[string]any, uri string) (model
 
 	if status.CreatedAt == nil {
 		status.CreatedAt = &now
+	}
+	if inReplyToID == nil && inReplyTo != "" && inReplyTo != uri {
+		keepUnresolvedReplyParent(&status, inReplyTo, !r.skipReplyFetch, parentFetchErr)
+	} else if inReplyTo == "" || inReplyTo == uri {
+		if obj["inReplyTo"] != nil && inReplyTo == "" {
+			log.Warn("Remote status %s has an inReplyTo value that is not a URI (%T)", uri, obj["inReplyTo"])
+		}
+		models.MarkReplyParentChecked(&status)
 	}
 	status.Poll = questionPoll(obj, account.Id)
 	if r.profileBackfill {

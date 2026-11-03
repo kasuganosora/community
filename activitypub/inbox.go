@@ -350,6 +350,9 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 	if err == nil {
 		// A reply may have been stored before its parent was known. Link it
 		// now so mention notifications can show what was replied to.
+		if inReplyTo == "" && object["inReplyTo"] != nil {
+			log.Warn("Remote status %s has an inReplyTo value that is not a URI (%T)", objectID, object["inReplyTo"])
+		}
 		if linkErr := backfillReplyParent(ctx, &existingStatus, inReplyTo); linkErr != nil {
 			c.JSON(500, gin.H{"error": "failed to resolve reply"})
 			return
@@ -455,6 +458,20 @@ func handleCreateActivity(ctx context.Context, c *gin.Context, activity map[stri
 		log.Info("Dropped remote status %s from %s: prohibited words", objectID, actor)
 		c.Status(202)
 		return
+	}
+
+	// Parent is not local. Keep inReplyTo so opening the thread can signed-fetch
+	// it. Losing the URI here is what left replies with an empty in_reply_to_id
+	// and no way to recover the parent without reading the source Note again.
+	if status.InReplyToId == nil || *status.InReplyToId == 0 {
+		if inReplyTo != "" {
+			keepUnresolvedReplyParent(&status, inReplyTo, false, nil)
+		} else {
+			if object["inReplyTo"] != nil {
+				log.Warn("Remote status %s has an inReplyTo value that is not a URI (%T)", objectID, object["inReplyTo"])
+			}
+			models.MarkReplyParentChecked(&status)
+		}
 	}
 
 	status.Attachments, err = incomingAttachments(ctx, object["attachment"], remoteAccount.Id)
@@ -1829,6 +1846,21 @@ func noteInReplyTo(value any) string {
 	return strings.TrimSpace(objectID(value))
 }
 
+// keepUnresolvedReplyParent stores inReplyTo when the parent is not local.
+// tried is set when a fetch was already attempted; fetchErr is that failure.
+func keepUnresolvedReplyParent(status *models.Status, inReplyTo string, tried bool, fetchErr error) {
+	inReplyTo = strings.TrimSpace(inReplyTo)
+	if status == nil || inReplyTo == "" || (status.InReplyToId != nil && *status.InReplyToId != 0) {
+		return
+	}
+	models.SetReplyToURI(status, inReplyTo)
+	if tried {
+		log.Warn("Failed to fetch reply parent %s: %v", inReplyTo, fetchErr)
+		return
+	}
+	log.Info("Reply parent %s is not stored locally; kept the URI", inReplyTo)
+}
+
 func rememberReplyParent(ctx context.Context, status *models.Status, inReplyTo string) error {
 	inReplyTo = strings.TrimSpace(inReplyTo)
 	if status == nil || inReplyTo == "" || (status.InReplyToId != nil && *status.InReplyToId != 0) {
@@ -1836,7 +1868,7 @@ func rememberReplyParent(ctx context.Context, status *models.Status, inReplyTo s
 	}
 	parent, err := findInboundParent(ctx, inReplyTo)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		models.SetReplyToURI(status, inReplyTo)
+		keepUnresolvedReplyParent(status, inReplyTo, false, nil)
 		return nil
 	}
 	if err != nil {
@@ -1956,6 +1988,12 @@ func importFetchedStatus(ctx context.Context, statusURI string, statusData map[s
 	// (/users/:name/statuses/:id) is not stored in local_object_uri.
 	if err = rememberReplyParent(ctx, &status, inReplyTo); err != nil {
 		return nil, err
+	}
+	if inReplyTo == "" || inReplyTo == statusURI {
+		if statusData["inReplyTo"] != nil && inReplyTo == "" {
+			log.Warn("Remote status %s has an inReplyTo value that is not a URI (%T)", statusURI, statusData["inReplyTo"])
+		}
+		models.MarkReplyParentChecked(&status)
 	}
 
 	statusHost := ""
