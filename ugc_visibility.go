@@ -43,7 +43,10 @@ const ugcRestrictedMessage = "This content is restricted by the server for visit
 //     (Misskey contentRestrictedByServer);
 //   - "local": public timelines are forced to local posts, remote streams
 //     are refused, and JSON responses are filtered so remote statuses and
-//     accounts are dropped (a single remote status or account is a 404);
+//     accounts are dropped (a single remote status or account is a 404).
+//     A direct status permalink and its thread are exempt: the HTML page
+//     already serves that post, and hiding it here made the API say the
+//     row was missing and stripped stored ancestors from /context;
 //   - "all": no change.
 //
 // Signed-in users are never affected.
@@ -83,7 +86,10 @@ func UGCVisitorGuard() gin.HandlerFunc {
 			q.Del("remote")
 			c.Request.URL.RawQuery = q.Encode()
 		}
-		w := &bufferedWriter{ResponseWriter: c.Writer, remoteHidden: mode == moderation.UGCLocal}
+		// Permalinks stay readable. Timelines, search and profiles still drop
+		// remote posts for logged-out visitors.
+		remoteHidden := mode == moderation.UGCLocal && !visitorStatusPermalink(path)
+		w := &bufferedWriter{ResponseWriter: c.Writer, remoteHidden: remoteHidden}
 		c.Writer = w
 		// Handlers stop with controllers.AbortPanic after writing an error
 		// (404 for a missing status, 400 for a bad id). The buffered response
@@ -99,6 +105,19 @@ func UGCVisitorGuard() gin.HandlerFunc {
 			}
 		}()
 		c.Next()
+	}
+}
+
+// visitorStatusPermalink is a status the visitor opened by id: the post
+// itself, its thread, card and reactions. "local" mode does not pretend
+// those are missing.
+func visitorStatusPermalink(path string) bool {
+	trimmed := strings.TrimPrefix(strings.TrimPrefix(path, "/api/v1"), "/api/v2")
+	switch trimmed {
+	case "/statuses/:id", "/statuses/:id/context", "/statuses/:id/card", "/statuses/:id/reactions":
+		return true
+	default:
+		return false
 	}
 }
 
