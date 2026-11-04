@@ -32,6 +32,7 @@ func EmojiCommand() *cli.Command {
 			EmojiExportCommand(),
 			EmojiImportCommand(),
 			EmojiPurgeCommand(),
+			EmojiRehostCommand(),
 		},
 	}
 }

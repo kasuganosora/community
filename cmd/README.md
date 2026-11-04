@@ -176,6 +176,7 @@ flag.Parse()
 | `emoji export PATH` | 导出自定义表情为 `.tar.gz` | `--overwrite`, `--category` |
 | `emoji import PATH` | 从 `.tar.gz` 导入自定义表情（经 emojiasset 校验后写入 `emojis/<uuid>.<ext>` 键，`--overwrite` 时删除不再被引用的旧图） | `--prefix`, `--suffix`, `--overwrite`, `--category`, `--unlisted` |
 | `emoji purge` | 软删除自定义表情（保留图片，以便恢复） | `--remote-only` |
+| `emoji rehost` | 把仍指向旧 Misskey 对象存储（路径里有独立段 `pubilc`，这是上游历史拼写）且还不是 `/emoji-assets/` 的**本站**表情下载进来，并改写 `url` / `static_url`。远程表情不动。默认只预览，成功过的行会跳过，可重复执行 | `--dry-run`（默认，且优先于 `--confirm`）, `--confirm` |
 
 #### feeds
 
@@ -282,6 +283,11 @@ MISSKEY_DSN='postgres://misskey:***@127.0.0.1:5432/misskey' ./tootctl passkeys i
 
 # 导入自定义表情
 ./tootctl emoji import /path/to/emojis.tar.gz --category mypack
+
+# 把仍留在旧对象存储上的本站表情收进 /emoji-assets/（先预览，再执行；可重复跑）
+# 软删除的行会跳过，恢复后再执行一次。原图拉取失败时改用 static_url。
+./tootctl emoji rehost
+./tootctl emoji rehost --confirm
 
 # 构建所有用户的 Feed
 ./tootctl feeds build --all --concurrency 10
