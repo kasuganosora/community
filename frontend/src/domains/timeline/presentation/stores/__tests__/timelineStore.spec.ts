@@ -377,3 +377,21 @@ describe('explicit head refresh isolation', () => {
     expect(store.homeTimeline.newer).toEqual([{ id: '2' }])
   })
 })
+
+describe('remote mirrors of local statuses', () => {
+  beforeEach(() => { setActivePinia(createPinia()); vi.resetAllMocks() })
+  it('keeps the local row when home fetch and stream both deliver the mirror', async () => {
+    const uri = `${window.location.origin}/users/kanna/statuses/15`
+    const local = { id: '15', uri, url: `${window.location.origin}/@kanna/15`, account: { acct: 'kanna' }, visibility: 'public' } as MastodonStatus
+    const mirror = { id: '23', uri, url: uri, account: { acct: `kanna@${window.location.hostname}` }, visibility: 'public' } as MastodonStatus
+    vi.mocked(timelineApi.getHomeTimeline).mockResolvedValue([mirror, local])
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+    expect(store.homeStatuses.map(status => status.id)).toEqual(['15'])
+    expect(store.homeStatuses[0]?.account?.acct).toBe('kanna')
+    store.applyStreamed('home', { event: 'update', id: '23', uri })
+    expect(store.homeTimeline.newer).toEqual([])
+    store.prependStatus(mirror)
+    expect(store.homeStatuses.map(status => status.id)).toEqual(['15'])
+  })
+})

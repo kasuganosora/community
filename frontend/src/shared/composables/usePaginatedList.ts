@@ -5,6 +5,7 @@ import { refreshStreamedStatus } from '@/domains/post/presentation/composables/u
 import { createNewerPrefetch, newerPrefetchKey } from '@/shared/utils/newerPrefetch'
 import { ref, watch, getCurrentScope, onScopeDispose, type Ref } from 'vue'
 import { mergeById, hasMoreAfter, type CursorPage } from '@/shared/utils/pagination'
+import { dedupeMirroredStatuses, sharesStatusIdentity, type StreamedStatusRef } from '@/shared/utils/statusIdentity'
 
 import { t } from '@/shared/i18n'
 export interface PaginationWindow { previousCursors: string[]; droppedHistory: boolean; knownHead?: string[]; headCursor?: string }
@@ -18,7 +19,7 @@ export interface PaginatedList<T> {
   /** One head page: new ids join the pill, the loaded tail is not walked. */
   catchUpHead: () => Promise<boolean>
   /** Apply a streamed status id without fetching the timeline. */
-  applyStreamed: (status: { event: 'update' | 'delete' | 'status.update', id: string }) => void
+  applyStreamed: (status: StreamedStatusRef & { event: 'update' | 'delete' | 'status.update' }) => void
   revealNewer: () => Promise<boolean> | boolean
   setPinnedIds: (ids: string[]) => void
   loading: Ref<boolean>
@@ -83,7 +84,7 @@ export function usePaginatedList<T extends { id: string }>(
       prefetch.schedule(key, async () => {
         const result = await fetchPage(undefined, pageSize)
         if (!Array.isArray(result) && !result?.items) throw new Error('timeline prefetch failed')
-        return result
+        return Array.isArray(result) ? dedupeMirroredStatuses(result) : { ...result, items: dedupeMirroredStatuses(result.items) }
       })
     }, { flush: 'sync' })
   }
@@ -98,7 +99,7 @@ export function usePaginatedList<T extends { id: string }>(
     hasPrevious.value = false
     newer.value = []
     nextCursor = Array.isArray(result) ? page.at(-1)?.id : result.nextCursor
-    items.value = mergeById([], page)
+    items.value = dedupeMirroredStatuses(mergeById([], page))
     hasMore.value = Array.isArray(result) ? hasMoreAfter(page.length, pageSize) : !!nextCursor
     loading.value = false
     error.value = null
@@ -149,7 +150,7 @@ export function usePaginatedList<T extends { id: string }>(
       }
       const before = append ? items.value.length : 0
       nextCursor = Array.isArray(result) ? page[page.length - 1]?.id : result.nextCursor
-      items.value = mergeById(append ? items.value : [], read.filter(page))
+      items.value = dedupeMirroredStatuses(mergeById(append ? items.value : [], read.filter(page)))
       const grew = items.value.length > before
       while (items.value.length > maxPages * pageSize) {
         history.push(headCursor ?? '')
@@ -190,7 +191,7 @@ export function usePaginatedList<T extends { id: string }>(
       const page = Array.isArray(result) ? result : result.items
       history.pop()
       headCursor = cursor || undefined
-      items.value = mergeById(read.filter(page), items.value).slice(0, maxPages * pageSize)
+      items.value = dedupeMirroredStatuses(mergeById(read.filter(page), items.value)).slice(0, maxPages * pageSize)
       hasPrevious.value = history.length > 0 || droppedHistory
       nextCursor = items.value.at(-1)?.id
       hasMore.value = true
@@ -207,7 +208,7 @@ export function usePaginatedList<T extends { id: string }>(
   }
   async function readRows(cursor: string | undefined, limit: number) {
     const response = await fetchPage(cursor, limit)
-    return Array.isArray(response) ? response : response.items
+    return dedupeMirroredStatuses(Array.isArray(response) ? response : response.items)
   }
   function begin(scope: 'head' | 'window') {
     if (flight) return flight.then(() => true)
@@ -228,7 +229,7 @@ export function usePaginatedList<T extends { id: string }>(
       if (result?.inaccessible && my === version) { commitFreshPage([]); return true }
       if (result && my === version) {
         if (!knownHead) knownHead = result.statuses.slice(0, pageSize).map(row => row.id)
-        items.value = read.filter(result.statuses)
+        items.value = dedupeMirroredStatuses(read.filter(result.statuses))
         const newerRows = mergeNewer(result.newer.filter(row => !read.wasRemoved(row.id)))
         const key = newerPrefetchKey(newerRows)
         if (seenHead && key && newerRows.every(item => seenHead!.some(row => row.id === item.id))) prefetch?.adopt(key, read.filter(seenHead))
@@ -261,7 +262,7 @@ export function usePaginatedList<T extends { id: string }>(
       if (result?.inaccessible && my === version) { commitFreshPage([]); return true }
       if (result && my === version) {
         if (!knownHead) knownHead = result.statuses.slice(0, pageSize).map(row => row.id)
-        items.value = read.filter(result.statuses)
+        items.value = dedupeMirroredStatuses(read.filter(result.statuses))
         const merged = mergeNewer(result.newer.filter(row => !read.wasRemoved(row.id)))
         const key = newerPrefetchKey(merged)
         const headIds = new Set(result.head.map(row => row.id))
@@ -276,7 +277,7 @@ export function usePaginatedList<T extends { id: string }>(
   }
   function revalidate() { return begin('window') }
   function catchUpHead() { return begin('head') }
-  function applyStreamed(status: { event: 'update' | 'delete' | 'status.update', id: string }) {
+  function applyStreamed(status: StreamedStatusRef & { event: 'update' | 'delete' | 'status.update' }) {
     const id = status.id
     if (!/^\d+$/.test(id)) return
     const visible = (row: { id: string, reblog?: { id?: string } | null }) => row.id === id || row.reblog?.id === id
@@ -306,7 +307,7 @@ export function usePaginatedList<T extends { id: string }>(
       return
     }
     if (status.event !== 'update') return
-    if (representedStatusIDs(items.value).has(id) || newer.value.some(row => row.id === id) || knownHead?.includes(id)) return
+    if (representedStatusIDs(items.value).has(id) || items.value.some(row => sharesStatusIdentity(row, status)) || newer.value.some(row => row.id === id) || knownHead?.includes(id)) return
     streamedNewer = true
     newer.value = [...newer.value.slice(-(pageSize - 1)), { id }].slice(-pageSize)
     streamedNewer = false
@@ -350,7 +351,7 @@ export function usePaginatedList<T extends { id: string }>(
     hasPrevious.value = history.length > 0 || droppedHistory
     newer.value = []; pinned.clear(); paused = false
     ++version
-    items.value = next.slice(0, maxPages * pageSize)
+    items.value = dedupeMirroredStatuses(next.slice(0, maxPages * pageSize))
     hasMore.value = more
     nextCursor = items.value.at(-1)?.id
     loading.value = false

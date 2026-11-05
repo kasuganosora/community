@@ -1,6 +1,7 @@
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { createTimelineReadGuard } from '@/shared/utils/timelineReadGuard'
 import { refreshTimelineHead, representedStatusIDs, revalidateTimeline } from '@/shared/utils/revalidateTimeline'
+import { dedupeMirroredStatuses, sharesStatusIdentity, type StreamedStatusRef } from '@/shared/utils/statusIdentity'
 import { mergeById } from '@/shared/utils/pagination'
 import { createNewerPrefetch, newerPrefetchKey } from '@/shared/utils/newerPrefetch'
 import { ref, computed, watch } from 'vue'
@@ -214,7 +215,7 @@ export const useTimelineStore = defineStore('timeline', () => {
       // Discard stale response — a newer fetch replaced the timeline
       if (myVersion !== requestVersionMap[type]) return
       const before = timeline.statuses.length
-      timeline.statuses = mergeById(timeline.statuses, read.filter(data))
+      timeline.statuses = dedupeMirroredStatuses(mergeById(timeline.statuses, read.filter(data)))
       const grew = timeline.statuses.length > before
       trimWindow(type)
       ++listGeneration[type]
@@ -244,12 +245,14 @@ export const useTimelineStore = defineStore('timeline', () => {
     const add = (list: MastodonStatus[], newer: { id: string }[], type: ManagedTimelineType) => {
       const index = newer.findIndex(item => item.id === status.id)
       if (index >= 0) newer.splice(index, 1)
-      if (!list.some(s => s.id === status.id)) {
-        if (list.length >= TIMELINE_PAGE_SIZE * 8 && pinned[type].has(list.at(-1)!.id)) { newer.unshift({ id: status.id }); return false }
-        list.unshift(status)
-        if (list.length > TIMELINE_PAGE_SIZE * 8) { list.length = TIMELINE_PAGE_SIZE * 8; getTimeline(type).hasMore = true }
-      }
-      return true
+      const present = list.some(row => row.id === status.id)
+      const known = present || list.some(row => sharesStatusIdentity(row, status))
+      if (!known && list.length >= TIMELINE_PAGE_SIZE * 8 && pinned[type].has(list.at(-1)!.id)) { newer.unshift({ id: status.id }); return false }
+      const next = dedupeMirroredStatuses(present ? list : [status, ...list])
+      const added = !present && next.some(row => row.id === status.id)
+      if (next.length !== list.length || next.some((row, i) => row !== list[i])) list.splice(0, list.length, ...next)
+      if (list.length > TIMELINE_PAGE_SIZE * 8) { list.length = TIMELINE_PAGE_SIZE * 8; getTimeline(type).hasMore = true }
+      return added
     }
     const remember = (type: ManagedTimelineType) => {
       localHeads[type] = [status, ...localHeads[type].filter(row => row.id !== status.id)].slice(0, TIMELINE_PAGE_SIZE)
@@ -299,7 +302,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     streamedNewer = true
     timeline.newer = timeline.newer.filter(row => !ids.has(row.id))
     streamedNewer = false
-    timeline.statuses = [...missing, ...page]
+    timeline.statuses = dedupeMirroredStatuses([...missing, ...page])
   }
 
   function setPinnedIds(type: ManagedTimelineType, ids: string[]) {
@@ -348,7 +351,7 @@ export const useTimelineStore = defineStore('timeline', () => {
       if (version !== requestVersionMap[type]) return
       previousCursors[type].pop()
       headCursor[type] = cursor || undefined
-      timeline.statuses = mergeById(read.filter(data), timeline.statuses).slice(0, TIMELINE_PAGE_SIZE * 8)
+      timeline.statuses = dedupeMirroredStatuses(mergeById(read.filter(data), timeline.statuses)).slice(0, TIMELINE_PAGE_SIZE * 8)
       timeline.hasPrevious = previousCursors[type].length > 0 || droppedHistory[type]
       timeline.hasMore = true
     } catch (e) {
@@ -386,7 +389,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     droppedHistory[type] = false
     timeline.hasPrevious = false
     knownHead[type] = data.map(row => row.id)
-    timeline.statuses = mergeById([], data)
+    timeline.statuses = dedupeMirroredStatuses(mergeById([], data))
     const shown = representedStatusIDs(data)
     streamedNewer = true
     timeline.newer = hintsAtStart ? timeline.newer.filter(row => !hintsAtStart.has(row.id) && !shown.has(row.id)) : []
@@ -418,7 +421,7 @@ export const useTimelineStore = defineStore('timeline', () => {
         ? await timelineApi.getHomeTimeline({ limit: TIMELINE_PAGE_SIZE })
         : await timelineApi.getPublicTimeline({ limit: TIMELINE_PAGE_SIZE })
       if (!Array.isArray(rows)) throw new Error('timeline prefetch failed')
-      return rows
+      return dedupeMirroredStatuses(rows)
     })
   }
 
@@ -427,7 +430,8 @@ export const useTimelineStore = defineStore('timeline', () => {
 
   function fetchPage(type: ManagedTimelineType, maxId: string | undefined, limit: number) {
     const cursor = maxId ? { max_id: maxId, limit } : { limit }
-    return type === 'home' ? timelineApi.getHomeTimeline(cursor) : timelineApi.getPublicTimeline(cursor)
+    const rows = type === 'home' ? timelineApi.getHomeTimeline(cursor) : timelineApi.getPublicTimeline(cursor)
+    return rows.then(page => dedupeMirroredStatuses(page))
   }
 
   function mergePill(type: ManagedTimelineType, incoming: { id: string }[], visible: { id: string }[]) {
@@ -456,7 +460,7 @@ export const useTimelineStore = defineStore('timeline', () => {
         if (result?.inaccessible && valid()) { localHeads[type] = []; commitHead(type, []); prefetchedNewer[type].clear(); return true }
         if (result && valid()) {
           if (!knownHead[type]) knownHead[type] = result.statuses.slice(0, TIMELINE_PAGE_SIZE).map(row => row.id)
-          timeline.statuses = read.filter(result.statuses)
+          timeline.statuses = dedupeMirroredStatuses(read.filter(result.statuses))
           restoreLocalHeads(type)
           const newer = mergePill(type, result.newer.filter(row => !read.wasRemoved(row.id)), timeline.statuses)
           const key = newerPrefetchKey(newer)
@@ -477,7 +481,7 @@ export const useTimelineStore = defineStore('timeline', () => {
       if (result?.inaccessible && valid()) { localHeads[type] = []; commitHead(type, []); prefetchedNewer[type].clear(); return true }
       if (result && valid()) {
         if (!knownHead[type]) knownHead[type] = result.statuses.slice(0, TIMELINE_PAGE_SIZE).map(row => row.id)
-        timeline.statuses = read.filter(result.statuses)
+        timeline.statuses = dedupeMirroredStatuses(read.filter(result.statuses))
         restoreLocalHeads(type)
         const newer = mergePill(type, result.newer.filter(row => !read.wasRemoved(row.id)), timeline.statuses)
         const key = newerPrefetchKey(newer)
@@ -506,7 +510,7 @@ export const useTimelineStore = defineStore('timeline', () => {
   }
 
   /** Apply one streamed status id. New posts stay behind the pill; this does not fetch the timeline. */
-  function applyStreamed(type: ManagedTimelineType, status: { event: 'update' | 'delete' | 'status.update', id: string }) {
+  function applyStreamed(type: ManagedTimelineType, status: StreamedStatusRef & { event: 'update' | 'delete' | 'status.update' }) {
     const id = status.id
     if (!/^\d+$/.test(id)) return
     const timeline = getTimeline(type)
@@ -530,7 +534,7 @@ export const useTimelineStore = defineStore('timeline', () => {
       if (timeline.statuses.some(displayed)) refreshEdited(id)
       return
     }
-    if (representedStatusIDs(timeline.statuses).has(id) || timeline.newer.some(row => row.id === id) || knownHead[type]?.includes(id)) return
+    if (representedStatusIDs(timeline.statuses).has(id) || timeline.statuses.some(row => sharesStatusIdentity(row, status)) || timeline.newer.some(row => row.id === id) || knownHead[type]?.includes(id)) return
     streamedNewer = true
     timeline.newer = [...timeline.newer.slice(-(TIMELINE_PAGE_SIZE - 1)), { id }]
     streamedNewer = false

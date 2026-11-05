@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
 	"time"
@@ -194,10 +195,19 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		if err != nil {
 			return nil, err
 		}
+		// A remote mirror of a local status already on this timeline is the
+		// same item. Drop it here; the remote row stays stored.
+		hidden, err := hiddenMirrorIDs(conn, ids, newFilterCondition)
+		if err != nil {
+			return nil, err
+		}
 		filteredCandidates.Add(float64(max(0, len(ids)-len(statuses))))
 		for _, status := range statuses {
 			if len(output) == limit {
 				break
+			}
+			if hidden[status.Id] {
+				continue
 			}
 			if page.accept(status) {
 				output = append(output, status)
@@ -296,6 +306,53 @@ type pageAggregation struct {
 	enabled  bool
 	position int
 	seen     map[uint64]int
+}
+
+// hiddenMirrorIDs reports remote rows in ids that duplicate a local status
+// this same timeline would also return. The remote row is not deleted.
+func hiddenMirrorIDs(conn *gorm.DB, ids []uint64, filter FilterCondition) (map[uint64]bool, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	mirrors, err := models.MirrorLocalIDs(conn, ids, systemsettings.GetBaseURL())
+	if err != nil || len(mirrors) == 0 {
+		return nil, err
+	}
+	localIDs := make([]uint64, 0, len(mirrors))
+	seen := map[uint64]bool{}
+	for _, localID := range mirrors {
+		if localID != 0 && !seen[localID] {
+			seen[localID] = true
+			localIDs = append(localIDs, localID)
+		}
+	}
+	eligible, err := timelineIncludesIDs(conn, filter, localIDs)
+	if err != nil {
+		return nil, err
+	}
+	hidden := make(map[uint64]bool, len(mirrors))
+	for mirrorID, localID := range mirrors {
+		if eligible[localID] {
+			hidden[mirrorID] = true
+		}
+	}
+	return hidden, nil
+}
+
+func timelineIncludesIDs(conn *gorm.DB, filter FilterCondition, ids []uint64) (map[uint64]bool, error) {
+	query, err := filter(conn.Session(&gorm.Session{NewDB: true}).Model(&models.Status{}))
+	if err != nil {
+		return nil, err
+	}
+	var found []uint64
+	if err := query.Where("statuses.id IN ?", ids).Pluck("statuses.id", &found).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[uint64]bool, len(found))
+	for _, id := range found {
+		out[id] = true
+	}
+	return out, nil
 }
 
 func newPageAggregation(enabled bool) *pageAggregation {
