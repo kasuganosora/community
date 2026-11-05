@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { editedStatuses } from '@/domains/post/presentation/composables/useStatusActions'
 import { mergeById } from './pagination'
+import { embeddedLocalID } from './statusIdentity'
 import { TIMELINE_PAGE_SIZE } from './constants'
 
 async function readTimelinePage<T>(
@@ -44,13 +45,13 @@ function embeddedStatusID(value: unknown): string | undefined {
   return typeof id === 'string' && id !== '' ? id : undefined
 }
 
-/** Ids already on screen: the card, and the boost, reply parent, or quote it renders. */
+/** Ids already on screen: the card, a remote mirror of it, and the boost, reply parent, or quote it renders. */
 export function representedStatusIDs<T extends { id: string }>(rows: readonly T[]): Set<string> {
   const seen = new Set<string>()
   for (const row of rows) {
     seen.add(row.id)
-    const extra = row as { reblog?: unknown, reply?: unknown, quote?: unknown }
-    for (const id of [embeddedStatusID(extra.reblog), embeddedStatusID(extra.reply), embeddedStatusID(extra.quote)]) {
+    const extra = row as { uri?: string | null, url?: string | null, reblog?: unknown, reply?: unknown, quote?: unknown }
+    for (const id of [embeddedLocalID(extra.uri), embeddedLocalID(extra.url), embeddedStatusID(extra.reblog), embeddedStatusID(extra.reply), embeddedStatusID(extra.quote)]) {
       if (id) seen.add(id)
     }
   }

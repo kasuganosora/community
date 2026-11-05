@@ -16,7 +16,7 @@ import { sessionEpoch } from '@/shared/api/sessionScope'
  */
 export type FeedSyncReason = 'sync' | 'poll' | 'gap'
 export type FeedStatusEvent = 'update' | 'delete' | 'status.update'
-export interface FeedStreamStatus { event: FeedStatusEvent, id: string }
+export interface FeedStreamStatus { event: FeedStatusEvent, id: string, uri?: string, url?: string, acct?: string, reblogId?: string }
 export interface FeedStreamOptions {
   /** false: no periodic fallback; revalidate only on connect/reconnect, hints, and window focus. */
   poll?: boolean
@@ -81,7 +81,7 @@ function isNotificationDocument(payload: unknown): boolean {
   return !!status && typeof status === 'object'
 }
 
-/** The only field a timeline frame may carry. Anything else is ignored. */
+/** Status id from a timeline frame, plus identity fields used to collapse a remote mirror. */
 export function feedStatusID(event: string, raw: string): FeedStreamStatus | null {
   if (!STATUS_EVENTS.has(event as FeedStatusEvent)) return null
   try {
@@ -94,7 +94,18 @@ export function feedStatusID(event: string, raw: string): FeedStreamStatus | nul
         ? (payload as { id: unknown }).id
         : ''
     const id = typeof value === 'number' || typeof value === 'string' ? String(value) : ''
-    return /^\d+$/.test(id) ? { event: event as FeedStatusEvent, id } : null
+    if (!/^\d+$/.test(id) || !payload || typeof payload !== 'object') return /^\d+$/.test(id) ? { event: event as FeedStatusEvent, id } : null
+    const record = payload as { uri?: unknown, url?: unknown, account?: { acct?: unknown }, reblog?: { id?: unknown } }
+    const text = (item: unknown) => typeof item === 'string' && item !== '' ? item : undefined
+    const reblogId = typeof record.reblog?.id === 'number' || typeof record.reblog?.id === 'string' ? String(record.reblog.id) : ''
+    return {
+      event: event as FeedStatusEvent,
+      id,
+      ...(text(record.uri) ? { uri: text(record.uri) } : {}),
+      ...(text(record.url) ? { url: text(record.url) } : {}),
+      ...(text(record.account?.acct) ? { acct: text(record.account?.acct) } : {}),
+      ...(reblogId && /^\d+$/.test(reblogId) ? { reblogId } : {}),
+    }
   } catch { return null }
 }
 

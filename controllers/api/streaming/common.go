@@ -18,6 +18,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
@@ -101,9 +102,15 @@ func serializerStatusEvent(account *models.Account, payload string, channel ...s
 	statuses := models.Statuses{}
 	contextName := ""
 	if len(channel) > 0 {
-		statuses, contextName, err = currentTimelineStatus(account, event.Payload.Id, channel[0])
-		if err != nil {
-			return "", "", err
+		// A remote mirror of a local status already on this timeline is the
+		// same item. Emit the local id so clients do not insert a second card.
+		if rows, name, ok := preferLocalMirror(account, event.Payload.Id, channel[0]); ok {
+			statuses, contextName = rows, name
+		} else {
+			statuses, contextName, err = currentTimelineStatus(account, event.Payload.Id, channel[0])
+			if err != nil {
+				return "", "", err
+			}
 		}
 	} else {
 		// Non-timeline callers still reload current SQL and authorize embedded objects.
@@ -138,6 +145,24 @@ func serializerStatusEvent(account *models.Account, payload string, channel ...s
 	payloadStr = string(_payloadStr)
 
 	return eventType, payloadStr, err
+}
+
+// preferLocalMirror reports the local status when id is a remote mirror of a
+// local row that this timeline already serves. The remote row is not removed.
+func preferLocalMirror(account *models.Account, id uint64, channel string) (models.Statuses, string, bool) {
+	mirrors, err := models.MirrorLocalIDs(db.GetDB(), []uint64{id}, systemsettings.GetBaseURL())
+	if err != nil {
+		return nil, "", false
+	}
+	localID := mirrors[id]
+	if localID == 0 || localID == id {
+		return nil, "", false
+	}
+	rows, name, err := currentTimelineStatus(account, localID, channel)
+	if err != nil || len(rows) != 1 || rows[0].Id != localID {
+		return nil, "", false
+	}
+	return rows, name, true
 }
 
 // currentStreamingAccount invalidates long-lived streams after account removal

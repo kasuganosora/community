@@ -228,6 +228,15 @@ describe('feed invalidation stream', () => {
     expect(seen).toEqual([{ event: 'update', id: '21' }])
   })
 
+  it('keeps the object uri on a timeline status frame', async () => {
+    const seen: FeedStreamStatus[] = []
+    setup(vi.fn().mockResolvedValue(true), 'stream=user', status => { seen.push(status) })
+    await flushPromises(); await vi.advanceTimersByTimeAsync(250)
+    push.enqueue(encode('event: update\ndata: {"id":"23","uri":"https://social.example/users/kanna/statuses/15","url":"https://social.example/@kanna/15","account":{"acct":"kanna@social.example"},"reblog":{"id":"15"}}\n\n'))
+    await flushPromises()
+    expect(seen).toEqual([{ event: 'update', id: '23', uri: 'https://social.example/users/kanna/statuses/15', url: 'https://social.example/@kanna/15', acct: 'kanna@social.example', reblogId: '15' }])
+  })
+
   it('still revalidates a notification stream when a later hint arrives', async () => {
     const { callback } = setup(vi.fn().mockResolvedValue(true), 'stream=notification')
     await flushPromises(); await vi.advanceTimersByTimeAsync(250); callback.mockClear()
