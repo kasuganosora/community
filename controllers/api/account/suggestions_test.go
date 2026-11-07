@@ -57,6 +57,12 @@ func suggestionFixture(t *testing.T) (*gorm.DB, []*models.Account) {
 	follow(1, 4, models.FollowStatusFollowed)
 	follow(1, 5, models.FollowStatusFollowed)
 	follow(5, 2, models.FollowStatusRequested)
+	// Account 2 is the only fixture profile that follow suggestions may
+	// return. A public post inside the activity window keeps that true.
+	posted := time.Now().UTC()
+	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Omit("Content").Create(&models.Status{
+		Id: 8000, AccountId: 2, Visibility: models.StatusVisibilityPublic, CreatedAt: &posted, UpdatedAt: &posted,
+	}).Error)
 	return conn, accounts
 }
 func TestSuggestionsPreferenceAndAcceptedPublicGraph(t *testing.T) {
@@ -144,6 +150,7 @@ func TestSuggestionsOnlyPublicInteractionsAndUndo(t *testing.T) {
 		require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(&models.StatusContent{StatusId: spec.id, Content: "post"}).Error)
 		require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(&models.FavoriteStatus{AccountId: 5, StatusId: spec.id, CreatedAt: &at}).Error)
 	}
+	activityPost(t, conn, 6, at, models.StatusVisibilityPublic, nil)
 	rows, err := discovery.SuggestAccounts(t.Context(), conn, a[0], 20)
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
@@ -171,6 +178,7 @@ func suggestionUser(t *testing.T, conn *gorm.DB, name, avatar string, lastStatus
 	require.NoError(t, conn.Create(&models.Account{
 		Id: maxID + 1, UserId: u.Id, Username: name, Discoverable: true, Avatar: avatar, LastStatusAt: &at,
 	}).Error)
+	activityPost(t, conn, maxID+1, at, models.StatusVisibilityPublic, nil)
 }
 
 func TestSuggestionsSkipDefaultAvatarsAndFillLimit(t *testing.T) {

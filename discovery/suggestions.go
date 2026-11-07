@@ -23,8 +23,11 @@ type AccountSuggestion struct {
 }
 
 // SuggestOptions carries request context used only for ranking.
+// Now is the activity clock. The zero value uses time.Now so tests can pin
+// the 14-day cutoff without sleeping.
 type SuggestOptions struct {
 	AcceptLanguage string
+	Now            time.Time
 }
 
 // SuggestAccounts uses at most 400 candidates and 2,000 public social edges.
@@ -35,6 +38,12 @@ type SuggestOptions struct {
 // Same-language candidates rank first (exact, then the zh/ja CJK group),
 // then everything else; primary languages come from the account_languages
 // cache with a bounded inline refresh.
+//
+// A candidate must also have a locally stored public post published in the
+// closed 14-day window. That predicate runs before the candidate cap and
+// again on refill, so an inactive account cannot occupy a ranked slot.
+// There is no stored inactivity flag and no remote fetch: the next call
+// reads current rows, including a post that arrived later.
 func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account, limit int, opts ...SuggestOptions) ([]AccountSuggestion, error) {
 	var opt SuggestOptions
 	if len(opts) > 0 {
@@ -63,6 +72,7 @@ func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account,
 		return result, nil
 	}
 	limit = max(1, min(limit, 40))
+	asOf := suggestionAsOf(opt)
 	scores := map[uint64]float64{}
 	sources := map[uint64]string{}
 	if pref.Preference == models.RecommendationPersonalized {
@@ -113,7 +123,7 @@ func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account,
 	// Placeholder avatars are left out of this pool; the assembly step
 	// checks again so a full page can be filled from later candidates.
 	var recent []*models.Account
-	if err = customAvatarQuery(conn).Order("last_status_at IS NULL, last_status_at DESC, id DESC").Limit(suggestionCandidateLimit).Find(&recent).Error; err != nil {
+	if err = suggestionCandidateQuery(conn, asOf).Order("last_status_at IS NULL, last_status_at DESC, id DESC").Limit(suggestionCandidateLimit).Find(&recent).Error; err != nil {
 		return nil, err
 	}
 	for _, a := range recent {
@@ -126,13 +136,24 @@ func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account,
 	for id := range scores {
 		ids = append(ids, id)
 	}
+	active, err := recentlyActiveAuthorIDs(conn, ids, asOf)
+	if err != nil {
+		return nil, err
+	}
+	eligible := make([]uint64, 0, len(active))
+	for _, id := range ids {
+		if active[id] {
+			eligible = append(eligible, id)
+		}
+	}
+	ids = eligible
 	sort.Slice(ids, func(i, j int) bool {
 		if scores[ids[i]] != scores[ids[j]] {
 			return scores[ids[i]] > scores[ids[j]]
 		}
 		return ids[i] > ids[j]
 	})
-	ids, err = retainCustomAvatars(conn, ids, scores, sources, len(recent) >= suggestionCandidateLimit)
+	ids, err = retainCustomAvatars(conn, ids, scores, sources, len(recent) >= suggestionCandidateLimit, asOf)
 	if err != nil {
 		return nil, err
 	}
@@ -157,12 +178,14 @@ func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account,
 	}
 	// A bounded set of recent public favourites supplements follows. Private
 	// posts and bookmarks never enter this weak, shared popularity signal.
-	asOf := time.Now().UTC()
+	// This popularity clock stays on wall time; the suggestion activity
+	// window uses asOf above.
+	popularityAsOf := time.Now().UTC()
 	var publicRoots models.Statuses
-	if err = models.RecommendationStatusScope(conn, asOf, 30*24*time.Hour).Where("account_id IN ?", ids).Order("created_at DESC, id DESC").Limit(400).Find(&publicRoots).Error; err != nil {
+	if err = models.RecommendationStatusScope(conn, popularityAsOf, 30*24*time.Hour).Where("account_id IN ?", ids).Order("created_at DESC, id DESC").Limit(400).Find(&publicRoots).Error; err != nil {
 		return nil, err
 	}
-	publicRoots, err = models.FilterRecommendableStatuses(conn, nil, publicRoots, models.RecommendationEligibilityOptions{Context: "public", AsOf: asOf, Window: 30 * 24 * time.Hour, RootWindow: true})
+	publicRoots, err = models.FilterRecommendableStatuses(conn, nil, publicRoots, models.RecommendationEligibilityOptions{Context: "public", AsOf: popularityAsOf, Window: 30 * 24 * time.Hour, RootWindow: true})
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +200,7 @@ func SuggestAccounts(ctx context.Context, conn *gorm.DB, viewer *models.Account,
 			AccountID uint64
 			StatusID  uint64
 		}
-		if err = conn.Table("favorite_statuses f").Select("f.account_id,f.status_id").Joins("JOIN accounts a ON a.id=f.account_id").Joins("JOIN users u ON u.id=a.user_id").Where("f.status_id IN ? AND f.created_at >= ?", publicIDs, asOf.Add(-30*24*time.Hour)).Where("a.domain IS NULL AND a.deleted_at IS NULL AND a.is_ban = ? AND u.deleted_at IS NULL AND u.is_ban = ? AND u.status = ?", false, false, models.UserStatusNormal).Where("a.feed_last_seen_at >= ?", asOf.Add(-30*24*time.Hour)).Order("f.id DESC").Limit(2000).Scan(&likes).Error; err != nil {
+		if err = conn.Table("favorite_statuses f").Select("f.account_id,f.status_id").Joins("JOIN accounts a ON a.id=f.account_id").Joins("JOIN users u ON u.id=a.user_id").Where("f.status_id IN ? AND f.created_at >= ?", publicIDs, popularityAsOf.Add(-30*24*time.Hour)).Where("a.domain IS NULL AND a.deleted_at IS NULL AND a.is_ban = ? AND u.deleted_at IS NULL AND u.is_ban = ? AND u.status = ?", false, false, models.UserStatusNormal).Where("a.feed_last_seen_at >= ?", popularityAsOf.Add(-30*24*time.Hour)).Order("f.id DESC").Limit(2000).Scan(&likes).Error; err != nil {
 			return nil, err
 		}
 		for _, like := range likes {
@@ -289,7 +312,7 @@ func customAvatarQuery(conn *gorm.DB) *gorm.DB {
 // keeps reading older custom-avatar accounts until the cap is full or the
 // pool is exhausted. Callers still stop at the requested page size only
 // after this set is ranked.
-func retainCustomAvatars(conn *gorm.DB, ids []uint64, scores map[uint64]float64, sources map[uint64]string, coldStartFull bool) ([]uint64, error) {
+func retainCustomAvatars(conn *gorm.DB, ids []uint64, scores map[uint64]float64, sources map[uint64]string, coldStartFull bool, asOf time.Time) ([]uint64, error) {
 	base := systemsettings.GetBaseURL()
 	kept := make([]uint64, 0, len(ids))
 	if len(ids) > 0 {
@@ -328,7 +351,7 @@ func retainCustomAvatars(conn *gorm.DB, ids []uint64, scores map[uint64]float64,
 			known = append(known, id)
 		}
 		var more []models.Account
-		q := customAvatarQuery(conn).Select("id", "avatar")
+		q := suggestionCandidateQuery(conn, asOf).Select("id", "avatar")
 		if len(known) > 0 {
 			q = q.Where("id NOT IN ?", known)
 		}

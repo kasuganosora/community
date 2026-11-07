@@ -84,6 +84,7 @@ var ScripsType = []MigrationScript{
 	MediaDetachedAtScript{},
 	ReplyParentBackfillScript{},
 	MediaProcessingScript{},
+	SuggestionActivityIndexScript{},
 }
 
 type MigrationScript interface {
