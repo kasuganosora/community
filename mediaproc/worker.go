@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -79,31 +80,58 @@ type frozenConfig struct {
 }
 
 // Enqueue freezes the current settings onto a task. The attachment row must
-// already exist in the queued state. Video tasks are counted against the queue.
+// already exist in the queued state. Video admission counts live tasks and
+// inserts the new one in one transaction, after locking media_queue_gates.
+// That row is present even when no task exists, so the lock is not a lock on
+// task rows. The transaction ends before any encode starts.
 func Enqueue(ctx context.Context, conn *gorm.DB, mediaID, accountID uint64, kind, detected, stagingPath, outputKey string, inputBytes int64) error {
-	if kind == "video" {
-		var userN, globalN int64
-		live := []string{models.ProcessQueued, models.ProcessProcessing, models.ProcessSaving}
-		if err := conn.WithContext(ctx).Model(&models.MediaProcessTask{}).Where("kind = ? AND state IN ?", "video", live).Count(&globalN).Error; err != nil {
-			return err
-		}
-		if globalN >= maxVideoGlobal {
-			return errQueue
-		}
-		if err := conn.WithContext(ctx).Model(&models.MediaProcessTask{}).Where("kind = ? AND account_id = ? AND state IN ?", "video", accountID, live).Count(&userN).Error; err != nil {
-			return err
-		}
-		if userN >= maxVideoPerUser {
-			return errQueue
-		}
-	}
 	snap := frozenConfig{MediaProcessing: systemsettings.LoadMediaProcessing(), Limits: DefaultLimits(systemsettings.MediaImageSizeLimit(), systemsettings.MediaVideoSizeLimit())}
 	raw, err := json.Marshal(snap)
 	if err != nil {
 		return err
 	}
 	task := models.MediaProcessTask{MediaID: mediaID, AccountID: accountID, Kind: kind, DetectedMIME: detected, State: models.ProcessQueued, StagingPath: stagingPath, OutputKey: outputKey, ConfigJSON: string(raw), InputBytes: inputBytes}
-	return conn.WithContext(ctx).Create(&task).Error
+	if kind != "video" {
+		return conn.WithContext(ctx).Create(&task).Error
+	}
+	err = conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockVideoAdmission(tx); err != nil {
+			return err
+		}
+		var globalN, userN int64
+		live := []string{models.ProcessQueued, models.ProcessProcessing, models.ProcessSaving}
+		if err := tx.Model(&models.MediaProcessTask{}).Where("kind = ? AND state IN ?", "video", live).Count(&globalN).Error; err != nil {
+			return err
+		}
+		if globalN >= maxVideoGlobal {
+			return errQueue
+		}
+		if err := tx.Model(&models.MediaProcessTask{}).Where("kind = ? AND account_id = ? AND state IN ?", "video", accountID, live).Count(&userN).Error; err != nil {
+			return err
+		}
+		if userN >= maxVideoPerUser {
+			return errQueue
+		}
+		return tx.Create(&task).Error
+	})
+	return err
+}
+
+// lockVideoAdmission takes the admission lock before the count. PostgreSQL
+// locks the gate row. SQLite's update takes the reserved lock, which also
+// covers an empty task table. The lock lasts only for this transaction.
+func lockVideoAdmission(tx *gorm.DB) error {
+	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.MediaQueueGate{Name: "video"}).Error; err != nil {
+		return err
+	}
+	res := tx.Model(&models.MediaQueueGate{}).Where("name = ?", "video").Update("lock_serial", gorm.Expr("lock_serial + 1"))
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
+		return fmt.Errorf("video admission lock")
+	}
+	return nil
 }
 
 var errQueue = errString("upload queue is full")
@@ -117,6 +145,19 @@ func (e errString) Error() string { return string(e) }
 // key and waits until this process's previous encode for that attachment has
 // stopped, so the old owner cannot publish or delete the new object.
 func Claim(ctx context.Context, conn *gorm.DB, now time.Time) (*models.MediaProcessTask, bool, error) {
+	var task *models.MediaProcessTask
+	var ok bool
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		task, ok, err = claimOnce(ctx, conn, now)
+		if err == nil || !strings.Contains(err.Error(), "SQLITE_BUSY") {
+			return task, ok, err
+		}
+	}
+	return task, ok, err
+}
+
+func claimOnce(ctx context.Context, conn *gorm.DB, now time.Time) (*models.MediaProcessTask, bool, error) {
 	var peek models.MediaProcessTask
 	err := conn.WithContext(ctx).Session(&gorm.Session{Logger: logger.Discard}).Where(
 		"state = ? OR (state IN ? AND (claim_expires_at IS NULL OR claim_expires_at <= ?))",

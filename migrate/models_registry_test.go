@@ -86,6 +86,7 @@ var appModels = []any{
 	&models.MatrixUser{},
 	&models.MediaAttachment{},
 	&models.MediaProcessTask{},
+	&models.MediaQueueGate{},
 	&models.MisskeyAuthSession{},
 	&models.MuteAccount{},
 	&models.MuteStatus{},

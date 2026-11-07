@@ -40,12 +40,15 @@ afterEach(() => {
 
 describe('PostComposer refresh keeps an accepted task', () => {
   it('unmounts without deleting and resumes the same task without posting', async () => {
+    let resumed = false
     post.mockImplementation((url: string) => {
       if (url === '/api/v2/media') return Promise.resolve({ data: { id: 'task-1', type: 'unknown', url: '' } })
       return Promise.resolve({ data: { id: 'should-not-post' } })
     })
     get.mockImplementation((url: string) => {
-      if (String(url).includes('/processing')) return Promise.resolve({ data: { state: 'processing', progress: 15 } })
+      if (String(url).includes('/processing')) {
+        return Promise.resolve({ data: resumed ? { state: 'ready', progress: 100 } : { state: 'processing', progress: 15 } })
+      }
       return Promise.resolve({ data: { id: 'task-1', type: 'video', url: '/clip.webm' } })
     })
     const { pinia, wrapper } = mountAs('user-a')
@@ -60,11 +63,15 @@ describe('PostComposer refresh keeps an accepted task', () => {
       expect.objectContaining({ id: 'task-1', owner: 'user-a', name: 'clip.mp4' }),
     ])
 
+    resumed = true
     const again = shallowMount(PostComposer, { global: { plugins: [pinia], renderStubDefaultSlot: true } })
     await flushPromises()
     expect(del).not.toHaveBeenCalled()
     expect(get.mock.calls.length).toBeGreaterThan(polls)
-    expect(get.mock.calls.some(call => String(call[0]).includes('/api/v1/media/task-1/processing'))).toBe(true)
+    expect(get.mock.calls.some(call => String(call[0]) === '/api/v1/media/task-1/processing')).toBe(true)
+    expect(get.mock.calls.some(call => String(call[0]) === '/api/v1/media/task-1')).toBe(true)
+    expect(again.text()).toContain('已上传')
+    expect(again.text()).toContain('clip.mp4')
     expect(post.mock.calls.map(call => call[0])).not.toContain('/api/v1/statuses')
     expect(again.text()).not.toContain('should-not-post')
     again.unmount()

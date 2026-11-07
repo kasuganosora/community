@@ -40,7 +40,7 @@ func closedTestDB(t *testing.T) *gorm.DB {
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
 	require.NoError(t, err)
-	require.NoError(t, gdb.AutoMigrate(&models.MediaAttachment{}, &models.MediaProcessTask{}))
+	require.NoError(t, gdb.AutoMigrate(&models.MediaAttachment{}, &models.MediaProcessTask{}, &models.MediaQueueGate{}))
 
 	// Close the underlying connection so queries fail.
 	sqlDB, err := gdb.DB()
@@ -502,7 +502,7 @@ func TestProcessUploadAsync_DBUpdateError(t *testing.T) {
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
 	require.NoError(t, err)
-	require.NoError(t, workingGdb.AutoMigrate(&models.MediaAttachment{}, &models.MediaProcessTask{}))
+	require.NoError(t, workingGdb.AutoMigrate(&models.MediaAttachment{}, &models.MediaProcessTask{}, &models.MediaQueueGate{}))
 
 	media := &models.MediaAttachment{
 		AccountId: 1, FileName: "processing", FilePath: "",

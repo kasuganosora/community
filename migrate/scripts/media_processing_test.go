@@ -27,6 +27,10 @@ func TestMediaProcessingScriptAddsTaskTable(t *testing.T) {
 	require.NoError(t, MediaProcessingScript{}.Up(conn))
 	require.True(t, conn.Migrator().HasColumn(&models.MediaAttachment{}, "process_state"))
 	require.True(t, conn.Migrator().HasTable(&models.MediaProcessTask{}))
+	require.True(t, conn.Migrator().HasTable(&models.MediaQueueGate{}))
+	var gates int64
+	require.NoError(t, conn.Model(&models.MediaQueueGate{}).Where("name = ?", "video").Count(&gates).Error)
+	require.EqualValues(t, 1, gates)
 	var state string
 	require.NoError(t, conn.Raw(`SELECT process_state FROM media_attachments WHERE id = 1`).Scan(&state).Error)
 	require.Equal(t, "ready", state)

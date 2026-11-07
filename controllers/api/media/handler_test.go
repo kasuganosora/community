@@ -49,7 +49,7 @@ func setupMediaTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 
-	require.NoError(t, gdb.AutoMigrate(&models.MediaAttachment{}, &models.MediaProcessTask{}))
+	require.NoError(t, gdb.AutoMigrate(&models.MediaAttachment{}, &models.MediaProcessTask{}, &models.MediaQueueGate{}))
 
 	prev := database.GetDB()
 	database.SetTestDB(gdb)

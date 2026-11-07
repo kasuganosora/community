@@ -26,3 +26,12 @@ type MediaProcessTask struct {
 }
 
 func (MediaProcessTask) TableName() string { return "media_process_tasks" }
+
+// MediaQueueGate is a single row locked during video admission. It exists
+// even when the task table is empty, so the lock is not a lock on task rows.
+type MediaQueueGate struct {
+	Name       string `gorm:"primaryKey;size:32"`
+	LockSerial int64  `gorm:"not null;default:0"`
+}
+
+func (MediaQueueGate) TableName() string { return "media_queue_gates" }
