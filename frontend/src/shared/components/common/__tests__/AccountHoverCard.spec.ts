@@ -11,7 +11,10 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { invalidateSessionData } from '@/shared/api/sessionScope'
 import type { MastodonAccount, MastodonRelationship } from '@/shared/types/mastodon'
 
-vi.mock('@/domains/user/infrastructure/userApi', () => ({ userApi: { lookupCachedAccount: vi.fn(), getRelationships: vi.fn(), follow: vi.fn(), unfollow: vi.fn() } }))
+vi.mock('@/domains/user/infrastructure/userApi', async () => {
+  const actual = await vi.importActual<typeof import('@/domains/user/infrastructure/userApi')>('@/domains/user/infrastructure/userApi')
+  return { ...actual, userApi: { lookupCachedAccount: vi.fn(), getRelationships: vi.fn(), follow: vi.fn(), unfollow: vi.fn() } }
+})
 const account = { id: 'remote', acct: 'alice@example.test', username: 'alice', display_name: 'Alice', note: '<p>Hello</p>', avatar: '', header: '', emojis: [], statuses_count: 12, following_count: 3, followers_count: 5 } as unknown as MastodonAccount
 const rel = { id: account.id, following: false, followed_by: true, requested: false } as MastodonRelationship
 let wrapper: VueWrapper | undefined

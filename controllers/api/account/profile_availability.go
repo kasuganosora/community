@@ -53,18 +53,49 @@ func finishProfileLookup(c *gin.Context, account *models.Account, queryDomain st
 		return
 	}
 
+	acc := serializer.ToAccount(account)
+	if err := applyPublicAvailability(account, acc); err != nil {
+		_ = c.Error(errors.Wrap(err, "profile availability"))
+		return
+	}
+	c.JSON(200, acc)
+}
+
+// applyPublicAvailability sets the same public reason lookup uses, without
+// changing HTTP status. A disclosable acct-domain node block outranks an
+// account suspension. An obfuscated block adds nothing. Private comments are
+// never copied. The suspension flags are read from the current row so a
+// cached account document cannot keep a stale ban or hide a new one.
+func applyPublicAvailability(account *models.Account, acc *serializer.Account) error {
+	if account == nil || acc == nil {
+		return nil
+	}
+	refreshSuspensionSnapshot(account)
+	conn := db.GetDB()
+	domain := ""
+	if account.Domain != nil {
+		domain = strings.TrimSpace(*account.Domain)
+	}
+	blocked, disclosable, err := models.NodeSuspension(conn, domain)
+	if err != nil {
+		return err
+	}
+	if blocked {
+		if disclosable {
+			acc.Suspended = false
+			acc.Availability = &serializer.AccountAvailability{Reason: models.ProfileAvailabilityDomainSuspended}
+		}
+		return nil
+	}
 	suspended, err := models.AccountSuspended(conn, account)
 	if err != nil {
-		_ = c.Error(errors.Wrap(err, "profile account suspension"))
-		return
+		return err
 	}
 	origin := models.AccountOriginHost(account)
 	originBlocked, originDisclosable, err := models.NodeSuspension(conn, origin)
 	if err != nil {
-		_ = c.Error(errors.Wrap(err, "profile origin suspension"))
-		return
+		return err
 	}
-	acc := serializer.ToAccount(account)
 	switch {
 	case suspended:
 		acc.Suspended = true
@@ -72,7 +103,23 @@ func finishProfileLookup(c *gin.Context, account *models.Account, queryDomain st
 	case originBlocked && originDisclosable && !strings.EqualFold(origin, domain):
 		acc.Availability = &serializer.AccountAvailability{Reason: models.ProfileAvailabilityDomainSuspended}
 	}
-	c.JSON(200, acc)
+	return nil
+}
+
+func refreshSuspensionSnapshot(account *models.Account) {
+	conn := db.GetDB()
+	if account == nil || account.Id == 0 || conn == nil {
+		return
+	}
+	var current models.Account
+	if conn.Select("is_ban", "user_id", "domain", "origin_id").First(&current, account.Id).Error != nil {
+		return
+	}
+	account.IsBan = current.IsBan
+	account.UserId = current.UserId
+	account.User = nil
+	account.Domain = current.Domain
+	account.OriginId = current.OriginId
 }
 
 func writeWithheldProfile(c *gin.Context, reason string) {

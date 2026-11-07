@@ -211,11 +211,15 @@ func publicProfiles(ctx context.Context, conn *gorm.DB) ([]string, error) {
 		Username string
 	}
 	var rows []row
-	err := conn.WithContext(ctx).Model(&models.Account{}).
+	query := conn.WithContext(ctx).Model(&models.Account{}).
 		Select("accounts.username").
 		Joins("JOIN statuses ON statuses.account_id = accounts.id AND statuses.deleted_at IS NULL AND statuses.scheduled_at IS NULL AND statuses.visibility = ? AND (statuses.reblog_id IS NULL OR statuses.reblog_id = 0) AND statuses.domain IS NULL", models.StatusVisibilityPublic).
-		Where("accounts.domain IS NULL AND accounts.is_ban = ? AND accounts.no_index = ? AND accounts.require_signin_to_view = ? AND accounts.deletion_requested_at IS NULL", false, false, false).
-		Group("accounts.id, accounts.username").
+		Where("accounts.domain IS NULL AND accounts.is_ban = ? AND accounts.no_index = ? AND accounts.require_signin_to_view = ? AND accounts.deletion_requested_at IS NULL", false, false, false)
+	if conn.Migrator().HasTable(&models.User{}) {
+		query = query.Joins("LEFT JOIN users ON users.id = accounts.user_id").
+			Where("users.id IS NULL OR users.is_ban = ?", false)
+	}
+	err := query.Group("accounts.id, accounts.username").
 		Order("COUNT(statuses.id) DESC, accounts.id ASC").
 		Limit(profileLimit).
 		Scan(&rows).Error

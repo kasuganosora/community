@@ -578,7 +578,13 @@ func findAccount(conn *gorm.DB, raw string) (*models.Account, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	if account.IsBan || account.DeletionRequestedAt != nil {
+	// A local login ban (users.is_ban) is the same public unavailability as
+	// accounts.is_ban: the HTML document is a 404 with no biography.
+	suspended, suspendErr := models.AccountSuspended(conn, &account)
+	if suspendErr != nil {
+		return nil, false, suspendErr
+	}
+	if suspended || account.DeletionRequestedAt != nil {
 		return nil, true, nil
 	}
 	return &account, false, nil

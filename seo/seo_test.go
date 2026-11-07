@@ -370,6 +370,44 @@ func TestProfileDocumentHidesSuspendedNodesWithoutPrivateRemarks(t *testing.T) {
 	require.Contains(t, quietDoc.Meta.Description, "quiet-profile-note")
 }
 
+func TestLocalLoginBanIsUnavailableLikeAccountBan(t *testing.T) {
+	defer useExampleSite(t)()
+	conn := openSEO(t)
+	require.NoError(t, conn.AutoMigrate(&models.User{}))
+	user := &models.User{UserName: "syntheticlocal", EmailHash: "syntheticlocal-hash", Properties: map[string]any{}, IsBan: true}
+	require.NoError(t, conn.Create(user).Error)
+	makeAccount(t, conn, 8, "syntheticlocal", func(a *models.Account) {
+		a.UserId = user.Id
+		a.IsBan = false
+		a.Note = "login-ban-biography"
+		a.DisplayName = "Synthetic Local"
+	})
+	makeAccount(t, conn, 9, "healthy", func(a *models.Account) {
+		a.Note = "healthy-biography"
+		a.DisplayName = "Healthy"
+	})
+
+	banned := Resolve(conn, "/@syntheticlocal")
+	html := string(Inject([]byte(shell), banned))
+	require.Equal(t, 404, banned.Code)
+	require.True(t, banned.Meta.NoIndex)
+	require.NotContains(t, html, "login-ban-biography")
+	require.NotContains(t, banned.Meta.Description, "login-ban-biography")
+
+	healthy := Resolve(conn, "/@healthy")
+	require.Equal(t, 200, healthy.Code)
+	require.False(t, healthy.Meta.NoIndex)
+	require.Contains(t, healthy.Meta.Description, "healthy-biography")
+
+	makeStatus(t, conn, 80, 8, models.StatusVisibilityPublic, "login-ban-post")
+	makeStatus(t, conn, 81, 9, models.StatusVisibilityPublic, "healthy-post")
+	resetSitemap(t)
+	raw, err := Body(context.Background())
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "/@syntheticlocal")
+	require.Contains(t, string(raw), "/@healthy")
+}
+
 func TestBoostMetadataDoesNotExposeUnavailableOriginalAuthor(t *testing.T) {
 	defer useExampleSite(t)()
 	for _, state := range []string{"suspended", "deleting", "deleted"} {

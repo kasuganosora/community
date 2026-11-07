@@ -97,6 +97,10 @@ func GetAccount(c *gin.Context) {
 	_ = cache.GetCache().Set(c.Request.Context(), cacheKey, account, cache.DefaultExpiration)
 
 	acc := serializer.ToAccount(account)
+	if err := applyPublicAvailability(account, acc); err != nil {
+		_ = c.Error(errors.Wrap(err, "GetAccount availability"))
+		return
+	}
 
 	c.JSON(200, acc)
 }
