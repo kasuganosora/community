@@ -112,6 +112,26 @@ describe('PostComposer media upload', () => {
 })
 
 
+describe('PostComposer video processing phases', () => {
+  it('shows queued and processing percent before the attachment is ready', async () => {
+    let finish!: (value: MastodonAttachment) => void
+    vi.spyOn(postApi, 'uploadMedia').mockImplementation((_file, _description, options) => new Promise(resolve => {
+      options?.onPhase?.('processing', 40)
+      finish = resolve
+    }))
+    const wrapper = shallowMount(PostComposer, { global: { plugins: [createPinia()], renderStubDefaultSlot: true } })
+    const input = wrapper.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [new File(['video'], 'clip.mp4', { type: 'video/mp4' })] })
+    await input.trigger('change')
+    await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
+    await flushPromises()
+    expect(wrapper.get('.composer__media-progress').text()).toContain('处理中 40%')
+    finish({ id: 'video-1', type: 'video', url: '/clip.webm' } as MastodonAttachment)
+    await flushPromises()
+    wrapper.unmount()
+  })
+})
+
 describe('PostComposer delete and repost', () => {
   const original = { id: 'old', visibility: 'private', content: '<p>Original</p>', spoiler_text: '', media_attachments: [] } as unknown as MastodonStatus
 

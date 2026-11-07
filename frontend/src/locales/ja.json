@@ -210,6 +210,10 @@
       "uploadProcessing": "処理中…",
       "uploadPercent": "アップロード中 {0}%",
       "uploadQueued": "待機中",
+      "serverQueued": "サーバーで待機中",
+      "processingPercent": "処理中 {0}%",
+      "uploadSaving": "保存中…",
+      "uploadCancelled": "キャンセルしました",
       "uploadFile": "{0} のアップロード進捗",
       "uploadSummary": "アップロード済み {0}/{1}",
       "uploadTotal": "添付ファイル全体のアップロード進捗",
@@ -3967,6 +3971,14 @@
     "appealLoadFailed": "この凍結を読み込めませんでした。しばらくしてからもう一度お試しください",
     "appealResolveFailed": "対応結果を保存できませんでした。しばらくしてからもう一度お試しください",
     "appealInvalidStatus": "投稿 ID が無効です",
-    "appealNoCase": "異議を申し立てられる自動凍結がありません"
+    "appealNoCase": "異議を申し立てられる自動凍結がありません",
+    "mediaCorrupt": "ファイルが無効か破損しているため、添付されませんでした。",
+    "mediaDuration": "動画がサーバーの許可する長さを超えています。",
+    "mediaPixels": "画像または動画の画素数が多すぎます。",
+    "mediaQueue": "アップロードの待ち行列がいっぱいです。しばらくしてから再試行してください。",
+    "mediaDisk": "一時ストレージがいっぱいです。しばらくしてから再試行してください。",
+    "mediaFailed": "処理に失敗したため、元のファイルは公開されませんでした。",
+    "mediaCancelled": "処理はキャンセルされました。",
+    "mediaNotReady": "添付ファイルはまだ準備できていません。"
   }
 }

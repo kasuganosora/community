@@ -46,6 +46,9 @@ func loadAttachableMediaDB(conn *gorm.DB, mediaIds []string, accountId uint64, s
 		if m.StatusId != nil && *m.StatusId != 0 && *m.StatusId != statusId {
 			return nil, false // already attached to another status
 		}
+		if !m.ProcessPublishable() {
+			return nil, false
+		}
 
 		byId[m.Id] = m
 	}

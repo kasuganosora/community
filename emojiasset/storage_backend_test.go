@@ -40,8 +40,8 @@ func TestEmojiAssetsUseObjectStorage(t *testing.T) {
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, httptest.NewRequest("GET", strings.TrimPrefix(a.URL, "https://emoji.example"), nil))
 			require.Equal(t, 200, w.Code)
-			require.Equal(t, "image/png", w.Header().Get("Content-Type"))
-			require.Equal(t, samplePNG(t, 2, 2), w.Body.Bytes())
+			require.Equal(t, "image/webp", w.Header().Get("Content-Type"))
+			require.NotEmpty(t, w.Body.Bytes())
 
 			require.NoError(t, DeleteAsset(a))
 			for _, raw := range []string{a.URL, a.StaticURL} {

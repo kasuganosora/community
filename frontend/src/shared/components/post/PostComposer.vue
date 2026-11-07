@@ -187,7 +187,7 @@ useDismiss(pickerOpen, () => [emojiPickerEl.value?.$el as HTMLElement | undefine
 const poll = ref<PollDraft | null>(null)
 const pollLimits = usePollLimits()
 const pollOptionLength = (value: string) => Array.from(value).length
-interface MediaItem { key: string; name: string; uploading: boolean; preview: string; attachment?: MastodonAttachment; error?: string; file?: File; progress?: number }
+interface MediaItem { key: string; name: string; uploading: boolean; preview: string; attachment?: MastodonAttachment; error?: string; file?: File; progress?: number; phase?: 'uploading' | 'queued' | 'processing' | 'saving' | 'ready' | 'failed' | 'cancelled' }
 const media = reactive<MediaItem[]>([])
 const posting = ref(false)
 const uploadStarted = ref(false)
@@ -382,9 +382,10 @@ async function uploadItem(item: MediaItem, signal: AbortSignal, current: () => b
   try {
     const attachment = await postApi.uploadMedia(item.file, undefined, {
       signal,
-      onProgress: percent => { if (current()) item.progress = Math.max(item.progress ?? 0, percent) },
+      onProgress: percent => { if (current()) { item.phase = 'uploading'; item.progress = Math.max(item.progress ?? 0, percent) } },
+      onPhase: (phase, percent) => { if (current()) { item.phase = phase; item.progress = percent } },
     })
-    if (current()) { item.attachment = attachment; item.progress = 100 }
+    if (current()) { item.attachment = attachment; item.phase = 'ready'; item.progress = 100 }
   } catch (err) {
     if (!current()) return
     item.error = err instanceof Error ? err.message : t('shared.PostComposer.s38')
@@ -393,8 +394,12 @@ async function uploadItem(item: MediaItem, signal: AbortSignal, current: () => b
 }
 
 function mediaProgressLabel(item: MediaItem) {
-  if (item.attachment) return t('shared.PostComposer.uploadComplete')
-  if (item.error) return t('shared.PostComposer.uploadError')
+  if (item.phase === 'cancelled') return t('shared.PostComposer.uploadCancelled')
+  if (item.phase === 'failed' || item.error) return t('shared.PostComposer.uploadError')
+  if (item.phase === 'saving') return t('shared.PostComposer.uploadSaving')
+  if (item.phase === 'processing') return t('shared.PostComposer.processingPercent', [item.progress ?? 0])
+  if (item.phase === 'queued') return t('shared.PostComposer.serverQueued')
+  if (item.phase === 'ready' || item.attachment) return t('shared.PostComposer.uploadComplete')
   if (item.uploading) return (item.progress ?? 0) >= 100
     ? t('shared.PostComposer.uploadProcessing') : t('shared.PostComposer.uploadPercent', [item.progress ?? 0])
   return t('shared.PostComposer.uploadQueued')
@@ -710,7 +715,7 @@ defineExpose({ focus, reset })
             <span v-else class="composer__media-name">{{ m.uploading ? $t('shared.PostComposer.s8') : m.name }}</span>
             <div class="composer__media-progress" :class="{ 'composer__media-progress--error': m.error }" :title="m.error || m.name">
               <span>{{ mediaProgressLabel(m) }}</span>
-              <progress v-if="m.uploading" max="100" :value="Math.min(99, m.progress ?? 0)" :aria-label="$t('shared.PostComposer.uploadFile', [m.name])" />
+              <progress v-if="m.uploading || m.phase === 'queued' || m.phase === 'processing' || m.phase === 'saving'" max="100" :value="m.phase === 'uploading' || m.uploading && !m.phase ? Math.min(99, m.progress ?? 0) : (m.progress ?? 0)" :aria-label="$t('shared.PostComposer.uploadFile', [m.name])" />
             </div>
             <button
               v-if="!posting"

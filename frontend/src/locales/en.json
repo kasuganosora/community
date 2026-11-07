@@ -210,6 +210,10 @@
       "uploadProcessing": "Processing…",
       "uploadPercent": "Uploading {0}%",
       "uploadQueued": "Queued",
+      "serverQueued": "Waiting on the server",
+      "processingPercent": "Processing {0}%",
+      "uploadSaving": "Saving…",
+      "uploadCancelled": "Cancelled",
       "uploadFile": "Upload progress for {0}",
       "uploadSummary": "Uploaded {0}/{1}",
       "uploadTotal": "Overall attachment upload progress",
@@ -3967,6 +3971,14 @@
     "appealLoadFailed": "This suspension could not be loaded. Please try again later",
     "appealResolveFailed": "The decision could not be saved. Please try again later",
     "appealInvalidStatus": "Invalid post ID",
-    "appealNoCase": "There is no automatic suspension to appeal"
+    "appealNoCase": "There is no automatic suspension to appeal",
+    "mediaCorrupt": "The file is invalid or corrupt and was not attached.",
+    "mediaDuration": "The video is longer than the server allows.",
+    "mediaPixels": "The image or video has too many pixels.",
+    "mediaQueue": "The upload queue is full. Try again shortly.",
+    "mediaDisk": "Temporary storage is full. Try again later.",
+    "mediaFailed": "Processing failed. The original file was not published.",
+    "mediaCancelled": "Processing was cancelled.",
+    "mediaNotReady": "The attachment is not ready yet."
   }
 }

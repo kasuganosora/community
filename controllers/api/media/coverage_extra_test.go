@@ -40,7 +40,7 @@ func closedTestDB(t *testing.T) *gorm.DB {
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
 	require.NoError(t, err)
-	require.NoError(t, gdb.AutoMigrate(&models.MediaAttachment{}))
+	require.NoError(t, gdb.AutoMigrate(&models.MediaAttachment{}, &models.MediaProcessTask{}))
 
 	// Close the underlying connection so queries fail.
 	sqlDB, err := gdb.DB()
@@ -325,11 +325,7 @@ func TestUpload_DBCreateError(t *testing.T) {
 	withTempWorkDir(t)
 	closedTestDB(t)
 
-	mp3Data := []byte{
-		0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0xFF, 0xFB, 0x90, 0x00,
-	}
-	req := createMediaWithMultipartRequest(t, "clip.mp3", "audio/mpeg", mp3Data,
+	req := createMediaWithMultipartRequest(t, "pic.png", "image/png", validPNGBytes(),
 		map[string]string{"description": "clip"})
 
 	c, w := newHandlerContext(t, nil, req)
@@ -345,11 +341,7 @@ func TestUpload_FocusMultipleParts(t *testing.T) {
 	gdb := setupMediaTestDB(t)
 
 	// Focus with three parts (len != 2) -> ignored, focus stays 0.
-	mp3Data := []byte{
-		0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0xFF, 0xFB, 0x90, 0x00,
-	}
-	req := createMediaWithMultipartRequest(t, "clip.mp3", "audio/mpeg", mp3Data,
+	req := createMediaWithMultipartRequest(t, "clip.wav", "audio/wav", validWAV(),
 		map[string]string{"focus": "0.5,0.3,0.1"})
 
 	c, w := newHandlerContext(t, nil, req)
@@ -368,11 +360,7 @@ func TestUpload_FocusPartialValid(t *testing.T) {
 	gdb := setupMediaTestDB(t)
 
 	// Focus "0.5,bad" -> X parsed, Y stays 0.
-	mp3Data := []byte{
-		0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0xFF, 0xFB, 0x90, 0x00,
-	}
-	req := createMediaWithMultipartRequest(t, "clip.mp3", "audio/mpeg", mp3Data,
+	req := createMediaWithMultipartRequest(t, "clip.wav", "audio/wav", validWAV(),
 		map[string]string{"focus": "0.7,abc"})
 
 	c, w := newHandlerContext(t, nil, req)
@@ -451,13 +439,13 @@ func TestProcessUploadAsync_Image(t *testing.T) {
 	var got models.MediaAttachment
 	require.NoError(t, gdb.First(&got, media.Id).Error)
 	assert.Equal(t, models.MediaTypeImage, got.Type)
-	assert.Equal(t, "image/png", got.ContentType)
+	assert.Equal(t, "image/webp", got.ContentType)
 	assert.NotEqual(t, "processing", got.FileName)
-	assert.Equal(t, int64(len(pngData)), got.FileSize)
+	assert.Positive(t, got.FileSize)
 	require.NotNil(t, got.Width)
 	require.NotNil(t, got.Height)
-	assert.Equal(t, 1, *got.Width)
-	assert.Equal(t, 1, *got.Height)
+	assert.Equal(t, 2, *got.Width)
+	assert.Equal(t, 2, *got.Height)
 	require.NotNil(t, got.ThumbnailPath)
 	assert.NotEmpty(t, *got.ThumbnailPath)
 	assert.NotEmpty(t, got.Blurhash)
@@ -514,7 +502,7 @@ func TestProcessUploadAsync_DBUpdateError(t *testing.T) {
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
 	require.NoError(t, err)
-	require.NoError(t, workingGdb.AutoMigrate(&models.MediaAttachment{}))
+	require.NoError(t, workingGdb.AutoMigrate(&models.MediaAttachment{}, &models.MediaProcessTask{}))
 
 	media := &models.MediaAttachment{
 		AccountId: 1, FileName: "processing", FilePath: "",
@@ -647,11 +635,7 @@ func TestUploadAsync_FocusPartialValid(t *testing.T) {
 	withTempWorkDir(t)
 	gdb := setupMediaTestDB(t)
 
-	mp3Data := []byte{
-		0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0xFF, 0xFB, 0x90, 0x00,
-	}
-	req := createMediaWithMultipartRequest(t, "clip.mp3", "audio/mpeg", mp3Data,
+	req := createMediaWithMultipartRequest(t, "clip.wav", "audio/wav", validWAV(),
 		map[string]string{"focus": "0.4,bad"})
 
 	c, w := newHandlerContext(t, nil, req)

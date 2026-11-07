@@ -91,7 +91,6 @@ func TestObjectStorage_AllUploadPaths(t *testing.T) {
 			defer storage.SetDefault(b)()
 			r := serveRouter()
 			png := validPNGBytes()
-			mp3 := []byte{0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFB, 0x90, 0x00, 1, 2, 3, 4}
 
 			// --- /api/v1/media (the web UI path) -----------------------------
 			c, w := newHandlerContext(t, nil, createMediaWithMultipartRequest(t, "pic.png", "image/png", png, nil))
@@ -108,7 +107,7 @@ func TestObjectStorage_AllUploadPaths(t *testing.T) {
 			require.NoError(t, gdb.First(&v1, resp.ID).Error)
 			assert.NotContains(t, v1.FilePath, "://", "rows keep keys, not bucket URLs")
 			assert.False(t, strings.HasPrefix(v1.FilePath, "uploads"))
-			requireObject(t, b, "media/"+v1.FilePath, png)
+			requireObject(t, b, "media/"+v1.FilePath, nil)
 			require.NotNil(t, v1.ThumbnailPath)
 			requireObject(t, b, v1.ThumbnailStorageKey(), nil)
 			assert.NotEmpty(t, v1.Blurhash)
@@ -117,31 +116,31 @@ func TestObjectStorage_AllUploadPaths(t *testing.T) {
 
 			g := doGet(r, "/media/"+resp.ID+"/"+v1.FileName, nil)
 			require.Equal(t, http.StatusOK, g.Code)
-			assert.Equal(t, "image/png", g.Header().Get("Content-Type"))
+			assert.Equal(t, "image/webp", g.Header().Get("Content-Type"))
 			assert.Equal(t, "nosniff", g.Header().Get("X-Content-Type-Options"))
-			assert.Equal(t, png, g.Body.Bytes())
+			assert.True(t, bytes.HasPrefix(g.Body.Bytes(), []byte("RIFF")))
 
 			g = doGet(r, "/media/"+resp.ID+"/thumbnail/"+*v1.ThumbnailPath, nil)
 			require.Equal(t, http.StatusOK, g.Code)
-			assert.Equal(t, "image/png", g.Header().Get("Content-Type"))
+			assert.Equal(t, "image/jpeg", g.Header().Get("Content-Type"))
 
 			// --- /api/v2/media (async) ---------------------------------------
-			c, w = newHandlerContext(t, nil, createMediaWithMultipartRequest(t, "clip.mp3", "audio/mpeg", mp3, nil))
+			c, w = newHandlerContext(t, nil, createMediaWithMultipartRequest(t, "clip.wav", "audio/wav", validWAV(), nil))
 			UploadAsync(c)
 			require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 			var v2 models.MediaAttachment
 			require.Eventually(t, func() bool {
-				return gdb.First(&v2, resp.ID).Error == nil && v2.FilePath != ""
+				return gdb.First(&v2, resp.ID).Error == nil && v2.ProcessState == models.ProcessReady && v2.FilePath != ""
 			}, 10*time.Second, 20*time.Millisecond)
-			requireObject(t, b, v2.StorageKey(), mp3)
+			requireObject(t, b, v2.StorageKey(), nil)
 			g = doGet(r, "/media/"+resp.ID+"/"+v2.FileName, nil)
 			require.Equal(t, http.StatusOK, g.Code)
-			assert.Equal(t, "audio/mpeg", g.Header().Get("Content-Type"))
-			assert.Equal(t, mp3, g.Body.Bytes())
+			assert.Equal(t, "audio/wav", g.Header().Get("Content-Type"))
+			assert.NotEmpty(t, g.Body.Bytes())
 			g = doGet(r, "/media/"+resp.ID+"/"+v2.FileName, map[string]string{"Range": "bytes=0-3"})
 			require.Equal(t, http.StatusPartialContent, g.Code)
-			assert.Equal(t, mp3[:4], g.Body.Bytes())
+			assert.Len(t, g.Body.Bytes(), 4)
 
 			// --- legacy multipart profile image (PUT /accounts/me) -----------
 			fh := fileHeader(t, "avatar.png", "application/octet-stream", png)
@@ -151,7 +150,7 @@ func TestObjectStorage_AllUploadPaths(t *testing.T) {
 			avatarPath := strings.TrimPrefix(avatarURL, config.C.AppBaseURL)
 			g = doGet(r, avatarPath, nil)
 			require.Equal(t, http.StatusOK, g.Code)
-			assert.Equal(t, png, g.Body.Bytes())
+			assert.True(t, bytes.HasPrefix(g.Body.Bytes(), []byte("RIFF")))
 			_, err = StoreAccountImage(context.Background(), 1, fileHeader(t, "x.txt", "image/png", []byte("not an image at all")))
 			require.Error(t, err)
 

@@ -210,6 +210,10 @@
       "uploadProcessing": "處理中…",
       "uploadPercent": "上傳中 {0}%",
       "uploadQueued": "等待上傳",
+      "serverQueued": "伺服器排隊中",
+      "processingPercent": "處理中 {0}%",
+      "uploadSaving": "儲存中…",
+      "uploadCancelled": "已取消",
       "uploadFile": "{0} 上傳進度",
       "uploadSummary": "已上傳 {0}/{1}",
       "uploadTotal": "附件上傳總進度",
@@ -3967,6 +3971,14 @@
     "appealLoadFailed": "無法讀取這次封鎖，請稍後再試",
     "appealResolveFailed": "無法儲存處理結果，請稍後再試",
     "appealInvalidStatus": "貼文 ID 無效",
-    "appealNoCase": "沒有可申訴的自動封鎖"
+    "appealNoCase": "沒有可申訴的自動封鎖",
+    "mediaCorrupt": "檔案無效或已損毀，未附加。",
+    "mediaDuration": "影片超過伺服器允許的時長。",
+    "mediaPixels": "圖片或影片的像素過多。",
+    "mediaQueue": "上傳佇列已滿，請稍後再試。",
+    "mediaDisk": "暫存空間已滿，請稍後再試。",
+    "mediaFailed": "處理失敗，未發布原始檔案。",
+    "mediaCancelled": "處理已取消。",
+    "mediaNotReady": "附件尚未就緒。"
   }
 }

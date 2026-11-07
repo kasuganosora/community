@@ -83,6 +83,7 @@ var ScripsType = []MigrationScript{
 	NewAccountModScript{},
 	MediaDetachedAtScript{},
 	ReplyParentBackfillScript{},
+	MediaProcessingScript{},
 }
 
 type MigrationScript interface {

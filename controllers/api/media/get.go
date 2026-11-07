@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/mediaproc"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
@@ -54,7 +55,43 @@ func Get(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, response)
+	switch media.ProcessState {
+	case models.ProcessFailed, models.ProcessCancelled:
+		msg := media.ProcessError
+		if msg == "" {
+			msg = "media processing failed"
+		}
+		c.JSON(422, gin.H{"error": msg, "processing": response.Processing})
+	case models.ProcessQueued, models.ProcessProcessing, models.ProcessSaving:
+		c.JSON(206, response)
+	default:
+		c.JSON(200, response)
+	}
+}
+
+// GetProcessing returns the owner-only task state so a refresh can recover
+// queued, processing, saving, ready, failed, or cancelled.
+func GetProcessing(c *gin.Context) {
+	v, _ := c.Get("account")
+	acc, ok := v.(*models.Account)
+	if !ok || acc == nil {
+		c.JSON(401, gin.H{"error": "The access token is invalid"})
+		return
+	}
+	var row models.MediaAttachment
+	if err := db.GetDB().Where("id = ? AND account_id = ?", c.Param("id"), acc.Id).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(404, gin.H{"error": "Not found"})
+			return
+		}
+		_ = c.Error(errors.Wrap(err, "Get media"))
+		return
+	}
+	state := row.ProcessState
+	if state == "" {
+		state = models.ProcessReady
+	}
+	c.JSON(200, gin.H{"id": c.Param("id"), "state": state, "progress": row.ProcessProgress, "error": row.ProcessError})
 }
 
 // Update 更新媒体信息.
@@ -162,6 +199,10 @@ func Delete(c *gin.Context) {
 
 		return
 	}
+
+	// Cancel before deleting so a worker that already encoded cannot publish
+	// the row again after this request removes it.
+	_, _ = mediaproc.Cancel(c.Request.Context(), db.GetDB(), media.Id, account.Id)
 
 	// Delete the original and thumbnail through the storage backend
 	// (local or S3); a failure is logged but does not block the API call.

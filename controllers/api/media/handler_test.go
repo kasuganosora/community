@@ -2,6 +2,7 @@ package media
 
 import (
 	"bytes"
+	"encoding/binary"
 	"image"
 	"image/color"
 	"image/png"
@@ -48,7 +49,7 @@ func setupMediaTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 
-	require.NoError(t, gdb.AutoMigrate(&models.MediaAttachment{}))
+	require.NoError(t, gdb.AutoMigrate(&models.MediaAttachment{}, &models.MediaProcessTask{}))
 
 	prev := database.GetDB()
 	database.SetTestDB(gdb)
@@ -141,6 +142,26 @@ func validPNGBytes() []byte {
 	return buf.Bytes()
 }
 
+// validWAV is a short PCM file ffmpeg can decode. A header-only MP3 is not.
+func validWAV() []byte {
+	payload := bytes.Repeat([]byte{128}, 32)
+	buf := make([]byte, 44+len(payload))
+	copy(buf, "RIFF")
+	binary.LittleEndian.PutUint32(buf[4:], uint32(36+len(payload)))
+	copy(buf[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(buf[16:], 16)
+	binary.LittleEndian.PutUint16(buf[20:], 1)
+	binary.LittleEndian.PutUint16(buf[22:], 1)
+	binary.LittleEndian.PutUint32(buf[24:], 8000)
+	binary.LittleEndian.PutUint32(buf[28:], 8000)
+	binary.LittleEndian.PutUint16(buf[32:], 1)
+	binary.LittleEndian.PutUint16(buf[34:], 8)
+	copy(buf[36:], "data")
+	binary.LittleEndian.PutUint32(buf[40:], uint32(len(payload)))
+	copy(buf[44:], payload)
+	return buf
+}
+
 // ---------------------------------------------------------------------------
 // Get handler
 // ---------------------------------------------------------------------------
@@ -153,6 +174,20 @@ func TestGet_NotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	assert.Contains(t, w.Body.String(), "Not found")
+}
+
+func TestGetProcessingOwnerOnly(t *testing.T) {
+	gdb := setupMediaTestDB(t)
+	row := &models.MediaAttachment{AccountId: 1, FileName: "processing", FilePath: "", ContentType: "video/mp4", Type: models.MediaTypeVideo, ProcessState: models.ProcessProcessing, ProcessProgress: 40}
+	require.NoError(t, gdb.Create(row).Error)
+	c, w := newHandlerContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(row.Id, 10)}}, httptest.NewRequest(http.MethodGet, "/api/v1/media/"+strconv.FormatUint(row.Id, 10)+"/processing", nil))
+	GetProcessing(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `"progress":40`)
+	c, w = newHandlerContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(row.Id, 10)}}, httptest.NewRequest(http.MethodGet, "/api/v1/media/"+strconv.FormatUint(row.Id, 10)+"/processing", nil))
+	c.Set("account", &models.Account{Id: 2})
+	GetProcessing(c)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestGet_Success(t *testing.T) {

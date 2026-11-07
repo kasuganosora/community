@@ -130,22 +130,21 @@ func TestProcessUploadAsync_NonImage(t *testing.T) {
 	// MP3 magic bytes (ID3) so the saved file is at least plausible; the content
 	// itself is not re-validated here since processUploadAsync trusts the
 	// already-validated content type.
-	mp3Data := []byte{0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-
-	processUploadAsync(media.Id, mp3Data, "audio/mpeg")
+	wavData := validWAV()
+	processUploadAsync(media.Id, wavData, "audio/wav")
 
 	// The record should now be updated with file metadata.
 	var got models.MediaAttachment
 	require.NoError(t, gdb.First(&got, media.Id).Error)
 	assert.Equal(t, models.MediaTypeAudio, got.Type)
-	assert.Equal(t, "audio/mpeg", got.ContentType)
+	assert.Equal(t, "audio/wav", got.ContentType)
 	assert.NotEqual(t, "processing", got.FileName)
-	assert.Equal(t, int64(len(mp3Data)), got.FileSize)
-	assert.Contains(t, got.FilePath, ".mp3")
+	assert.Positive(t, got.FileSize)
+	assert.Contains(t, got.FilePath, ".wav")
 	assert.Nil(t, got.ThumbnailPath)
 
 	// The physical file must exist under uploads/media/<date>/.
-	matches, err := filepath.Glob(filepath.Join(dir, "uploads", "media", "*", "*", "*", "*.mp3"))
+	matches, err := filepath.Glob(filepath.Join(dir, "uploads", "media", "*", "*", "*", "*.wav"))
 	require.NoError(t, err)
 	require.Len(t, matches, 1, "uploaded mp3 file should exist on disk")
 }

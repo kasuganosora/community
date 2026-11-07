@@ -6,14 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 // ---------------------------------------------------------------------------
@@ -26,12 +24,8 @@ func TestUpload_SuccessNonImage(t *testing.T) {
 
 	// Build a multipart request with a valid MP3 (ID3 magic bytes) so that
 	// magic-byte validation passes. The declared Content-Type is audio/mpeg.
-	mp3Data := []byte{
-		0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, // ID3v2 header
-		0xFF, 0xFB, 0x90, 0x00, // MPEG frame sync
-	}
-	req := createMediaWithMultipartRequest(t, "clip.mp3", "audio/mpeg", mp3Data,
+	wavData := validWAV()
+	req := createMediaWithMultipartRequest(t, "clip.wav", "audio/wav", wavData,
 		map[string]string{"description": "an audio clip"})
 
 	c, w := newHandlerContext(t, nil, req)
@@ -46,10 +40,10 @@ func TestUpload_SuccessNonImage(t *testing.T) {
 
 	var got models.MediaAttachment
 	require.NoError(t, gdb.First(&got).Error)
-	assert.Equal(t, "audio/mpeg", got.ContentType)
+	assert.Equal(t, "audio/wav", got.ContentType)
 	assert.Equal(t, models.MediaTypeAudio, got.Type)
 	assert.Equal(t, "an audio clip", got.Description)
-	assert.Equal(t, int64(len(mp3Data)), got.FileSize)
+	assert.Positive(t, got.FileSize)
 }
 
 func TestUpload_SuccessImageWithThumbnail(t *testing.T) {
@@ -67,17 +61,17 @@ func TestUpload_SuccessImageWithThumbnail(t *testing.T) {
 
 	var got models.MediaAttachment
 	require.NoError(t, gdb.First(&got).Error)
-	assert.Equal(t, "image/png", got.ContentType)
+	assert.Equal(t, "image/webp", got.ContentType)
 	assert.Equal(t, models.MediaTypeImage, got.Type)
 	assert.Equal(t, "a picture", got.Description)
 	assert.InDelta(t, 0.5, got.FocusX, 0.0001)
 	assert.InDelta(t, -0.2, got.FocusY, 0.0001)
-	assert.Equal(t, int64(len(pngData)), got.FileSize)
-	// Width/height should be populated for a valid image.
+	assert.Positive(t, got.FileSize)
+	// 1×1 input is padded to even dimensions for the encoder.
 	require.NotNil(t, got.Width)
 	require.NotNil(t, got.Height)
-	assert.Equal(t, 1, *got.Width)
-	assert.Equal(t, 1, *got.Height)
+	assert.Equal(t, 2, *got.Width)
+	assert.Equal(t, 2, *got.Height)
 
 	// A thumbnail file should have been created on disk.
 	matches, err := filepath.Glob(filepath.Join(dir, "uploads", "media", "*", "*", "*", "thumb_*"))
@@ -90,8 +84,7 @@ func TestUpload_FocusParsingInvalid(t *testing.T) {
 	gdb := setupMediaTestDB(t)
 
 	// Invalid focus value should not error out; focus just stays 0.
-	mp3Data := []byte{0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFB}
-	req := createMediaWithMultipartRequest(t, "clip.mp3", "audio/mpeg", mp3Data,
+	req := createMediaWithMultipartRequest(t, "clip.wav", "audio/wav", validWAV(),
 		map[string]string{"focus": "not-a-number"})
 
 	c, w := newHandlerContext(t, nil, req)
@@ -139,77 +132,25 @@ func TestUploadAsync_Accepted(t *testing.T) {
 	withTempWorkDir(t)
 	gdb := setupMediaTestDB(t)
 
-	// Fence the worker's final publication before it opens a transaction. The
-	// initial "processing" assertion must not race a scheduler-fast MP3 upload.
-	publishing := make(chan struct{})
-	release := make(chan struct{})
-	var publishingOnce, releaseOnce sync.Once
-	unblock := func() { releaseOnce.Do(func() { close(release) }) }
-	const barrier = "test:async_upload_publication"
-	require.NoError(t, gdb.Callback().Update().Before("*").Register(barrier, func(tx *gorm.DB) {
-		if tx.Statement.Table != "media_attachments" {
-			return
-		}
-		publishingOnce.Do(func() { close(publishing) })
-		<-release
-	}))
-	t.Cleanup(func() {
-		unblock()
-		// Join the worker before its database and temporary directory are removed,
-		// including when a preceding assertion failed.
-		assert.Eventually(t, func() bool { return len(asyncUploadSem) == 0 }, 30*time.Second, time.Millisecond, "async upload worker did not release its slot")
-		_ = gdb.Callback().Update().Remove(barrier)
-	})
-
-	mp3Data := []byte{
-		0x49, 0x44, 0x33, 0x03, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0xFF, 0xFB, 0x90, 0x00,
-	}
-	req := createMediaWithMultipartRequest(t, "clip.mp3", "audio/mpeg", mp3Data,
+	req := createMediaWithMultipartRequest(t, "clip.wav", "audio/wav", validWAV(),
 		map[string]string{"description": "async clip", "focus": "0.1,0.2"})
 
 	c, w := newHandlerContext(t, nil, req)
 	UploadAsync(c)
 
-	// The handler returns 202 Accepted immediately.
 	require.Equal(t, http.StatusAccepted, w.Code, "body: %s", w.Body.String())
 	assert.Contains(t, w.Body.String(), "async clip")
 
-	// The worker has reached final publication but cannot commit it yet.
-	select {
-	case <-publishing:
-	case <-time.After(30 * time.Second):
-		t.Fatal("async upload did not reach publication barrier")
-	}
-	// A "processing" record must have been created.
-	var got models.MediaAttachment
-	require.NoError(t, gdb.First(&got).Error)
-	assert.Equal(t, "processing", got.FileName)
-	assert.Equal(t, "audio/mpeg", got.ContentType)
-	assert.InDelta(t, 0.1, got.FocusX, 0.0001)
-	assert.InDelta(t, 0.2, got.FocusY, 0.0001)
-
-	unblock()
-
-	// Wait for the background goroutine to finish processing the file, so the
-	// record ends up updated and the semaphore is released (and so coverage of
-	// processUploadAsync is attributed deterministically). The timeout is
-	// generous to avoid scheduler-contention flakes under heavy load
-	// (e.g. running the whole package with -count=N).
-	require.Eventually(t, func() bool {
-		var updated models.MediaAttachment
-		if err := gdb.First(&updated, got.Id).Error; err != nil {
-			return false
-		}
-		return updated.FileName != "processing" && updated.FileSize > 0
-	}, 30*time.Second, 10*time.Millisecond, "async upload did not complete in time")
-
-	// Confirm the final state of the record.
 	var final models.MediaAttachment
-	require.NoError(t, gdb.First(&final, got.Id).Error)
+	require.Eventually(t, func() bool {
+		return gdb.First(&final).Error == nil && final.ProcessState == models.ProcessReady && final.FileName != "processing"
+	}, 15*time.Second, 20*time.Millisecond)
 	assert.Equal(t, models.MediaTypeAudio, final.Type)
-	assert.Equal(t, int64(len(mp3Data)), final.FileSize)
-	assert.NotEqual(t, "processing", final.FileName)
+	assert.Equal(t, "audio/wav", final.ContentType)
+	assert.InDelta(t, 0.1, final.FocusX, 0.0001)
+	assert.InDelta(t, 0.2, final.FocusY, 0.0001)
+	assert.Positive(t, final.FileSize)
+	require.Eventually(t, func() bool { return len(asyncUploadSem) == 0 }, 15*time.Second, time.Millisecond)
 }
 
 func TestUploadAsync_NoFileBindingError(t *testing.T) {

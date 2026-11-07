@@ -107,6 +107,20 @@ func TestCreate_WithMedia_LinksMediaAttachments(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestLoadAttachableMediaRejectsUnready(t *testing.T) {
+	ts := newTestSetup(t)
+	m := createMedia(t, ts, ts.acct.Id)
+	require.NoError(t, ts.db.Model(m).Update("process_state", models.ProcessQueued).Error)
+	_, ok := loadAttachableMediaDB(ts.db, []string{strconv.FormatUint(m.Id, 10)}, ts.acct.Id, 0)
+	require.False(t, ok)
+	require.NoError(t, ts.db.Model(m).Update("process_state", models.ProcessReady).Error)
+	_, ok = loadAttachableMediaDB(ts.db, []string{strconv.FormatUint(m.Id, 10)}, ts.acct.Id+99, 0)
+	require.False(t, ok)
+	got, ok := loadAttachableMediaDB(ts.db, []string{strconv.FormatUint(m.Id, 10)}, ts.acct.Id, 0)
+	require.True(t, ok)
+	require.Len(t, got, 1)
+}
+
 func TestCreate_WithSomeoneElsesMedia_Rejected(t *testing.T) {
 	ts := newTestSetup(t)
 	other := ts.fix.CreateAccount(ts.fix.CreateUser(func(u *models.User) { u.UserName = "mediaowner" }),

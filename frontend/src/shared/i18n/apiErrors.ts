@@ -14,6 +14,14 @@ import { t } from '@/shared/i18n'
  * (src/locales/README.md).
  */
 const API_ERRORS: Record<string, string> = {
+  "invalid or corrupt media": 'mediaCorrupt',
+  "media exceeds the duration limit": 'mediaDuration',
+  "media exceeds the pixel limit": 'mediaPixels',
+  "upload queue is full": 'mediaQueue',
+  "temporary storage is full": 'mediaDisk',
+  "media processing failed": 'mediaFailed',
+  "media processing was cancelled": 'mediaCancelled',
+  "media is not ready": 'mediaNotReady',
   "translation is not enabled on this server": 'translationDisabled',
   "translation requires a signed-in account": 'translationLoginRequired',
   "too many translation requests, please try again later": 'translationRateLimited',

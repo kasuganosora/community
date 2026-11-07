@@ -32,6 +32,7 @@ import (
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/matrix"
 	"github.com/kasuganosora/community/matrix/homeserver"
+	"github.com/kasuganosora/community/mediaproc"
 	"github.com/kasuganosora/community/metrics"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/migrate"
@@ -167,6 +168,7 @@ func main() {
 	datatransfer.ResumeJobs(transferContext, db.GetDB())
 	adminwebhook.Start(transferContext, db.GetDB())
 	userwebhook.Start(transferContext, db.GetDB())
+	mediaproc.Start(transferContext, db.GetDB())
 	accountlifecycle.Start(transferContext, db.GetDB())
 	profileverify.Start(transferContext, db.GetDB())
 	newacctmod.Start(transferContext, db.GetDB())

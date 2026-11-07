@@ -68,23 +68,55 @@ export const postApi = {
   },
 
   /**
-   * Upload a media file. Uses the synchronous v1 endpoint, which returns the
-   * processed attachment (url/preview_url) right away; /api/v2/media returns
-   * an empty url that would have to be polled.
+   * Upload a media file. Images and audio use synchronous /api/v1/media.
+   * Video uses /api/v2/media and polls /processing until the durable task
+   * is ready, failed, or cancelled.
    */
-  async uploadMedia(file: File, description?: string, options?: { signal?: AbortSignal; onProgress?: (percent: number) => void }): Promise<MastodonAttachment> {
+  async uploadMedia(file: File, description?: string, options?: { signal?: AbortSignal; onProgress?: (percent: number) => void; onPhase?: (phase: UploadPhase, percent: number) => void }): Promise<MastodonAttachment> {
     const form = new FormData()
     form.append('file', file)
     if (description) form.append('description', description)
-    const { data } = await client.post<MastodonAttachment>('/api/v1/media', form, {
+    const video = file.type.startsWith('video/') || /\.(mp4|webm|mov|m4v)$/i.test(file.name)
+    const { data } = await client.post<MastodonAttachment>(video ? '/api/v2/media' : '/api/v1/media', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000,
+      timeout: video ? 60000 : 120000,
       signal: options?.signal,
       onUploadProgress: options?.onProgress ? event => {
         const total = event.total || file.size
         if (total > 0) options.onProgress!(Math.min(100, Math.round(event.loaded / total * 100)))
       } : undefined,
     })
-    return data
+    if (!video) return data
+    options?.onPhase?.('queued', 0)
+    const id = encodeURIComponent(data.id)
+    try {
+      for (;;) {
+        if (options?.signal?.aborted) throw new DOMException('aborted', 'AbortError')
+        const task = (await client.get<{ state: UploadPhase; progress?: number; error?: string }>(`/api/v1/media/${id}/processing`, { signal: options?.signal })).data
+        options?.onPhase?.(task.state, task.progress ?? 0)
+        if (task.state === 'ready') return (await client.get<MastodonAttachment>(`/api/v1/media/${id}`, { signal: options?.signal })).data
+        if (task.state === 'failed' || task.state === 'cancelled') throw new Error(task.error || 'media processing failed')
+        await waitForPoll(400, options?.signal)
+      }
+    } catch (err) {
+      if (options?.signal?.aborted) await client.delete(`/api/v1/media/${id}`).catch(() => undefined)
+      throw err
+    }
   },
+}
+
+export type UploadPhase = 'uploading' | 'queued' | 'processing' | 'saving' | 'ready' | 'failed' | 'cancelled'
+
+function waitForPoll(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('aborted', 'AbortError'))
+      return
+    }
+    const timer = setTimeout(resolve, ms)
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer)
+      reject(new DOMException('aborted', 'AbortError'))
+    }, { once: true })
+  })
 }

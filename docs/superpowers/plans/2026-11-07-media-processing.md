@@ -1,6 +1,6 @@
 # Local Media Processing Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Process new local uploads with saved WebP/WebM, re-encode, and privacy settings, fail closed, and run videos as durable bounded tasks.
 
@@ -40,7 +40,7 @@ Spec: `docs/superpowers/specs/2026-11-07-media-processing-design.md`.
 - Produces: `systemsettings.MediaProcessing` struct and `LoadMediaProcessing() MediaProcessing` using `GetBool`/`GetInt` and the defaults below
 - Consumes: `systemsettings.SaveChanges`, `validateSettingsValue`
 
-- [ ] **Step 1: Write the failing settings test**
+- [x] **Step 1: Write the failing settings test**
 
 ```go
 func TestMediaProcessingDefaultsAndRanges(t *testing.T) {
@@ -54,24 +54,24 @@ func TestMediaProcessingDefaultsAndRanges(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `go test ./systemsettings/ -run TestMediaProcessingDefaultsAndRanges -count=1`
 Expected: FAIL, `LoadMediaProcessing` undefined.
 
-- [ ] **Step 3: Implement getters**
+- [x] **Step 3: Implement getters**
 
 `LoadMediaProcessing` clamps quality to 40–95 and CRF to 20–50 if a stored value is outside the range, and uses 80 and 32 when the key is missing. Clamping a corrupt stored value is validation on read. The admin API still rejects out-of-range writes with 422 so a normal save cannot store them.
 
-- [ ] **Step 4: Admin fields**
+- [x] **Step 4: Admin fields**
 
 Append `mediaProcessingFields()` to the storage section only. No `Env`, so `UpdateSettings` does not treat them as deployment-locked. Descriptions must state the matrix consequences from the spec (force-reencode applies when conversion is off; privacy off keeps metadata only for an unchanged original; a privacy rewrite does not flip force-reencode; generated files never copy GPS).
 
-- [ ] **Step 5: Admin test**
+- [x] **Step 5: Admin test**
 
 Save `image_to_webp=false` and `image_quality=80` together and assert `video_to_webm` is still the default true. `image_quality=10` and `video_crf=99` return 422. A non-boolean returns 422.
 
-- [ ] **Step 6: Run**
+- [x] **Step 6: Run**
 
 Run: `go test ./systemsettings/ ./controllers/api/admin/ -count=1 -timeout 180s`
 Expected: PASS
@@ -103,20 +103,20 @@ type Plan struct {
 func Decide(detectedMIME string, cfg systemsettings.MediaProcessing) Plan
 ```
 
-- [ ] **Step 1: Write table-driven tests**
+- [x] **Step 1: Write table-driven tests**
 
 Cover every row of the spec matrix for jpeg, webp, mp4, webm, and mpeg, plus `image/heic` and `application/octet-stream` rejected. Assert WebP input with conversion on still returns `ActionEncode` and `image/webp` (not keep). Assert conversion off, force off, privacy on returns `ActionEncode` with the original MIME and reason `privacy_rewrite`. Assert all three off returns `ActionKeep` and reason `validate_only`.
 
-- [ ] **Step 2: Run**
+- [x] **Step 2: Run**
 
 Run: `go test ./mediaproc/ -run TestDecide -count=1`
 Expected: FAIL, package or `Decide` missing.
 
-- [ ] **Step 3: Implement `Decide`**
+- [x] **Step 3: Implement `Decide`**
 
 Supported sets exactly as the spec. Do not read or write the settings store inside `Decide`.
 
-- [ ] **Step 4: Run**
+- [x] **Step 4: Run**
 
 Run: `go test ./mediaproc/ -run TestDecide -count=1`
 Expected: PASS
@@ -150,15 +150,15 @@ func DecodeValidate(ctx context.Context, path string) error
 func BuildEncodeArgs(in, out string, plan Plan, probe Probe, cfg systemsettings.MediaProcessing) []string
 ```
 
-- [ ] **Step 1: Arg test (no FFmpeg needed)**
+- [x] **Step 1: Arg test (no FFmpeg needed)**
 
 Assert the returned slice contains `-nostdin`, `-protocol_whitelist`, `file,pipe`, `-threads`, `1`, `-map_metadata`, `-1`, never contains `-c` followed by `copy`, and maps only `0:v:0` plus `0:a:0?` for video. Image args must not map audio. WebP quality flag uses `cfg.ImageQuality`.
 
-- [ ] **Step 2: Run arg test, confirm FAIL, then implement `BuildEncodeArgs`.**
+- [x] **Step 2: Run arg test, confirm FAIL, then implement `BuildEncodeArgs`.**
 
 Run: `go test ./mediaproc/ -run TestBuildEncodeArgs -count=1`
 
-- [ ] **Step 3: Fixture test using the real binaries**
+- [x] **Step 3: Fixture test using the real binaries**
 
 Skip only when `exec.LookPath("ffmpeg")` fails. Build inputs with FFmpeg itself:
 
@@ -173,11 +173,11 @@ Assert: WebP/WebM outputs have no denylisted tags and do not contain `SECRETCOMM
 
 Record input and output sizes in the test via `t.Log` (not as a pass/fail on which is smaller).
 
-- [ ] **Step 4: Implement probe, encode, tag denylist, prlimit, process-group kill.**
+- [x] **Step 4: Implement probe, encode, tag denylist, prlimit, process-group kill.**
 
 `Encode` parses `-progress pipe:1` (`out_time_ms`) against `Probe.Duration`. Child limits: CPU 120s, address space 1 GiB, file size 512 MiB, 32 fds. Comment in source: this is not a sandbox.
 
-- [ ] **Step 5: Run**
+- [x] **Step 5: Run**
 
 Run: `go test ./mediaproc/ -count=1 -timeout 180s`
 Expected: PASS, including fixture logs.
@@ -201,11 +201,11 @@ Expected: PASS, including fixture logs.
 - Produces: `models.MediaProcessTask` table `media_process_tasks` with `media_id`, `account_id`, `state`, `progress`, `error_text`, `staging_path`, `output_key`, `claim_token`, `claim_expires_at`, `config_json`, `input_bytes`, `output_bytes`, `duration_ms`
 - Produces: `mediaproc.Enqueue`, `Claim`, `Finalize`, `Cancel`, `ProcessNext`, `Start`
 
-- [ ] **Step 1: Migration test**
+- [x] **Step 1: Migration test**
 
 Empty SQLite, `AutoMigrate` a legacy `media_attachments` without `process_state`, run `MediaProcessingScript.Up`, assert the column and `media_process_tasks` exist, and a second `Up` is a no-op. Backfill sets empty `process_state` to `ready`.
 
-- [ ] **Step 2: Worker tests against SQLite**
+- [x] **Step 2: Worker tests against SQLite**
 
 Use a fake encode func injected by `mediaproc.SetEncoderForTest`.
 
@@ -215,7 +215,7 @@ Use a fake encode func injected by `mediaproc.SetEncoderForTest`.
 - Calling `Finalize` twice does not create a second attachment.
 - Config JSON on the task is the snapshot from enqueue time; changing `systemsettings` after enqueue does not change `task.ConfigJSON`.
 
-- [ ] **Step 3: Run, confirm FAIL, implement, re-run**
+- [x] **Step 3: Run, confirm FAIL, implement, re-run**
 
 Run: `go test ./mediaproc/ ./migrate/scripts/ -run 'MediaProcessing|Worker|Claim|Finalize|Cancel' -count=1 -timeout 180s`
 Expected: PASS
@@ -238,7 +238,7 @@ Expected: PASS
 - Consumes: `mediaproc.Decide`, `ProbeFile`, `Encode`, `DecodeValidate`, `Enqueue`
 - Produces: `stageLocal(ctx, reader, limit) (dir, path string, n int64, err error)`
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 - Tiny valid PNG with defaults becomes `image/webp`, non-zero size, width/height set, thumbnail exists, response 200.
 - Same PNG with all three image toggles and privacy off stores the same bytes and `image/png`.
@@ -248,17 +248,17 @@ Expected: PASS
 - `StoreEmojiImage` of a PNG with defaults returns `image/webp`.
 - Avatar path `StoreAccountImage` of a PNG returns a `/media/<id>/*.webp` URL.
 
-- [ ] **Step 2: Run the new test, confirm FAIL**
+- [x] **Step 2: Run the new test, confirm FAIL**
 
 Run: `go test ./controllers/api/media/ -run 'TestPipeline|TestUpload_SuccessImage' -count=1 -timeout 180s`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `storeMediaFile` no longer logs image errors and continues. Video from `Upload` waits on the task until the request context ends. `UploadAsync` inserts the task and returns 202 without a bare goroutine holding the bytes. v2 images and audio also go through the task so restart can finish them. Disk-full and over-cap copies delete the staging dir before returning.
 
 Replace the undecodable ID3 fixture in success-path audio tests with an 8 kHz PCM WAV that FFmpeg can decode. Expectations that hard-code `image/png` and the original size move to the "all processing off" test.
 
-- [ ] **Step 4: Run**
+- [x] **Step 4: Run**
 
 Run: `go test ./controllers/api/media/ ./emojiasset/ -count=1 -timeout 300s`
 Expected: PASS
@@ -281,7 +281,7 @@ Expected: PASS
 **Interfaces:**
 - Produces: `GetProcessing` JSON `{id,state,progress,error}`
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 - `loadAttachableMedia` rejects `process_state=queued` and `failed` for the owner, and rejects another account's `ready` row.
 - `GET /api/v1/media/:id/processing` without an account is 401; another account is 404; the owner of a `processing` row gets `progress`.
@@ -289,7 +289,7 @@ Expected: PASS
 - `Serve` of a queued row is 404.
 - Outbound Note `attachment[0].mediaType` is the stored `content_type`, and `width`/`height` match the row.
 
-- [ ] **Step 2: Run, confirm FAIL, implement, re-run**
+- [x] **Step 2: Run, confirm FAIL, implement, re-run**
 
 Run: `go test ./controllers/api/media/ ./controllers/api/status/ ./activitypub/ -count=1 -timeout 300s`
 Expected: PASS
@@ -313,7 +313,7 @@ Empty `process_state` stays attachable so rows created before the column backfil
 - `uploadMedia(file, description?, {signal, onProgress, onPhase})`
 - `onPhase(phase: 'uploading'|'queued'|'processing'|'saving'|'ready'|'failed'|'cancelled', percent: number)`
 
-- [ ] **Step 1: Tests**
+- [x] **Step 1: Tests**
 
 `uploadMedia.spec.ts` mocks `@/shared/api/client`. A `video/mp4` file posts to `/api/v2/media`, then polls `/api/v1/media/:id/processing` through `queued` and `processing` (percent 40) to `ready`, then GETs the attachment. An image posts to `/api/v1/media` only. Abort after the id resolves calls `DELETE`.
 
@@ -323,7 +323,7 @@ Add locale keys `serverQueued`, `processingPercent`, `uploadSaving`, `uploadCanc
 
 Map these API sentences in `apiErrors.ts`: `invalid or corrupt media`, `media exceeds the duration limit`, `media exceeds the pixel limit`, `upload queue is full`, `temporary storage is full`, `media processing failed`, `media processing was cancelled`, `media is not ready`.
 
-- [ ] **Step 2: Run, confirm FAIL, implement, re-run**
+- [x] **Step 2: Run, confirm FAIL, implement, re-run**
 
 Run: `cd frontend && npm test -- --run src/domains/post/infrastructure/__tests__/uploadMedia.spec.ts src/shared/components/post/__tests__/PostComposer.spec.ts src/shared/i18n/__tests__/locales.spec.ts`
 Expected: PASS
@@ -335,11 +335,11 @@ Expected: PASS
 **Files:**
 - Modify: `Dockerfile` runtime `apk add` line to run `ffmpeg -hide_banner -version` and `ffprobe -hide_banner -version`
 
-- [ ] **Step 1: Dockerfile**
+- [x] **Step 1: Dockerfile**
 
 The Alpine `ffmpeg` package ships both binaries. The `RUN` must fail the build if either is missing. Do not claim the image was built unless the daemon ran.
 
-- [ ] **Step 2: Full relevant tests**
+- [x] **Step 2: Full relevant tests**
 
 ```text
 go test ./systemsettings/ ./mediaproc/ ./controllers/api/media/ ./controllers/api/status/ ./controllers/api/admin/ ./emojiasset/ ./activitypub/ ./migrate/ ./models/ -count=1 -timeout 600s
@@ -350,7 +350,7 @@ ffmpeg -hide_banner -version && ffprobe -hide_banner -version
 
 Report the exit codes. If `docker info` fails, record that the image build was not run.
 
-- [ ] **Step 3: Update the checkboxes in this file to `[x]` for steps that actually passed.**
+- [x] **Step 3: Update the checkboxes in this file to `[x]` for steps that actually passed.**
 
 ## Self-review
 
