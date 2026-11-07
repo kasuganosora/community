@@ -104,6 +104,42 @@ func TestSPAFallbackReturns404ForServerPaths(t *testing.T) {
 	}
 }
 
+func TestSPADoesNotServePrivateStagingOrSymlinkEscapes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	root := t.TempDir()
+	frontend := filepath.Join(root, "frontend")
+	if err := os.MkdirAll(frontend, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secret := []byte("STAGING-SECRET-TOKEN")
+	staging := filepath.Join(root, "uploads", ".private-staging", "abc")
+	if err := os.MkdirAll(staging, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staging, "input"), secret, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(staging, "input"), filepath.Join(frontend, "leak.txt")); err != nil {
+		t.Fatal(err)
+	}
+	app := gin.New()
+	files := frontendFileHandler(frontend)
+	app.GET("/assets/*filepath", files)
+	app.NoRoute(spaFallback(frontend, []byte("<!doctype html><title>app</title>")))
+	for _, p := range []string{
+		"/uploads/.private-staging/abc/input",
+		"/uploads/.private-staging/abc/input.webp",
+		"/leak.txt",
+		"/assets/../../uploads/.private-staging/abc/input",
+	} {
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
+		if strings.Contains(w.Body.String(), string(secret)) {
+			t.Fatalf("%s returned staged bytes (%d)", p, w.Code)
+		}
+	}
+}
+
 func TestFrontendAssetContentTypes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	dir := t.TempDir()

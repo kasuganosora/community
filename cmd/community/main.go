@@ -388,8 +388,11 @@ func frontendAsset(frontendDir, requestPath string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
 	candidate := filepath.Join(root, rel)
-	abs, err := filepath.Abs(candidate)
+	abs, err := filepath.EvalSymlinks(candidate)
 	if err != nil {
 		return "", false
 	}

@@ -9,7 +9,7 @@ New local uploads are identified, decoded, and, when the saved policy says so, f
 - No rewrite of files already stored.
 - No second file kept for old browsers, and no compatibility remux.
 - Remote cache, media-proxy fetches, and ActivityPub inbound attachments stay on their current path (`activitypub/attachments.go` stores `remote_url` and does not download the bytes).
-- Matrix media (`matrix/homeserver/media.go`, `media_async.go`) is not moved onto this pipeline.
+- Matrix federation copies and link-preview fetches stored with `origin=remote` are not transcoded. Local Matrix uploads are in scope.
 - Transcoding is not a security boundary. A successful encode does not mean the decoder was safe.
 
 ## Current architecture
@@ -93,11 +93,11 @@ Orientation is applied by FFmpeg's default autorotate before tags are dropped. O
 
 ## Pipeline
 
-1. Stream the body to `uploads/.private-staging/<random>/input` with mode `0700`, enforcing the byte cap while copying. The directory is on the persisted `./uploads` volume (`docker-compose.yml`). It is not a storage key, has no public URL, and `Serve` does not read it.
+1. Stream the body to `uploads/.private-staging/<random>/input` with mode `0700`, enforcing the byte cap while copying. The directory is on the persisted `./uploads` volume (`docker-compose.yml`). It is not a storage key. `CleanKey` rejects that prefix, object listing skips it, and `Open`/`Stat` refuse a symlink whose target is that directory or is outside the storage root. `Serve` only opens the attachment's own file name or thumbnail.
 2. Detect type from bytes (`filetype` plus, for video and audio, `ffprobe`). The filename and the client `Content-Type` are not trusted. A declared type that disagrees with the bytes is rejected (this already happens in `validateMagicBytes`).
 3. Enforce pixel, duration, and frame-rate limits from container metadata before FFmpeg. Image uploads still pass `emojiasset.DecodeImage` inside `validateFileUpload` before this step.
 4. Run the matrix. `POST /api/v1/media` images and audio, avatars, headers, and emoji run in the request and return only when ready. `POST /api/v1/media` video enqueues and blocks on the request context until ready or failed. `POST /api/v2/media` and `POST /api/v1/media/v2` enqueue every accepted type and return 202; the worker finishes the snapshot, so a restart can recover an image as well as a video.
-5. Validate the output the same way: magic, `ffprobe`, dimensions, duration, size, and, when an encode ran, no denylisted format tags (location, GPS, make, model, artist, author, comment, datetime, creation_time, software, encoder).
+5. Validate the output the same way: magic, `ffprobe`, dimensions, duration, size, and, when an encode ran, an allowlist of tags. Allowed names are `handler_name`, `vendor_id`, `major_brand`, `compatible_brands`, `encoder` only when the value starts with `Lavf` or `Lavc`, and `duration` only when the value is a number or `hh:mm:ss` timecode. Any other tag rejects the file.
 6. `storage.Put` the output, then the thumbnail. Image thumbnails still come from `media.ImageProcessor` on the output pixels (a new JPEG, so the thumbnail has no EXIF). Video gets a one-frame JPEG poster. Thumbnail failure rejects the upload.
 7. Set the attachment row to `ready` with the output MIME, extension, byte size, dimensions, duration, and thumbnail name. Only then delete the staging input.
 8. On any failure: delete staging and any uncommitted output. Do not leave a public object and do not mark the row ready.
@@ -169,9 +169,11 @@ Abort after an id is known sends `DELETE` so a later finalize cannot attach the 
 
 ## Isolation
 
-FFmpeg and ffprobe are `exec.Command` argument vectors. There is no shell. The child is its own process group, receives `SIGKILL` when the parent thread dies, and is killed when the timeout fires. Immediately after start, `prlimit` sets `RLIMIT_CPU`, `RLIMIT_AS` (1 GiB), `RLIMIT_FSIZE`, and `RLIMIT_NOFILE` on that pid. `-protocol_whitelist file,pipe` and `-threads 1` are set.
+FFmpeg and ffprobe are executed by `prlimit`, which sets `RLIMIT_CPU`, `RLIMIT_AS` (1 GiB), `RLIMIT_FSIZE`, and `RLIMIT_NOFILE` and then execs the tool. Parsing therefore starts only after those caps exist. Arguments are a vector, not a shell. `-protocol_whitelist file,pipe` is set before `-i`, and network plus external-reference protocols (`http`, `https`, `tcp`, `tls`, `concat`, `data`, `subfile`, and the rest of the blacklist) are denied. The child environment is only `LANG` and `LC_ALL`, so a proxy variable is not inherited. The child is its own process group and is killed when the timeout fires or the parent thread dies.
 
-This is not a sandbox. There is no seccomp, user namespace, or per-job container. `prlimit` runs after `Start`, so there is a short window. A hostile decoder can still use CPU until the timeout. The production image does not add a stronger boundary.
+This is still not an OS sandbox. There is no seccomp, user namespace, or network namespace. A hostile decoder can use CPU until the timeout. `prlimit` must be installed; without it processing fails closed instead of starting the parser unlimited.
+
+Local Matrix uploads (`UploadMedia`, async completion, and web-group uploads, all `origin=local`) go through the same image/video/audio gate. Bytes that are not image, video, or audio stay opaque files. Claimed image, video, or audio whose bytes do not match is rejected. Federation copies stored with `origin=remote` are not transcoded.
 
 Staging is a private directory on the server disk. Do not expose `/app/uploads` with a file server. A public object-storage bucket is not used for staging. Final objects become reachable only after the row is `ready`, through `/media/<id>/...`.
 
@@ -186,8 +188,8 @@ Staging is a private directory on the server disk. Do not expose `/app/uploads` 
 | Chat composer, which uses `uploadMedia` | Yes |
 | ActivityPub inbound attachments | No. Remote URL only. |
 | `mediaproxy` and remote emoji hotlinks | No |
-| Matrix upload and async media | No |
-| Link-preview image fetch | No |
+| Matrix local upload, async completion, and web-group upload (`origin=local`) | Yes, for sniffed image, video, and audio. Other bytes stay opaque. A claimed image, video, or audio type whose bytes do not match is rejected. |
+| Matrix federation inbound and link-preview fetch (`origin=remote`) | No |
 
 ## Observability
 
@@ -210,4 +212,4 @@ cd frontend && npm run build
 ffmpeg -hide_banner -version && ffprobe -hide_banner -version
 ```
 
-`go test ./mediaproc/ -run 'Fixture|Integration' -count=1` is the real FFmpeg run (same-format, alpha, animation, audio, orientation, GPS-like tags, truncated and oversized headers). The Docker image build is attempted only when a daemon is available. This environment has no Docker daemon, so the image build stays unverified; the Dockerfile `RUN` invokes both binaries so a missing `ffprobe` fails the build.
+`go test ./mediaproc/ -run 'Fixture|Integration' -count=1` is the real FFmpeg run (same-format, alpha, animation, audio, orientation, GPS-like tags, truncated and oversized headers, and a privacy-only rewrite that must drop arbitrary tags). The Docker image build is attempted only when a daemon is available. This environment has no Docker daemon, so the image build stays unverified. The Dockerfile `RUN` invokes `ffmpeg`, `ffprobe`, and `prlimit`, so a missing binary fails the build. `prlimit` is not a network namespace: a decoder that opens a socket without going through FFmpeg's protocol layer is still not blocked by the kernel.

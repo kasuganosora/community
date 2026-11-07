@@ -118,6 +118,28 @@ func TestFixtureTranscodeAndReject(t *testing.T) {
 		t.Fatalf("orientation was not applied: %dx%d", out.Info.Width, out.Info.Height)
 	}
 
+	privacyDir := filepath.Join(dir, "privacy")
+	requireDir(t, privacyDir)
+	privacySrc := filepath.Join(privacyDir, "tagged.jpg")
+	run(t, "ffmpeg", "-hide_banner", "-y", "-f", "lavfi", "-i", "color=c=red:s=16x16", "-frames:v", "1",
+		"-metadata", "comment=SECRETCOMMENT", "-metadata", "artist=HiddenAuthor", "-metadata", "xyzzy=ARBITRARYMETA", privacySrc)
+	privacyOnly := systemsettings.MediaProcessing{StripPrivacy: true, ImageQuality: 80}
+	out, err = ProcessFile(ctx, privacySrc, privacyDir, "image/jpeg", privacyOnly, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ = os.ReadFile(out.Path)
+	for _, marker := range []string{"SECRETCOMMENT", "HiddenAuthor", "ARBITRARYMETA"} {
+		if bytes.Contains(body, []byte(marker)) {
+			t.Fatalf("privacy rewrite kept %s", marker)
+		}
+	}
+	for key := range out.Info.Tags {
+		if !allowedMetadata(key, out.Info.Tags[key]) {
+			t.Fatalf("privacy output kept tag %s", key)
+		}
+	}
+
 	half, _ := os.ReadFile(jpegPath)
 	bad := filepath.Join(dir, "half.jpg")
 	_ = os.WriteFile(bad, half[:len(half)/2], 0o600)
@@ -142,6 +164,13 @@ func outPath(t *testing.T, ctx context.Context, dir, src, mime string, cfg syste
 		t.Fatal(err)
 	}
 	return out.Path
+}
+
+func requireDir(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func run(t *testing.T, name string, args ...string) {

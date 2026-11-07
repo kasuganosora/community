@@ -112,6 +112,9 @@ func CleanKey(key string) (string, error) {
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || strings.HasPrefix(cleaned, "/") {
 		return "", ErrInvalidKey
 	}
+	if cleaned == ".private-staging" || strings.HasPrefix(cleaned, ".private-staging/") {
+		return "", ErrInvalidKey
+	}
 
 	return cleaned, nil
 }
@@ -259,6 +262,34 @@ func (l *LocalBackend) resolve(key string) (string, error) {
 	return full, nil
 }
 
+// rejectEscaped refuses a path whose symlink target leaves the storage root
+// or lands in the private upload staging directory.
+func (l *LocalBackend) rejectEscaped(full string) error {
+	resolved, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return ErrNotFound
+	}
+	root := filepath.Clean(l.Root)
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		root = r
+	}
+	if !isPathInsideRoot(resolved, root, string(filepath.Separator)) {
+		return ErrNotFound
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil {
+		return ErrNotFound
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == ".private-staging" || strings.HasPrefix(rel, ".private-staging/") {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Path returns the host path of key (local backend only).
 func (l *LocalBackend) Path(key string) (string, error) { return l.resolve(key) }
 
@@ -311,7 +342,10 @@ func (l *LocalBackend) Open(_ context.Context, key string) (io.ReadCloser, Objec
 		return nil, ObjectInfo{}, err
 	}
 
-	f, err := os.Open(full) //nolint:gosec // G304: path validated by resolve
+	if err = l.rejectEscaped(full); err != nil {
+		return nil, ObjectInfo{}, err
+	}
+	f, err := os.Open(full) //nolint:gosec // G304: path validated by resolve and symlink check
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, ObjectInfo{}, ErrNotFound
@@ -337,6 +371,9 @@ func (l *LocalBackend) Stat(_ context.Context, key string) (ObjectInfo, error) {
 		return ObjectInfo{}, err
 	}
 
+	if err = l.rejectEscaped(full); err != nil {
+		return ObjectInfo{}, err
+	}
 	st, err := os.Stat(full)
 	if err != nil || !st.Mode().IsRegular() {
 		return ObjectInfo{}, ErrNotFound
@@ -394,6 +431,9 @@ func (l *LocalBackend) List(ctx context.Context, prefix string, fn func(ObjectIn
 			return err
 		}
 		key := filepath.ToSlash(rel)
+		if key == ".private-staging" || strings.HasPrefix(key, ".private-staging/") {
+			return nil
+		}
 		if !strings.HasPrefix(key, prefix) {
 			return nil
 		}

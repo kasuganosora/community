@@ -25,12 +25,14 @@ import (
 	"github.com/kasuganosora/community/metrics"
 	"github.com/kasuganosora/community/systemsettings"
 	_ "golang.org/x/image/webp"
-	"golang.org/x/sys/unix"
 )
 
-// A child FFmpeg process is not a sandbox. It has a timeout, its own process
-// group, and best-effort rlimits applied after Start. There is no seccomp,
-// user namespace, or per-job container.
+// A child FFmpeg process is not a sandbox. prlimit sets CPU, address-space,
+// file-size and fd caps and then execs ffmpeg or ffprobe, so the limits exist
+// before those programs parse input. There is still no seccomp, user
+// namespace, or network namespace. The child environment is cleared so a
+// proxy variable cannot be inherited. Protocol whitelist is file and pipe;
+// network and external-reference protocols are blacklisted.
 
 const (
 	imageTimeout = 60 * time.Second
@@ -238,7 +240,10 @@ func extensionFor(mime string) string {
 func ProbeFile(ctx context.Context, path string) (Probe, error) {
 	ctx, cancel := context.WithTimeout(ctx, imageTimeout)
 	defer cancel()
-	cmd := command(ctx, "ffprobe", []string{"-hide_banner", "-v", "error", "-protocol_whitelist", "file,pipe", "-print_format", "json", "-show_format", "-show_streams", path})
+	cmd, err := command(ctx, "ffprobe", append(probeIOArgs(), "-v", "error", "-print_format", "json", "-show_format", "-show_streams", path))
+	if err != nil {
+		return Probe{}, err
+	}
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = io.Discard
@@ -428,7 +433,10 @@ func parseRate(s string) float64 {
 func DecodeValidate(ctx context.Context, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, imageTimeout)
 	defer cancel()
-	cmd := command(ctx, "ffmpeg", []string{"-hide_banner", "-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-threads", "1", "-i", path, "-f", "null", "-"})
+	cmd, err := command(ctx, "ffmpeg", append(safeIOArgs(), "-v", "error", "-threads", "1", "-i", path, "-f", "null", "-"))
+	if err != nil {
+		return err
+	}
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	if err := runLimited(cmd); err != nil {
@@ -446,7 +454,10 @@ func Encode(ctx context.Context, in, out string, plan Plan, probe Probe, cfg sys
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	args := BuildEncodeArgs(in, out, plan, probe, cfg)
-	cmd := command(ctx, "ffmpeg", args)
+	cmd, err := command(ctx, "ffmpeg", args)
+	if err != nil {
+		return err
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return ErrProcess
@@ -455,7 +466,6 @@ func Encode(ctx context.Context, in, out string, plan Plan, probe Probe, cfg sys
 	if err = cmd.Start(); err != nil {
 		return ErrProcess
 	}
-	applyLimits(cmd.Process.Pid)
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
 	scanProgress(stdout, probe.Duration, onProgress)
@@ -478,14 +488,7 @@ func Encode(ctx context.Context, in, out string, plan Plan, probe Probe, cfg sys
 // BuildEncodeArgs returns the ffmpeg argument vector. It never uses a shell
 // and never copies the input stream.
 func BuildEncodeArgs(in, out string, plan Plan, probe Probe, cfg systemsettings.MediaProcessing) []string {
-	args := []string{
-		"-hide_banner", "-nostdin", "-y",
-		"-protocol_whitelist", "file,pipe",
-		"-threads", "1",
-		"-i", in,
-		"-map_metadata", "-1",
-		"-fflags", "+bitexact",
-	}
+	args := append(safeIOArgs(), "-y", "-threads", "1", "-i", in, "-map_metadata", "-1", "-fflags", "+bitexact")
 	video := strings.HasPrefix(plan.OutputMIME, "video/") || strings.HasPrefix(plan.OutputMIME, "image/")
 	if video && !strings.HasPrefix(plan.OutputMIME, "audio/") {
 		args = append(args, "-map", "0:v:0")
@@ -510,9 +513,9 @@ func BuildEncodeArgs(in, out string, plan Plan, probe Probe, cfg systemsettings.
 		}
 		args = append(args, "-an", "-f", "webp")
 	case "image/jpeg":
-		args = append(args, "-c:v", "mjpeg", "-q:v", strconv.Itoa(jpegQScale(cfg.ImageQuality)), "-pix_fmt", "yuv420p", "-frames:v", "1", "-an", "-f", "image2")
+		args = append(args, "-c:v", "mjpeg", "-q:v", strconv.Itoa(jpegQScale(cfg.ImageQuality)), "-pix_fmt", "yuvj420p", "-frames:v", "1", "-an", "-f", "image2", "-update", "1")
 	case "image/png":
-		args = append(args, "-c:v", "png", "-pix_fmt", "rgba", "-frames:v", "1", "-an", "-f", "image2")
+		args = append(args, "-c:v", "png", "-pix_fmt", "rgba", "-frames:v", "1", "-an", "-f", "image2", "-update", "1")
 	case "image/gif":
 		args = append(args, "-c:v", "gif", "-an", "-f", "gif")
 	case "video/webm":
@@ -584,7 +587,7 @@ func validateOutput(ctx context.Context, path, mime string, input Probe, limits 
 	if err = enforceLimits(kind, 0, probe, limits); err != nil {
 		return Probe{}, err
 	}
-	if sensitiveTags(probe.Tags) {
+	if rejectTags(probe.Tags) {
 		return Probe{}, fmt.Errorf("%w: metadata", ErrProcess)
 	}
 	if input.HasAlpha && strings.HasPrefix(mime, "image/") && mime != "image/jpeg" && mime != "image/gif" && !probe.HasAlpha {
@@ -599,25 +602,56 @@ func validateOutput(ctx context.Context, path, mime string, input Probe, limits 
 	return probe, nil
 }
 
-func sensitiveTags(tags map[string]string) bool {
+func rejectTags(tags map[string]string) bool {
 	for key, value := range tags {
-		name := strings.ToLower(strings.TrimSpace(key))
-		name = strings.TrimSuffix(name, "-eng")
-		if name == "encoder" || name == "handler_name" || name == "vendor_id" || name == "major_brand" || name == "compatible_brands" {
-			if name == "encoder" && !knownEncoder(value) {
-				return true
-			}
-			continue
-		}
-		switch name {
-		case "location", "gps", "gpslatitude", "gpslongitude", "make", "model", "artist", "author", "comment", "description", "title", "copyright", "software", "creation_time", "date", "datetime", "datetimeoriginal", "com.apple.quicktime.location.iso6709":
-			return true
-		}
-		if strings.Contains(name, "location") || strings.Contains(name, "gps") {
+		if !allowedMetadata(key, value) {
 			return true
 		}
 	}
 	return false
+}
+
+func allowedMetadata(key, value string) bool {
+	name := tagName(key)
+	switch name {
+	case "handler_name", "vendor_id", "major_brand", "compatible_brands":
+		return true
+	case "encoder":
+		return knownEncoder(value)
+	case "duration":
+		// The muxer writes this timing field. It is not a free-form comment.
+		return durationValue(value)
+	default:
+		return false
+	}
+}
+
+func durationValue(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, " \t") {
+		return false
+	}
+	if _, err := strconv.ParseFloat(value, 64); err == nil {
+		return true
+	}
+	parts := strings.Split(value, ":")
+	if len(parts) != 3 {
+		return false
+	}
+	for i, part := range parts {
+		if _, err := strconv.ParseFloat(part, 64); err != nil {
+			return false
+		}
+		if i < 2 && strings.Contains(part, ".") {
+			return false
+		}
+	}
+	return true
+}
+
+func tagName(key string) string {
+	name := strings.ToLower(strings.TrimSpace(key))
+	return strings.TrimSuffix(name, "-eng")
 }
 
 func pixHasAlpha(pix string) bool {
@@ -634,8 +668,46 @@ func knownEncoder(value string) bool {
 	return strings.HasPrefix(v, "Lavf") || strings.HasPrefix(v, "Lavc")
 }
 
-func command(ctx context.Context, bin string, args []string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, bin, args...)
+// probeIOArgs omits -nostdin: ffprobe treats that flag as taking a value.
+func probeIOArgs() []string {
+	return append([]string{"-hide_banner"}, protocolArgs()...)
+}
+
+// safeIOArgs is placed before -i. file and pipe are local. The blacklist
+// drops network protocols and demuxers that can open external references
+// even if a later flag widens the whitelist.
+func safeIOArgs() []string {
+	return append([]string{"-hide_banner", "-nostdin"}, protocolArgs()...)
+}
+
+func protocolArgs() []string {
+	return []string{
+		"-protocol_whitelist", "file,pipe",
+		"-protocol_blacklist", "concat,subfile,data,crypto,http,https,tls,tcp,udp,ftp,rtmp,rtsp,gopher,srtp,rtp,mmsh,mmst,srt,ipfs,httpproxy",
+	}
+}
+
+func command(ctx context.Context, bin string, args []string) (*exec.Cmd, error) {
+	prlimit, err := exec.LookPath("prlimit")
+	if err != nil {
+		return nil, ErrProcess
+	}
+	tool, err := exec.LookPath(bin)
+	if err != nil {
+		return nil, ErrProcess
+	}
+	// prlimit applies the caps and then execs the absolute tool path, so
+	// parsing cannot start before the limits exist and PATH is not required.
+	wrapped := []string{
+		"--as=" + strconv.FormatUint(addressLimit, 10),
+		"--cpu=" + strconv.Itoa(cpuSeconds),
+		"--fsize=" + strconv.FormatUint(fileLimit, 10),
+		"--nofile=" + strconv.Itoa(fdLimit),
+		"--", tool,
+	}
+	wrapped = append(wrapped, args...)
+	cmd := exec.CommandContext(ctx, prlimit, wrapped...)
+	cmd.Env = []string{"LANG=C", "LC_ALL=C"}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
@@ -645,22 +717,14 @@ func command(ctx context.Context, bin string, args []string) *exec.Cmd {
 		return cmd.Process.Kill()
 	}
 	cmd.WaitDelay = 2 * time.Second
-	return cmd
+	return cmd, nil
 }
 
 func runLimited(cmd *exec.Cmd) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	applyLimits(cmd.Process.Pid)
 	return cmd.Wait()
-}
-
-func applyLimits(pid int) {
-	_ = unix.Prlimit(pid, unix.RLIMIT_CPU, &unix.Rlimit{Cur: cpuSeconds, Max: cpuSeconds}, nil)
-	_ = unix.Prlimit(pid, unix.RLIMIT_AS, &unix.Rlimit{Cur: addressLimit, Max: addressLimit}, nil)
-	_ = unix.Prlimit(pid, unix.RLIMIT_FSIZE, &unix.Rlimit{Cur: fileLimit, Max: fileLimit}, nil)
-	_ = unix.Prlimit(pid, unix.RLIMIT_NOFILE, &unix.Rlimit{Cur: fdLimit, Max: fdLimit}, nil)
 }
 
 func scanProgress(r io.Reader, duration float64, onProgress func(int)) {

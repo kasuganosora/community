@@ -2,7 +2,6 @@ package mediaproc
 
 import (
 	"context"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -12,8 +11,11 @@ import (
 // ExtractFrame writes one JPEG frame. Image callers may ignore an error and
 // decode the still image themselves; video callers treat it as failure.
 func ExtractFrame(ctx context.Context, in, out string) error {
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,pipe", "-threads", "1", "-i", in, "-frames:v", "1", "-f", "image2", out)
-	if err := runLimited(cmd); err != nil {
+	cmd, err := command(ctx, "ffmpeg", append(safeIOArgs(), "-y", "-threads", "1", "-i", in, "-frames:v", "1", "-f", "image2", out))
+	if err != nil {
+		return err
+	}
+	if err = runLimited(cmd); err != nil {
 		return ErrProcess
 	}
 	return nil

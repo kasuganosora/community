@@ -184,16 +184,23 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, 
 	}
 	// Stage in a private temp file, then store through the storage backend
 	// under the key "matrix/local/<date>/<name>" (local uploads/ or S3).
-	file, err := os.CreateTemp("", "async-*"+ext)
+	dir, err := os.MkdirTemp("", "community-matrix-async-*")
 	if err != nil {
 		return nil, err
 	}
+	file, err := os.Create(filepath.Join(dir, "input"+ext))
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return nil, err
+	}
 	path := file.Name()
-	key := "matrix/local/" + time.Now().Format("2006/01/02") + "/" + filepath.Base(path)
+	day := time.Now().Format("2006/01/02")
+	objectName := uuid.NewString() + ext
+	key := "matrix/local/" + day + "/" + objectName
 	stored := false
 	defer func() {
 		_ = file.Close()
-		_ = os.Remove(path)
+		_ = os.RemoveAll(dir)
 		if stored && !committed {
 			_ = storage.Delete(key)
 		}
@@ -212,7 +219,18 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, 
 	if err = file.Close(); err != nil {
 		return nil, err
 	}
-	if err = storage.PutFile(context.Background(), path, key, contentType); err != nil {
+	gated, err := gateLocalUpload(ctx, path, contentType)
+	if err != nil {
+		return nil, err
+	}
+	if gatedExt := extensionForMIME(gated.MIME); gatedExt != "" {
+		ext = gatedExt
+		objectName = strings.TrimSuffix(objectName, filepath.Ext(objectName)) + ext
+		key = "matrix/local/" + day + "/" + objectName
+	}
+	contentType = gated.MIME
+	size = gated.Size
+	if err = storage.PutFile(ctx, gated.Path, key, contentType); err != nil {
 		return nil, err
 	}
 	stored = true
