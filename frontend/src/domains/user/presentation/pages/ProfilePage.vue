@@ -5,7 +5,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessagePlugin, DialogPlugin } from '@/shared/ui/feedback'
 import type { MastodonAccount, MastodonStatus } from '@/shared/types/mastodon'
-import { isTransientAccountError, peekCachedAccount, userApi, type ProfileBackfillState } from '../../infrastructure/userApi'
+import { isTransientAccountError, peekCachedAccount, profileBanReason, profileRestrictionMessage, ProfileLookupError, userApi, type ProfileBackfillState } from '../../infrastructure/userApi'
 import { PROFILE_TABS, type ProfileTabValue } from '../../domain/entities'
 import { followButtonLabel } from '../../domain/relationship'
 import { useRelationships } from '../composables/useRelationships'
@@ -31,6 +31,7 @@ const activeTab = ref<ProfileTabValue>('posts')
 const loading = ref(true)
 const error = ref<string | null>(null)
 const refreshError = ref<string | null>(null)
+const restriction = ref<'account_suspended' | 'domain_suspended' | null>(null)
 const relationships = useRelationships()
 const reporting = ref(false)
 
@@ -112,16 +113,33 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
 )
 
+function showRestriction(reason: 'account_suspended' | 'domain_suspended', message = profileRestrictionMessage(reason)) {
+  account.value = null
+  restriction.value = reason
+  error.value = message
+  refreshError.value = null
+  resetBackfill()
+  feed.reset()
+}
+
 async function loadProfile() {
   const myVersion = ++requestVersion
   const username = route.params.username as string
   // Paint the shell from the last good local account. A stuck client→API
   // lookup (axios abort at the shared timeout) must not blank that shell.
+  // A cached ban must not be painted as that healthy shell.
   const cached = peekCachedAccount(username)
-  const same = !!cached && account.value?.id === cached.id
+  const cachedBan = profileBanReason(cached)
+  const same = !!cached && !cachedBan && account.value?.id === cached.id
   error.value = null
   refreshError.value = null
-  if (!same) {
+  restriction.value = null
+  if (cachedBan) {
+    account.value = null
+    if (activeTab.value !== 'posts') activeTab.value = 'posts'
+    loading.value = false
+    showRestriction(cachedBan)
+  } else if (!same) {
     // Clear the previous profile before the tab watcher runs, so it cannot
     // refetch that profile. A cached account stays mounted for the shell.
     account.value = cached ?? null
@@ -136,6 +154,13 @@ async function loadProfile() {
   try {
     const acctData = await userApi.lookupAccount(username)
     if (myVersion !== requestVersion) return
+    const ban = profileBanReason(acctData)
+    if (ban) {
+      showRestriction(ban)
+      return
+    }
+    restriction.value = null
+    error.value = null
     account.value = acctData
     // Header is already up when cached. Statuses and relationships follow;
     // they are not required to paint the shell.
@@ -144,12 +169,19 @@ async function loadProfile() {
   } catch (e) {
     if (myVersion !== requestVersion) return
     console.error('Failed to load profile:', e)
+    if (e instanceof ProfileLookupError && (e.reason === 'account_suspended' || e.reason === 'domain_suspended')) {
+      showRestriction(e.reason, e.message)
+      return
+    }
+    // A known ban stays on screen when the revalidation request only times out.
+    if (restriction.value && isTransientAccountError(e)) return
     if (account.value && isTransientAccountError(e)) {
       refreshError.value = e instanceof Error ? e.message : t('user.ProfilePage.s22')
       return
     }
     refreshError.value = null
     account.value = null
+    restriction.value = null
     error.value = e instanceof Error ? e.message : t('user.ProfilePage.s22')
   } finally {
     if (myVersion === requestVersion) loading.value = false
@@ -384,12 +416,12 @@ watch(activeTab, () => {
     <t-loading />
   </div>
 
-  <div v-else-if="error" class="empty-state" role="alert">
+  <div v-else-if="error" class="empty-state" role="alert" :data-testid="restriction ? 'profile-restriction' : undefined">
     <div class="empty-state__icon">
       <t-icon name="error-circle" :size="48" />
     </div>
-    <h2 class="empty-state__title">{{ $t('user.ProfilePage.s20') }}</h2>
-    <p class="empty-state__text">{{ error }}</p>
+    <h2 class="empty-state__title">{{ restriction ? error : $t('user.ProfilePage.s20') }}</h2>
+    <p v-if="!restriction" class="empty-state__text">{{ error }}</p>
     <button type="button" class="btn btn--secondary btn--sm" @click="loadProfile">{{ $t('user.ProfilePage.s21') }}</button>
   </div>
 </template>

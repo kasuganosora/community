@@ -69,6 +69,12 @@ type Account struct {
 	// RequireSigninToView (extension, Misskey requireSigninToViewContents):
 	// logged-out visitors see the profile but not its posts.
 	RequireSigninToView bool `json:"require_signin_to_view,omitempty"`
+	// Suspended is an administrator account suspension. It is absent for a
+	// healthy profile, a node suspension, and a viewer's personal block or mute.
+	Suspended bool `json:"suspended,omitempty"`
+	// Availability is the public-safe profile restriction. Nil when the
+	// profile may be shown. It never carries admin comments.
+	Availability *AccountAvailability `json:"availability,omitempty"`
 	// Misskey extensions: speak_as_cat asks clients to nyaize a cat's posts
 	// at display time; online_status is Misskey's onlineStatus.
 	SpeakAsCat          bool   `json:"speak_as_cat"`
@@ -79,6 +85,12 @@ type Account struct {
 	Roles []any `json:"roles"`
 
 	intId uint64 `json:"-"`
+}
+
+// AccountAvailability is the machine-readable profile restriction.
+// Reason is account_suspended or domain_suspended.
+type AccountAvailability struct {
+	Reason string `json:"reason"`
 }
 
 // accountAddress returns the Mastodon acct, profile URL and ActivityPub actor

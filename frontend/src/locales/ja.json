@@ -3628,6 +3628,8 @@
       "s30": "ブロック中",
       "olderOnOrigin": "以前の投稿は相手のサーバーにしかない場合があります。",
       "olderOnOriginLink": "元のサイトで以前の投稿を見る",
+      "accountSuspended": "このユーザーは凍結されています",
+      "domainSuspended": "このサーバーは当インスタンスによりブロックされています",
       "signinRequired": "サインインして投稿を見る",
       "signinRequiredHint": "このアカウントの投稿はサインインしたユーザーにのみ表示されます。",
       "signinRequiredAction": "サインイン"

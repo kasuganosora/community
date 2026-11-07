@@ -3628,6 +3628,8 @@
       "s30": "已遮蔽",
       "olderOnOrigin": "更早的帖子可能只在對方站點上。",
       "olderOnOriginLink": "去原站檢視更早的帖子",
+      "accountSuspended": "該使用者已被封禁",
+      "domainSuspended": "該節點已被本站封禁",
       "signinRequired": "登入後查看貼文",
       "signinRequiredHint": "此帳號的貼文僅對已登入的使用者可見。",
       "signinRequiredAction": "登入"

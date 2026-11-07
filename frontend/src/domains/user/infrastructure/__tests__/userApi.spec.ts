@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import client, { tokenService } from '@/shared/api/client'
-import { clearCachedAccounts, isTransientAccountError, peekCachedAccount, rememberCachedAccount, userApi } from '../userApi'
+import { classifyProfileError, clearCachedAccounts, isTransientAccountError, peekCachedAccount, rememberCachedAccount, userApi } from '../userApi'
 import type { MastodonAccount } from '@/shared/types/mastodon'
 
 afterEach(() => {
@@ -89,6 +89,33 @@ describe('profile lookup', () => {
     get.mockRejectedValueOnce(Object.assign(new Error('timeout of 15000ms exceeded'), { code: 'ECONNABORTED' }))
     await expect(userApi.lookupAccount('kanna')).rejects.toMatchObject({ code: 'ECONNABORTED' })
     expect(get).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not resolve a suspended node, and keeps authorization failures distinct', async () => {
+    tokenService.set('test-token')
+    const get = vi.spyOn(client, 'get')
+    get.mockRejectedValueOnce(Object.assign(new Error('missing'), { response: { status: 404, data: { error: 'Record not found', availability: { reason: 'domain_suspended' } } } }))
+    await expect(userApi.lookupAccount('ada@blocked.example')).rejects.toThrow('该节点已被本站封禁')
+    expect(get).toHaveBeenCalledOnce()
+
+    get.mockResolvedValueOnce({ data: { id: '3', username: 'banned', acct: 'banned', display_name: 'Old name', note: 'old bio', availability: { reason: 'account_suspended' }, suspended: true } })
+    const banned = await userApi.lookupAccount('banned')
+    expect(banned.availability?.reason).toBe('account_suspended')
+    expect(peekCachedAccount('banned')?.availability?.reason).toBe('account_suspended')
+
+    get.mockRejectedValueOnce(Object.assign(new Error('Request failed with status code 401'), { response: { status: 401 } }))
+    await expect(userApi.lookupAccount('ada')).rejects.toThrow('登录已过期，请重新登录')
+    get.mockRejectedValueOnce(Object.assign(new Error('Request failed with status code 403'), { response: { status: 403 } }))
+    await expect(userApi.lookupAccount('ada')).rejects.toThrow('没有权限执行此操作')
+    expect(classifyProfileError(Object.assign(new Error('avatar'), { response: { status: 403 } }))).toBe('forbidden')
+    expect(classifyProfileError(Object.assign(new Error('unsigned'), { response: { status: 401 } }))).toBe('unauthorized')
+    expect(classifyProfileError(Object.assign(new Error('timeout of 15000ms exceeded'), { code: 'ECONNABORTED' }))).toBe('timeout')
+    expect(classifyProfileError(Object.assign(new Error('network'), { code: 'ERR_NETWORK' }))).toBe('fetch_failed')
+    expect(classifyProfileError(Object.assign(new Error('missing'), { response: { status: 404 } }))).toBe('not_found')
+    for (const reason of ['unauthorized', 'forbidden', 'timeout', 'fetch_failed', 'not_found']) {
+      expect(reason).not.toBe('account_suspended')
+      expect(reason).not.toBe('domain_suspended')
+    }
   })
 
   it('forgets a cached local account on 404 and 410', async () => {

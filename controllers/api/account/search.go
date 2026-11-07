@@ -144,24 +144,11 @@ func Lookup(c *gin.Context) {
 		Order("accounts.id ASC").First(&account).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.AbortWithStatusJSON(404, gin.H{"error": "Record not found"})
+			finishProfileLookup(c, nil, domain)
 			return
 		}
 		_ = c.Error(errors.Wrap(err, "lookup account"))
 		return
 	}
-	var viewer *models.Account
-	if c.GetBool("authenticated") {
-		viewer = c.MustGet("account").(*models.Account) //nolint:forcetypeassert
-	}
-	kept, err := models.FilterAccountsByDomainPolicy(db.GetDB(), viewer, []*models.Account{&account})
-	if err != nil {
-		_ = c.Error(errors.Wrap(err, "filter blocked domains"))
-		return
-	}
-	if len(kept) == 0 {
-		c.AbortWithStatusJSON(404, gin.H{"error": "Record not found"})
-		return
-	}
-	c.JSON(200, serializer.ToAccounts(kept)[0])
+	finishProfileLookup(c, &account, domain)
 }
