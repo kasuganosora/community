@@ -11,14 +11,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/h2non/filetype"
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/log"
-	"github.com/kasuganosora/community/media"
 	"github.com/kasuganosora/community/mediaproc"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/storage"
@@ -106,6 +104,12 @@ func publishProcessed(ctx context.Context, dir string, out mediaproc.Output) (*s
 	}
 	stored.Blurhash = blur
 	if name != "" {
+		bound, berr := mediaproc.BindThumbnail(filepath.Dir(out.Path), fileName, name)
+		if berr != nil {
+			_ = storage.Default().Delete(ctx, key)
+			return nil, errors.Wrap(berr, "name thumbnail")
+		}
+		name = bound
 		thumbKey := path.Join(path.Dir(key), name)
 		if err := storage.PutFile(ctx, filepath.Join(filepath.Dir(out.Path), name), thumbKey, "image/jpeg"); err != nil {
 			_ = storage.Default().Delete(ctx, key)
@@ -117,25 +121,7 @@ func publishProcessed(ctx context.Context, dir string, out mediaproc.Output) (*s
 }
 
 func previewLocal(ctx context.Context, pathName, mime, work string) (string, string, int, int, error) {
-	if models.GetMediaType(mime) == models.MediaTypeAudio {
-		return "", "", 0, 0, nil
-	}
-	source := pathName
-	if models.GetMediaType(mime) == models.MediaTypeVideo || strings.HasSuffix(strings.ToLower(pathName), ".webp") {
-		frame := filepath.Join(work, "frame.jpg")
-		if err := mediaproc.ExtractFrame(ctx, pathName, frame); err != nil {
-			if models.GetMediaType(mime) == models.MediaTypeVideo {
-				return "", "", 0, 0, err
-			}
-		} else {
-			source = frame
-		}
-	}
-	name, blur, w, h, err := media.NewImageProcessor().ProcessImage(source)
-	if err != nil || name == "" {
-		return "", "", 0, 0, errors.New("media processing failed")
-	}
-	return name, blur, w, h, nil
+	return mediaproc.Preview(ctx, pathName, mime, work)
 }
 
 // StoreAccountImage stores an avatar or header image uploaded through the

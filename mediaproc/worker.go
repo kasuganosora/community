@@ -557,6 +557,12 @@ func publish(ctx context.Context, conn *gorm.DB, task *models.MediaProcessTask, 
 			w, h = pw, ph
 		}
 		if thumbName != "" {
+			bound, berr := BindThumbnail(filepath.Dir(out.Path), path.Base(task.OutputKey), thumbName)
+			if berr != nil {
+				_ = storage.Default().Delete(ctx, task.OutputKey)
+				return failTask(ctx, conn, task, ErrProcess)
+			}
+			thumbName = bound
 			thumbKey := filepath.ToSlash(filepath.Join(filepath.Dir(task.OutputKey), thumbName))
 			if err := storage.PutFile(ctx, filepath.Join(filepath.Dir(out.Path), thumbName), thumbKey, "image/jpeg"); err != nil {
 				_ = storage.Default().Delete(ctx, task.OutputKey)
