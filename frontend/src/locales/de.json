@@ -3628,6 +3628,8 @@
       "s30": "Gesperrt",
       "olderOnOrigin": "Ältere Beiträge gibt es evtl. nur auf ihrem Server.",
       "olderOnOriginLink": "Ältere Beiträge auf der Originalseite ansehen",
+      "accountSuspended": "Dieses Konto ist gesperrt",
+      "domainSuspended": "Dieser Server ist von dieser Instanz blockiert",
       "signinRequired": "Melde dich an, um Beiträge zu sehen",
       "signinRequiredHint": "Die Beiträge dieses Kontos sind nur für angemeldete Nutzer sichtbar.",
       "signinRequiredAction": "Anmelden"

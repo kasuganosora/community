@@ -290,7 +290,31 @@ func resolveProfile(conn *gorm.DB, base, site, acct string) Document {
 	if missing {
 		return notFound(site)
 	}
-	return profileDoc(base, site, account)
+	domain := ""
+	if account.Domain != nil {
+		domain = *account.Domain
+	}
+	blocked, _, err := models.NodeSuspension(conn, domain)
+	if err != nil {
+		return Document{Code: 200}
+	}
+	// The acct domain is already withheld from lookup. The HTML document
+	// follows that: no cached biography, same 404 as a suspended account.
+	if blocked {
+		return notFound(site)
+	}
+	doc := profileDoc(base, site, account)
+	originBlocked, _, err := models.NodeSuspension(conn, models.AccountOriginHost(account))
+	if err != nil {
+		return Document{Code: 200}
+	}
+	if originBlocked && !strings.EqualFold(models.AccountOriginHost(account), domain) {
+		// Status stays 200. Drop the cached biography without naming the block.
+		doc.Meta.Description = "Profile on " + site + "."
+		doc.Meta.Image = ""
+		doc.Meta.NoIndex = true
+	}
+	return doc
 }
 
 func profileDoc(base, site string, account *models.Account) Document {
@@ -554,7 +578,13 @@ func findAccount(conn *gorm.DB, raw string) (*models.Account, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	if account.IsBan || account.DeletionRequestedAt != nil {
+	// A local login ban (users.is_ban) is the same public unavailability as
+	// accounts.is_ban: the HTML document is a 404 with no biography.
+	suspended, suspendErr := models.AccountSuspended(conn, &account)
+	if suspendErr != nil {
+		return nil, false, suspendErr
+	}
+	if suspended || account.DeletionRequestedAt != nil {
 		return nil, true, nil
 	}
 	return &account, false, nil

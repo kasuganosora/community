@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { accountHover, closeAccountHover, keepAccountHover, leaveAccountHover } from '@/shared/composables/useAccountHover'
 import { sessionEpoch } from '@/shared/api/sessionScope'
-import { userApi } from '@/domains/user/infrastructure/userApi'
+import { classifyProfileError, profileBanReason, profileRestrictionMessage, userApi } from '@/domains/user/infrastructure/userApi'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { followButtonLabel, followStateOf } from '@/domains/user/domain/relationship'
 import { displayAccount } from '@/shared/utils/accountDisplay'
@@ -17,6 +17,7 @@ const auth = useAuthStore()
 const route = useRoute()
 const card = ref<HTMLElement>()
 const account = ref<MastodonAccount>()
+const restriction = ref<'account_suspended' | 'domain_suspended' | null>(null)
 const relationship = ref<MastodonRelationship>()
 const loading = ref(false)
 const failed = ref(false)
@@ -49,16 +50,41 @@ watch(accountHover, async target => {
   const current = ++version
   request = new AbortController()
   const signal = request.signal
-  account.value = target?.account
+  const seededBan = profileBanReason(target?.account)
+  restriction.value = seededBan
+  account.value = seededBan ? undefined : target?.account
   relationship.value = undefined
   failed.value = followFailed.value = headerFailed.value = busy.value = false
-  loading.value = !!target && !account.value
+  loading.value = !!target && !account.value && !seededBan
   await nextTick()
   if (current !== version || !target) return
   place()
+  if (seededBan) return
   try {
-    const result = target.account ?? await userApi.lookupCachedAccount(target.acct, signal)
-    if (signal.aborted || current !== version) return
+    // A timeline row can carry a cached account with no availability field.
+    // Lookup is local and does not contact a blocked remote host.
+    let result = target.account
+    try {
+      const fresh = await userApi.lookupCachedAccount(target.acct, signal)
+      if (fresh) result = fresh
+    } catch (error) {
+      const reason = classifyProfileError(error)
+      if (reason === 'account_suspended' || reason === 'domain_suspended') {
+        if (signal.aborted || current !== version) return
+        account.value = undefined
+        restriction.value = reason
+        return
+      }
+      if (!result) throw error
+    }
+    if (signal.aborted || current !== version || !result) return
+    const ban = profileBanReason(result)
+    if (ban) {
+      account.value = undefined
+      restriction.value = ban
+      return
+    }
+    restriction.value = null
     account.value = result
     loading.value = false
     if (auth.isAuthenticated && auth.currentUser?.id !== result.id) {
@@ -66,7 +92,7 @@ watch(accountHover, async target => {
       if (!signal.aborted && current === version) relationship.value = rels.find(rel => rel.id === result.id)
     }
   } catch {
-    if (!signal.aborted && current === version) failed.value = true
+    if (!signal.aborted && current === version && !account.value) failed.value = true
   } finally {
     if (!signal.aborted && current === version) { loading.value = false; await nextTick(); place() }
   }
@@ -139,7 +165,11 @@ onBeforeUnmount(() => {
     <section id="account-hover-card" ref="card" class="account-hover-card" role="dialog" :aria-label="$t('shared.AccountHoverCard.title')" :style="position"
       @pointerenter="keepAccountHover" @pointerleave="leaveAccountHover" @focusin="keepAccountHover" @focusout="onFocusOut" @keydown="onTab"
 >
-      <template v-if="account">
+      <div v-if="restriction" class="account-hover-card__empty" data-testid="account-hover-restriction">
+        <p role="status">{{ profileRestrictionMessage(restriction) }}</p>
+        <router-link :to="profilePath">@{{ displayAccount(accountHover?.acct || '') }}</router-link>
+      </div>
+      <template v-else-if="account">
         <div class="account-hover-card__cover">
           <img v-if="account.header && !headerFailed" :src="account.header" alt="" @error="headerFailed = true" />
           <span v-if="relationship?.followed_by" class="account-hover-card__badge">{{ $t('user.ProfilePage.s4') }}</span>

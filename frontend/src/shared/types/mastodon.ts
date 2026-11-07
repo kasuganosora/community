@@ -99,6 +99,10 @@ export interface MastodonAccount {
   followers_visibility?: CollectionVisibility
   /** Extension (Misskey requireSigninToViewContents): posts are hidden from logged-out visitors. */
   require_signin_to_view?: boolean
+  /** Administrator account suspension. Absent for a healthy profile and for a node block. */
+  suspended?: boolean
+  /** Public-safe restriction. Absent when the profile may be shown. */
+  availability?: { reason?: 'account_suspended' | 'domain_suspended' }
   emojis: MastodonEmoji[]
   fields: MastodonField[]
   /** Only present on verify_credentials / update_credentials (own account). */

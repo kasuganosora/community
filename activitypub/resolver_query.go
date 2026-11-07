@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 )
@@ -65,14 +66,36 @@ func ResolveSearchAccount(ctx context.Context, query string) (*models.Account, e
 		if err := validateFederationURI(identifier); err != nil {
 			return nil, err
 		}
-		if parsed, err := url.Parse(identifier); err == nil && IsLocalDomain(parsed.Host) {
+		parsed, err := url.Parse(identifier)
+		if err == nil && IsLocalDomain(parsed.Host) {
 			return nil, nil
 		}
-	} else if acct, _ := ParseAcctQuery(identifier); acct.Domain == "" {
+		if err == nil && profileHostSuspended(parsed.Hostname()) {
+			return nil, ErrDeliveryBlocked
+		}
+		return NewResolver(nil, "").ResolveAccount(ctx, identifier)
+	}
+	acct, _ := ParseAcctQuery(identifier)
+	if acct.Domain == "" {
 		// Our own domain: the local index already has every account.
 		return nil, nil
 	}
+	if profileHostSuspended(acct.Domain) {
+		// Local node policy already decided. Do not webfinger or fetch.
+		return nil, ErrDeliveryBlocked
+	}
 	return NewResolver(nil, "").ResolveAccount(ctx, identifier)
+}
+
+// profileHostSuspended reports a positive instance suspend for host.
+// A database error does not invent a block; DomainSeverities already treats
+// a missing table as no policy.
+func profileHostSuspended(host string) bool {
+	if strings.TrimSpace(host) == "" || IsLocalDomain(host) {
+		return false
+	}
+	blocked, _, err := models.NodeSuspension(db.GetDB(), host)
+	return err == nil && blocked
 }
 
 // ErrNotSearchable is returned for URLs that name neither an actor nor a

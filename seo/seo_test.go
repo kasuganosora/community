@@ -310,6 +310,104 @@ func linkTag(t *testing.T, conn *gorm.DB, statusID uint64, name string) {
 	require.NoError(t, conn.Create(&models.StatusTag{StatusId: statusID, TagId: tag.Id}).Error)
 }
 
+func TestProfileDocumentHidesSuspendedNodesWithoutPrivateRemarks(t *testing.T) {
+	defer useExampleSite(t)()
+	conn := openSEO(t)
+	require.NoError(t, conn.AutoMigrate(&models.DomainBlock{}))
+	systemsettings.Set(moderation.KeyBlockedHosts, []string{"https://Blocked.Example/path"})
+	moderation.Invalidate()
+	t.Cleanup(func() {
+		systemsettings.Set(moderation.KeyBlockedHosts, []string{})
+		moderation.Invalidate()
+	})
+
+	healthyDomain := "healthy.example"
+	makeAccount(t, conn, 1, "helen", func(a *models.Account) {
+		a.Domain = &healthyDomain
+		a.Note = "healthy-profile-note"
+	})
+	blockedDomain := "blocked.example"
+	makeAccount(t, conn, 2, "ada", func(a *models.Account) {
+		a.Domain = &blockedDomain
+		a.Note = "cached-profile-note"
+	})
+	child := "a.blocked.example"
+	makeAccount(t, conn, 3, "ada", func(a *models.Account) {
+		a.Domain = &child
+		a.Note = "child-profile-note"
+	})
+	quiet := "quiet-node.example"
+	makeAccount(t, conn, 4, "dee", func(a *models.Account) {
+		a.Domain = &quiet
+		a.Note = "quiet-profile-note"
+	})
+	require.NoError(t, conn.Create(&models.DomainBlock{Domain: quiet, Severity: "silence", PrivateComment: "synthetic-private-remark", PublicComment: "synthetic-public-remark"}).Error)
+	dbDomain := "db.example"
+	makeAccount(t, conn, 5, "bea", func(a *models.Account) {
+		a.Domain = &dbDomain
+		a.Note = "db-profile-note"
+	})
+	require.NoError(t, conn.Create(&models.DomainBlock{Domain: "DB.Example", Severity: "suspend", PrivateComment: "synthetic-private-remark", PublicComment: "synthetic-public-remark"}).Error)
+
+	healthy := Resolve(conn, "/@helen@healthy.example")
+	require.Equal(t, 200, healthy.Code)
+	require.Contains(t, healthy.Meta.Description, "healthy-profile-note")
+
+	for _, path := range []string{"/@ada@blocked.example", "/@ada@a.blocked.example", "/@bea@db.example"} {
+		doc := Resolve(conn, path)
+		html := string(Inject([]byte(shell), doc))
+		require.Equal(t, 404, doc.Code, path)
+		require.NotContains(t, html, "cached-profile-note")
+		require.NotContains(t, html, "child-profile-note")
+		require.NotContains(t, html, "db-profile-note")
+		require.NotContains(t, html, "synthetic-private-remark")
+		require.NotContains(t, html, "synthetic-public-remark")
+		require.NotContains(t, html, "domain_suspended")
+	}
+
+	quietDoc := Resolve(conn, "/@dee@quiet-node.example")
+	require.Equal(t, 200, quietDoc.Code)
+	require.Contains(t, quietDoc.Meta.Description, "quiet-profile-note")
+}
+
+func TestLocalLoginBanIsUnavailableLikeAccountBan(t *testing.T) {
+	defer useExampleSite(t)()
+	conn := openSEO(t)
+	require.NoError(t, conn.AutoMigrate(&models.User{}))
+	user := &models.User{UserName: "syntheticlocal", EmailHash: "syntheticlocal-hash", Properties: map[string]any{}, IsBan: true}
+	require.NoError(t, conn.Create(user).Error)
+	makeAccount(t, conn, 8, "syntheticlocal", func(a *models.Account) {
+		a.UserId = user.Id
+		a.IsBan = false
+		a.Note = "login-ban-biography"
+		a.DisplayName = "Synthetic Local"
+	})
+	makeAccount(t, conn, 9, "healthy", func(a *models.Account) {
+		a.Note = "healthy-biography"
+		a.DisplayName = "Healthy"
+	})
+
+	banned := Resolve(conn, "/@syntheticlocal")
+	html := string(Inject([]byte(shell), banned))
+	require.Equal(t, 404, banned.Code)
+	require.True(t, banned.Meta.NoIndex)
+	require.NotContains(t, html, "login-ban-biography")
+	require.NotContains(t, banned.Meta.Description, "login-ban-biography")
+
+	healthy := Resolve(conn, "/@healthy")
+	require.Equal(t, 200, healthy.Code)
+	require.False(t, healthy.Meta.NoIndex)
+	require.Contains(t, healthy.Meta.Description, "healthy-biography")
+
+	makeStatus(t, conn, 80, 8, models.StatusVisibilityPublic, "login-ban-post")
+	makeStatus(t, conn, 81, 9, models.StatusVisibilityPublic, "healthy-post")
+	resetSitemap(t)
+	raw, err := Body(context.Background())
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "/@syntheticlocal")
+	require.Contains(t, string(raw), "/@healthy")
+}
+
 func TestBoostMetadataDoesNotExposeUnavailableOriginalAuthor(t *testing.T) {
 	defer useExampleSite(t)()
 	for _, state := range []string{"suspended", "deleting", "deleted"} {

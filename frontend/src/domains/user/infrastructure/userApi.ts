@@ -67,6 +67,90 @@ export function clearCachedAccounts(): void {
   accountCache.clear()
 }
 
+export type ProfileFailureReason =
+  | 'account_suspended'
+  | 'domain_suspended'
+  | 'not_found'
+  | 'timeout'
+  | 'fetch_failed'
+  | 'unauthorized'
+  | 'forbidden'
+
+const BAN_REASONS = new Set<ProfileFailureReason>(['account_suspended', 'domain_suspended'])
+
+export class ProfileLookupError extends Error {
+  readonly reason: ProfileFailureReason
+  readonly status?: number
+  readonly code?: string
+
+  constructor(reason: ProfileFailureReason, message: string, source?: unknown) {
+    super(message)
+    this.name = 'ProfileLookupError'
+    this.reason = reason
+    const status = errorStatus(source)
+    if (status !== undefined) this.status = status
+    const code = (source as { code?: string } | null)?.code
+    if (code) this.code = code
+  }
+}
+
+export function profileBanReason(account: { suspended?: boolean; availability?: { reason?: string } } | null | undefined): 'account_suspended' | 'domain_suspended' | null {
+  const reason = account?.availability?.reason
+  if (reason === 'account_suspended' || reason === 'domain_suspended') return reason
+  if (account?.suspended) return 'account_suspended'
+  return null
+}
+
+function readAvailability(error: unknown): 'account_suspended' | 'domain_suspended' | undefined {
+  const data = (error as { response?: { data?: { availability?: { reason?: string } } } } | null)?.response?.data
+  const reason = data?.availability?.reason
+  return reason === 'account_suspended' || reason === 'domain_suspended' ? reason : undefined
+}
+
+export function classifyProfileError(error: unknown): ProfileFailureReason | null {
+  const availability = readAvailability(error)
+  if (availability) return availability
+  if (error instanceof ProfileLookupError) return error.reason
+  const status = errorStatus(error)
+  if (status === 401) return 'unauthorized'
+  if (status === 403) return 'forbidden'
+  if (status === 404) return 'not_found'
+  if (isTimeoutError(error as { code?: string; message?: string } | null)) return 'timeout'
+  const code = (error as { code?: string } | null)?.code
+  if (code === 'ERR_NETWORK' || code === 'OFFLINE') return 'fetch_failed'
+  return null
+}
+
+export function profileRestrictionMessage(reason: ProfileFailureReason): string {
+  switch (reason) {
+    case 'account_suspended':
+      return t('user.ProfilePage.accountSuspended')
+    case 'domain_suspended':
+      return t('user.ProfilePage.domainSuspended')
+    case 'not_found':
+      return t('user.userApi.s1')
+    case 'timeout':
+      return t('user.ProfilePage.s22')
+    case 'fetch_failed':
+      return t('shared.client.s3')
+    case 'unauthorized':
+      return t('shared.client.s4')
+    case 'forbidden':
+      return t('shared.client.s5')
+  }
+}
+
+function profileFailure(error: unknown): ProfileLookupError | null {
+  const reason = classifyProfileError(error)
+  if (!reason || reason === 'not_found') return null
+  if (!BAN_REASONS.has(reason) && reason !== 'unauthorized' && reason !== 'forbidden' && reason !== 'timeout' && reason !== 'fetch_failed') return null
+  const keepTransportText = reason === 'timeout' || reason === 'fetch_failed'
+  const message = keepTransportText && error instanceof Error && error.message
+    ? error.message
+    : profileRestrictionMessage(reason)
+  return new ProfileLookupError(reason, message, error)
+}
+
 /** Timeouts, dropped connections, and 408/429/5xx. Real 404/410 stay final. */
 export function isTransientAccountError(error: unknown): boolean {
   const status = errorStatus(error)
@@ -118,11 +202,19 @@ export const userApi = {
       rememberCachedAccount(data, q)
       return data
     } catch (e) {
+      const failure = profileFailure(e)
+      if (failure && (failure.reason === 'account_suspended' || failure.reason === 'domain_suspended')) {
+        forgetCachedAccount(q)
+        throw failure
+      }
       if (isGone(e)) {
         forgetCachedAccount(q)
         throw e
       }
-      if (!isNotFound(e)) throw e
+      if (!isNotFound(e)) {
+        if (failure) throw failure
+        throw e
+      }
       forgetCachedAccount(q)
     }
     if (q.includes('@') && tokenService.get()) {

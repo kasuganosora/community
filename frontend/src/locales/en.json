@@ -3628,6 +3628,8 @@
       "s30": "Blocked",
       "olderOnOrigin": "Older posts may only be on their server.",
       "olderOnOriginLink": "See older posts on the original site",
+      "accountSuspended": "This user is suspended",
+      "domainSuspended": "This server is blocked by this site",
       "signinRequired": "Sign in to see posts",
       "signinRequiredHint": "This account's posts are only visible to signed-in users.",
       "signinRequiredAction": "Sign in"

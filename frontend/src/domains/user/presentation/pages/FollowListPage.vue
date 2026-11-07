@@ -6,7 +6,7 @@ import { useRoute } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
 import type { MastodonAccount } from '@/shared/types/mastodon'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
-import { userApi } from '../../infrastructure/userApi'
+import { profileBanReason, profileRestrictionMessage, userApi } from '../../infrastructure/userApi'
 import { useRelationships } from '../composables/useRelationships'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import AccountRow from '@/shared/components/common/AccountRow.vue'
@@ -27,6 +27,7 @@ const feed = usePaginatedList(async (maxId, limit) => {
 const { items: accounts, hasMore } = feed
 const loading = ref(true)
 const error = ref<string | null>(null)
+const restriction = ref<'account_suspended' | 'domain_suspended' | null>(null)
 const relationships = useRelationships()
 let version = 0
 
@@ -43,10 +44,19 @@ async function load() {
   const my = ++version
   loading.value = true
   error.value = null
+  restriction.value = null
+  owner.value = null
   accounts.value = []
   try {
     const acct = await userApi.lookupAccount(String(route.params.username ?? ''))
     if (my !== version) return
+    const ban = profileBanReason(acct)
+    if (ban) {
+      // A 200 lookup can still be an account suspension or an origin-only
+      // node block. Do not render the owner or request the follow list.
+      showRestriction(ban)
+      return
+    }
     owner.value = acct
     await feed.refresh()
     if (my !== version) return
@@ -57,6 +67,13 @@ async function load() {
   } finally {
     if (my === version) loading.value = false
   }
+}
+
+function showRestriction(reason: 'account_suspended' | 'domain_suspended') {
+  owner.value = null
+  accounts.value = []
+  restriction.value = reason
+  error.value = profileRestrictionMessage(reason)
 }
 
 async function toggleFollow(account: MastodonAccount) {
@@ -87,10 +104,10 @@ onMounted(load)
 
     <div v-if="loading" class="page-loading"><t-loading /></div>
 
-    <div v-else-if="error" class="empty-state" role="alert">
+    <div v-else-if="error" class="empty-state" role="alert" :data-testid="restriction ? 'follow-list-restriction' : undefined">
       <div class="empty-state__icon"><t-icon name="error-circle" :size="48" /></div>
-      <h2 class="empty-state__title">{{ $t('user.FollowListPage.s3') }}</h2>
-      <p class="empty-state__text">{{ error }}</p>
+      <h2 class="empty-state__title">{{ restriction ? error : $t('user.FollowListPage.s3') }}</h2>
+      <p v-if="!restriction" class="empty-state__text">{{ error }}</p>
       <button type="button" class="btn btn--secondary btn--sm" @click="load">{{ $t('user.FollowListPage.s4') }}</button>
     </div>
 

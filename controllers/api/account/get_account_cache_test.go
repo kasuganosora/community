@@ -72,3 +72,81 @@ func TestGetAccountCacheHydratesCounters(t *testing.T) {
 	require.NoError(t, db.Model(&models.AccountExtra{}).Where("account_id = ?", account.Id).Update("followers_count", 8).Error)
 	require.Equal(t, float64(8), request(), "cached profile must reflect accepted follow count changes")
 }
+
+func TestGetAccountReportsCurrentSuspension(t *testing.T) {
+	db, err := pgtest.GormOpen(t, sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	require.NoError(t, db.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.Emoji{}, &models.User{}, &models.DomainBlock{}))
+	database.SetTestDB(db)
+	t.Cleanup(database.ResetTestDB)
+	accountCacheRedis.once.Do(func() {
+		accountCacheRedis.server, accountCacheRedis.err = miniredis.Run()
+		if accountCacheRedis.err == nil {
+			accountCacheRedis.client = redis.NewClient(&redis.Options{Addr: accountCacheRedis.server.Addr()})
+		}
+	})
+	require.NoError(t, accountCacheRedis.err)
+	previous := cRedis.GetRedisesForTest()
+	cRedis.SetRedisesForTest([]*redis.Client{accountCacheRedis.client})
+	t.Cleanup(func() { cRedis.SetRedisesForTest(previous) })
+
+	user := &models.User{UserName: "syntheticlocal", EmailHash: "syntheticlocal-hash", Properties: map[string]any{}}
+	require.NoError(t, db.Create(user).Error)
+	account := &models.Account{Id: 42, Username: "syntheticlocal", UserId: user.Id, Note: "login-ban-biography"}
+	require.NoError(t, db.Create(account).Error)
+	key := fmt.Sprintf(cache.KeyAccountByAcct, "42")
+	require.NoError(t, cache.GetCache().Set(context.Background(), key, account, cache.DefaultExpiration))
+	require.NoError(t, db.Model(&models.User{}).Where("id = ?", user.Id).UpdateColumn("is_ban", true).Error)
+
+	body := getAccountBody(t, "42")
+	require.Equal(t, models.ProfileAvailabilityAccountSuspended, availabilityOf(body))
+	require.Equal(t, true, body["suspended"])
+	require.Contains(t, body["note"], "login-ban-biography")
+
+	require.NoError(t, db.Model(&models.User{}).Where("id = ?", user.Id).UpdateColumn("is_ban", false).Error)
+	body = getAccountBody(t, "42")
+	require.Empty(t, availabilityOf(body))
+	_, ok := body["availability"]
+	require.False(t, ok)
+	require.NotEqual(t, true, body["suspended"])
+
+	domain := "blocked.example"
+	remote := &models.Account{Id: 43, Username: "ada", Domain: &domain, OriginId: "https://blocked.example/users/ada", Note: "remote-note"}
+	require.NoError(t, db.Create(remote).Error)
+	require.NoError(t, db.Create(&models.DomainBlock{Domain: "Blocked.Example", Severity: "suspend", PrivateComment: "synthetic-private-remark", PublicComment: "synthetic-public-remark"}).Error)
+	raw := getAccountRaw(t, "43")
+	require.Contains(t, raw, `"reason":"domain_suspended"`)
+	require.NotContains(t, raw, "synthetic-private-remark")
+	require.NotContains(t, raw, "synthetic-public-remark")
+	require.Contains(t, raw, "remote-note")
+
+	require.NoError(t, db.Model(&models.DomainBlock{}).Where("id > 0").Update("obfuscate", true).Error)
+	raw = getAccountRaw(t, "43")
+	require.NotContains(t, raw, "domain_suspended")
+	require.NotContains(t, raw, "availability")
+	require.NotContains(t, raw, "synthetic-private-remark")
+	require.Contains(t, raw, "remote-note")
+}
+
+func getAccountRaw(t *testing.T, id string) string {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/v1/accounts/"+id, nil)
+	c.Params = gin.Params{{Key: "id", Value: id}}
+	GetAccount(c)
+	require.Empty(t, c.Errors)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	return w.Body.String()
+}
+
+func getAccountBody(t *testing.T, id string) map[string]any {
+	t.Helper()
+	var body map[string]any
+	require.NoError(t, json.Unmarshal([]byte(getAccountRaw(t, id)), &body))
+	return body
+}
