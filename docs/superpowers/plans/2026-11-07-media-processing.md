@@ -9,7 +9,7 @@
 - Description updates no longer save the whole media row.
 - Async Matrix hashes the stored bytes. Avatar decode checks the canvas size before `image.Decode`.
 - Staging cleanup runs on the worker tick, 32 directories at a time.
-- JPEG/MJPEG in this ffmpeg build reports unknown primaries, so those frames are assigned bt.709 rather than converted from an ICC profile the decoder did not read. Tagged video primaries are converted to bt.709. Alpha frames skip that filter.
+- Embedded RGB ICC profiles are converted to sRGB with LittleCMS after orientation, including alpha and animation. Unsupported or malformed profiles fail closed. Untagged images are not passed through a colorspace filter that would relabel them. Video bt.2020 tags still use ffmpeg's colorspace filter.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 

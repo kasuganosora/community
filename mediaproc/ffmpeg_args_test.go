@@ -64,8 +64,8 @@ func TestBuildEncodeArgs(t *testing.T) {
 		t.Fatalf("bt2020 input was not converted: %s", wide)
 	}
 	plain := strings.Join(BuildEncodeArgs("in.jpg", "out.webp", Plan{Action: ActionEncode, OutputMIME: "image/webp"}, Probe{}, cfg), " ")
-	if !strings.Contains(plain, "colorspace=all=bt709:iall=bt709:range=tv:fast=1") {
-		t.Fatalf("untagged image was not assigned bt709: %s", plain)
+	if strings.Contains(plain, "colorspace=") {
+		t.Fatalf("image encode must not relabel pixels with the video colorspace filter: %s", plain)
 	}
 	cmd, err := command(context.Background(), "ffmpeg", []string{"-version"})
 	if err != nil {

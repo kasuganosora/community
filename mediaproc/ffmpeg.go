@@ -146,6 +146,22 @@ func ProcessFile(ctx context.Context, inputPath, workDir string, detected string
 		}
 		return Output{Path: inputPath, MIME: detected, Info: probe, KeptOriginal: true, InputBytes: info.Size(), OutputBytes: info.Size()}, nil
 	}
+	if kind == "image" {
+		prepared, perr := prepareSRGBImage(ctx, inputPath, workDir)
+		if perr != nil {
+			return Output{}, perr
+		}
+		if prepared != inputPath {
+			inputPath = prepared
+			probe, err = ProbeFile(ctx, inputPath)
+			if err != nil {
+				return Output{}, ErrCorrupt
+			}
+			if err = enforceLimits(kind, info.Size(), probe, limits); err != nil {
+				return Output{}, err
+			}
+		}
+	}
 	ext := extensionFor(plan.OutputMIME)
 	dest := filepath.Join(workDir, "output"+ext)
 	if err = Encode(ctx, inputPath, dest, plan, probe, cfg, progressFrom(ctx)); err != nil {
@@ -514,7 +530,9 @@ func BuildEncodeArgs(in, out string, plan Plan, probe Probe, cfg systemsettings.
 		if probe.HasAlpha {
 			pix = "yuva420p"
 		}
-		args = append(args, "-vf", imageScale(probe)+","+colorFilter(probe)+",format="+pix, "-c:v", "libwebp", "-quality", strconv.Itoa(cfg.ImageQuality), "-pix_fmt", pix)
+		// Image pixels are already sRGB when a profile was present. A second
+		// colorspace filter would reinterpret those values and change them.
+		args = append(args, "-vf", imageScale(probe)+",format="+pix, "-c:v", "libwebp", "-quality", strconv.Itoa(cfg.ImageQuality), "-pix_fmt", pix)
 		if probe.Animated {
 			args = append(args, "-loop", "0")
 		} else {

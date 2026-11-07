@@ -25,6 +25,7 @@ require (
 	github.com/kasuganosora/thinkbot v0.0.0-20261020132055-3d8a25b70fcd
 	github.com/matrix-org/gomatrixserverlib v0.0.0-20260716140101-4fe595dc7f58
 	github.com/meilisearch/meilisearch-go v0.36.3
+	github.com/mgilbir/golittlecms v0.0.0-20260727161601-f6af7cfe1556
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/monoculum/formam/v3 v3.6.0
