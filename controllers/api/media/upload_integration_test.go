@@ -2,14 +2,25 @@ package media
 
 import (
 	"bytes"
+	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
+	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -93,6 +104,129 @@ func TestUpload_SuccessImageWithThumbnail(t *testing.T) {
 	matches, err := filepath.Glob(filepath.Join(dir, "uploads", "media", "*", "*", "*", "thumb_*"))
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(matches), 1, "thumbnail should exist on disk")
+}
+
+func TestDistinctUploadsKeepIndependentOriginalsAndThumbnails(t *testing.T) {
+	withTempWorkDir(t)
+	setupMediaTestDB(t)
+	red := uploadSolidPNG(t, color.RGBA{R: 220, G: 20, B: 20, A: 255}, "red.png")
+	blue := uploadSolidPNG(t, color.RGBA{R: 20, G: 40, B: 220, A: 255}, "blue.png")
+	assertIndependentMedia(t, red, blue)
+
+	var wg sync.WaitGroup
+	var left, right models.MediaAttachment
+	var leftCode, rightCode int
+	var leftBody, rightBody string
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		left, leftCode, leftBody = uploadSolidPNGRaw(color.RGBA{R: 20, G: 200, B: 40, A: 255}, "green.png")
+	}()
+	go func() {
+		defer wg.Done()
+		right, rightCode, rightBody = uploadSolidPNGRaw(color.RGBA{R: 230, G: 180, B: 20, A: 255}, "yellow.png")
+	}()
+	wg.Wait()
+	require.Equal(t, http.StatusOK, leftCode, leftBody)
+	require.Equal(t, http.StatusOK, rightCode, rightBody)
+	assertIndependentMedia(t, left, right)
+}
+
+func solidPNG(c color.Color) []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 8; x++ {
+			img.Set(x, y, c)
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+}
+
+func uploadSolidPNG(t *testing.T, c color.Color, name string) models.MediaAttachment {
+	t.Helper()
+	got, code, body := uploadSolidPNGRaw(c, name)
+	require.Equal(t, http.StatusOK, code, body)
+	return got
+}
+
+func uploadSolidPNGRaw(c color.Color, name string) (models.MediaAttachment, int, string) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", `form-data; name="file"; filename="`+name+`"`)
+	header.Set("Content-Type", "image/png")
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return models.MediaAttachment{}, 0, err.Error()
+	}
+	if _, err = part.Write(solidPNG(c)); err != nil {
+		return models.MediaAttachment{}, 0, err.Error()
+	}
+	if err = writer.Close(); err != nil {
+		return models.MediaAttachment{}, 0, err.Error()
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/media", body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	ctx, w := uploadHandlerContext(req)
+	Upload(ctx)
+	if w.Code != http.StatusOK {
+		return models.MediaAttachment{}, w.Code, w.Body.String()
+	}
+	var payload struct {
+		ID string `json:"id"`
+	}
+	if err = json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		return models.MediaAttachment{}, w.Code, err.Error()
+	}
+	id, err := strconv.ParseUint(payload.ID, 10, 64)
+	if err != nil {
+		return models.MediaAttachment{}, w.Code, err.Error()
+	}
+	var got models.MediaAttachment
+	if err = database.GetDB().First(&got, id).Error; err != nil {
+		return models.MediaAttachment{}, w.Code, err.Error()
+	}
+	return got, w.Code, w.Body.String()
+}
+
+func uploadHandlerContext(req *http.Request) (*gin.Context, *httptest.ResponseRecorder) {
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = req
+	ctx.Set("authenticated", true)
+	ctx.Set("account", createTestAccount())
+	return ctx, w
+}
+
+func assertIndependentMedia(t *testing.T, a, b models.MediaAttachment) {
+	t.Helper()
+	require.NotEqual(t, a.Id, b.Id)
+	require.NotEqual(t, a.FilePath, b.FilePath)
+	require.NotEmpty(t, a.ThumbPath())
+	require.NotEmpty(t, b.ThumbPath())
+	require.NotEqual(t, a.ThumbnailStorageKey(), b.ThumbnailStorageKey(), "thumbnail objects must not share a storage key")
+	aOrig, err := os.ReadFile(filepath.Join("uploads", filepath.FromSlash(a.StorageKey())))
+	require.NoError(t, err)
+	bOrig, err := os.ReadFile(filepath.Join("uploads", filepath.FromSlash(b.StorageKey())))
+	require.NoError(t, err)
+	require.NotEqual(t, aOrig, bOrig)
+	aThumb, err := os.ReadFile(filepath.Join("uploads", filepath.FromSlash(a.ThumbnailStorageKey())))
+	require.NoError(t, err)
+	bThumb, err := os.ReadFile(filepath.Join("uploads", filepath.FromSlash(b.ThumbnailStorageKey())))
+	require.NoError(t, err)
+	require.NotEqual(t, aThumb, bThumb)
+	aView, err := serializer.ToMediaAttachment(&a)
+	require.NoError(t, err)
+	bView, err := serializer.ToMediaAttachment(&b)
+	require.NoError(t, err)
+	require.NotEqual(t, aView.Url, bView.Url)
+	require.NotEqual(t, aView.PreviewUrl, bView.PreviewUrl)
+	require.Contains(t, aView.PreviewUrl, "/media/"+aView.Id+"/thumbnail/"+a.ThumbPath())
+	require.Contains(t, bView.PreviewUrl, "/media/"+bView.Id+"/thumbnail/"+b.ThumbPath())
 }
 
 func TestUpload_FocusParsingInvalid(t *testing.T) {

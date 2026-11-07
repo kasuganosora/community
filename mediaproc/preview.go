@@ -2,6 +2,7 @@ package mediaproc
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -39,4 +40,45 @@ func defaultPreview(ctx context.Context, path, mime, work string) (string, strin
 		return "", "", 0, 0, ErrProcess
 	}
 	return name, blur, w, h, nil
+}
+
+// Preview is the thumbnail used by both synchronous uploads and the queue worker.
+func Preview(ctx context.Context, path, mime, work string) (string, string, int, int, error) {
+	return defaultPreview(ctx, path, mime, work)
+}
+
+// BindThumbnail gives a generated thumbnail the public file's identity.
+// The encoder's local name is shared (output.webp, frame.jpg), so storing
+// that name unchanged would overwrite one object for every upload that day.
+func BindThumbnail(dir, publicFile, generated string) (string, error) {
+	name := thumbnailName(publicFile, generated)
+	if name == generated {
+		return name, nil
+	}
+	from := filepath.Join(dir, generated)
+	to := filepath.Join(dir, name)
+	if err := os.Rename(from, to); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+func thumbnailName(publicFile, generated string) string {
+	ext := filepath.Ext(generated)
+	if ext == "" {
+		ext = ".jpg"
+	}
+	stem := strings.TrimSuffix(filepath.Base(publicFile), filepath.Ext(publicFile))
+	stem = strings.Map(func(r rune) rune {
+		switch r {
+		case '/', '\\', 0:
+			return -1
+		default:
+			return r
+		}
+	}, stem)
+	if stem == "" || stem == "." || stem == ".." {
+		stem = "image"
+	}
+	return "thumb_" + stem + ext
 }
