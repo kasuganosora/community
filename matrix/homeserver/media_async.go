@@ -205,8 +205,7 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, 
 			_ = storage.Delete(key)
 		}
 	}()
-	hash := sha256.New()
-	size, err := copyAsyncMedia(io.MultiWriter(file, hash), source, matrixMediaLimit)
+	size, err := copyAsyncMedia(file, source, matrixMediaLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -230,6 +229,10 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, 
 	}
 	contentType = gated.MIME
 	size = gated.Size
+	sum, err := hashFile(gated.Path)
+	if err != nil {
+		return nil, err
+	}
 	if err = storage.PutFile(ctx, gated.Path, key, contentType); err != nil {
 		return nil, err
 	}
@@ -240,7 +243,7 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, 
 		if err := tx.Create(record).Error; err != nil {
 			return err
 		}
-		result := tx.Model(&AsyncMediaInfo{}).Where("id = ? AND status = ? AND claim_token = ? AND claim_expires_at > ?", pending.ID, "processing", token, time.Now()).Updates(map[string]any{"claim_token": "", "claim_expires_at": nil, "status": "done", "content_uri": uri, "size": size, "sha256_hash": hex.EncodeToString(hash.Sum(nil)), "content_type": contentType, "updated_at": time.Now()})
+		result := tx.Model(&AsyncMediaInfo{}).Where("id = ? AND status = ? AND claim_token = ? AND claim_expires_at > ?", pending.ID, "processing", token, time.Now()).Updates(map[string]any{"claim_token": "", "claim_expires_at": nil, "status": "done", "content_uri": uri, "size": size, "sha256_hash": hex.EncodeToString(sum), "content_type": contentType, "updated_at": time.Now()})
 		if result.Error != nil {
 			return result.Error
 		}
@@ -257,6 +260,19 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, 
 }
 
 // copyAsyncMedia stops at the first excess byte without buffering the body.
+func hashFile(path string) ([]byte, error) {
+	f, err := os.Open(path) //nolint:gosec // G304: private temp file created above
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	sum := sha256.New()
+	if _, err = io.Copy(sum, f); err != nil {
+		return nil, err
+	}
+	return sum.Sum(nil), nil
+}
+
 func copyAsyncMedia(dst io.Writer, source io.Reader, limit int64) (int64, error) {
 	n, err := io.Copy(dst, io.LimitReader(source, limit+1))
 	if err == nil && n > limit {

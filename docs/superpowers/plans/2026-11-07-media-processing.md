@@ -1,5 +1,16 @@
 # Local Media Processing Implementation Plan
 
+## Review repairs (2026-11-07)
+
+- Renewable lease and attempt-isolated output keys. A second claim waits until this process's previous encode has stopped.
+- Expired `saving` rows are claimable. Missing staging fails the row and frees the queue slot.
+- One ffmpeg at a time in this process for every `ProcessFile`, including Matrix. Eight is the database admission cap, not the encoder count, and it is not shared across replicas.
+- ffmpeg `-progress pipe:1` is parsed and written only while the claim token matches. The composer resumes a stored task id and renders saving and failure.
+- Description updates no longer save the whole media row.
+- Async Matrix hashes the stored bytes. Avatar decode checks the canvas size before `image.Decode`.
+- Staging cleanup runs on the worker tick, 32 directories at a time.
+- JPEG/MJPEG in this ffmpeg build reports unknown primaries, so those frames are assigned bt.709 rather than converted from an ICC profile the decoder did not read. Tagged video primaries are converted to bt.709. Alpha frames skip that filter.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Process new local uploads with saved WebP/WebM, re-encode, and privacy settings, fail closed, and run videos as durable bounded tasks.

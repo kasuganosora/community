@@ -5,7 +5,7 @@ import { useDismiss } from '@/shared/composables/useDismiss'
 import { displayAccount } from '@/shared/utils/accountDisplay'
 import { ref, computed, reactive, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
-import { postApi } from '@/domains/post/infrastructure/postApi'
+import { loadPendingMedia, postApi } from '@/domains/post/infrastructure/postApi'
 import { mentionAtCaret } from '@/domains/post/domain/mentionQuery'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
@@ -223,7 +223,26 @@ const uploading = computed(() => media.some(m => m.uploading))
 // Unsent work survives a deploy auto-reload (see useVersionSync).
 interface PersistedPost { text: string; spoilerEnabled: boolean; spoilerText: string; visibility: Visibility; attachments: MastodonAttachment[] }
 let prefilledText: string | null = null
-onMounted(() => { prefilledText ??= content.value })
+onMounted(() => {
+  prefilledText ??= content.value
+  for (const pending of loadPendingMedia()) {
+    const item: MediaItem = { key: pending.id, name: pending.name, uploading: true, preview: '', phase: 'queued', progress: 0 }
+    media.push(item)
+    const index = media.length - 1
+    void postApi.resumeMedia(pending.id, {
+      onPhase: (phase, percent) => { media[index].phase = phase; media[index].progress = percent },
+    }).then(attachment => {
+      media[index].attachment = attachment
+      media[index].phase = 'ready'
+      media[index].progress = 100
+      media[index].uploading = false
+    }).catch(err => {
+      media[index].uploading = false
+      media[index].phase = 'failed'
+      media[index].error = err instanceof Error ? err.message : String(err)
+    })
+  }
+})
 useUnsavedWork<PersistedPost>(() => props.editStatus ? null : `post:${props.replyTo?.id ?? 'new'}:${props.quoteTo?.id ?? ''}`, {
   busy: () => posting.value || uploading.value || media.length > 0 || (content.value.trim() !== '' && content.value !== prefilledText) || spoilerText.value.trim() !== '',
   snapshot: () => {

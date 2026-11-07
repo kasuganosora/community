@@ -53,8 +53,19 @@ func TestBuildEncodeArgs(t *testing.T) {
 	if !slices.Contains(video, "0:v:0") || !slices.Contains(video, "0:a:0?") {
 		t.Fatalf("video maps: %v", video)
 	}
-	if slices.Contains(video, "0:s:0") || slices.Contains(joined, "http") {
-		t.Fatalf("unexpected map or protocol: %v", video)
+	if slices.Contains(video, "0:s:0") || slices.Contains(video, "copy") || slices.Contains(joined, "http") {
+		t.Fatalf("unexpected map, stream copy, or protocol: %v", video)
+	}
+	if !slices.Contains(video, "-progress") || !slices.Contains(video, "pipe:1") {
+		t.Fatalf("progress is not requested: %v", video)
+	}
+	wide := strings.Join(BuildEncodeArgs("in.mp4", "out.webm", Plan{Action: ActionEncode, OutputMIME: "video/webm"}, Probe{ColorPrimaries: "bt2020", HasAudio: true}, cfg), " ")
+	if !strings.Contains(wide, "colorspace=all=bt709:range=tv:fast=1") || strings.Contains(wide, "iall=bt709") {
+		t.Fatalf("bt2020 input was not converted: %s", wide)
+	}
+	plain := strings.Join(BuildEncodeArgs("in.jpg", "out.webp", Plan{Action: ActionEncode, OutputMIME: "image/webp"}, Probe{}, cfg), " ")
+	if !strings.Contains(plain, "colorspace=all=bt709:iall=bt709:range=tv:fast=1") {
+		t.Fatalf("untagged image was not assigned bt709: %s", plain)
 	}
 	cmd, err := command(context.Background(), "ffmpeg", []string{"-version"})
 	if err != nil {

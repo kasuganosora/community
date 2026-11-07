@@ -139,6 +139,20 @@ func (hs *HomeServer) syncBridgeProfile(ctx, avatarBudget context.Context, roomI
 	return persistProfile()
 }
 
+// decodeAvatarImage reads dimensions and rejects an oversized canvas before
+// image.Decode expands the pixels.
+func decodeAvatarImage(data []byte) (image.Image, image.Config, error) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > 4096 || cfg.Height > 4096 || int64(cfg.Width)*int64(cfg.Height) > 16_000_000 {
+		return nil, cfg, errors.New("unsupported avatar image")
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, cfg, err
+	}
+	return decoded, cfg, nil
+}
+
 func (hs *HomeServer) importBridgeAvatar(ctx context.Context, userID, source string, local bool) (string, error) {
 	conn := db.GetDB().WithContext(ctx)
 	if strings.HasPrefix(source, "mxc://") {
@@ -194,11 +208,7 @@ func (hs *HomeServer) importBridgeAvatar(ctx context.Context, userID, source str
 	if len(data) > bridgeAvatarMaxBytes {
 		return "", errors.New("avatar too large")
 	}
-	dimensions, _, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil || dimensions.Width < 1 || dimensions.Height < 1 || dimensions.Width > 4096 || dimensions.Height > 4096 {
-		return "", errors.New("unsupported avatar image")
-	}
-	decoded, _, err := image.Decode(bytes.NewReader(data))
+	decoded, dimensions, err := decodeAvatarImage(data)
 	if err != nil {
 		return "", err
 	}

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { shallowMount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import PostComposer from '../PostComposer.vue'
@@ -7,6 +7,11 @@ import { sessionEpoch } from '@/shared/api/sessionScope'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import type { MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
+
+afterEach(() => {
+  sessionStorage.clear()
+  vi.restoreAllMocks()
+})
 
 describe('PostComposer media upload', () => {
   it('uploads only after publish and submits once after the attachment is ready', async () => {
@@ -128,6 +133,26 @@ describe('PostComposer video processing phases', () => {
     expect(wrapper.get('.composer__media-progress').text()).toContain('处理中 40%')
     finish({ id: 'video-1', type: 'video', url: '/clip.webm' } as MastodonAttachment)
     await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('resumes a stored task into saving and then shows the failure', async () => {
+    sessionStorage.setItem('community.pendingMedia', JSON.stringify([{ id: 'kept', name: 'clip.mp4' }]))
+    let fail!: () => void
+    vi.spyOn(postApi, 'resumeMedia').mockImplementation((_id, options) => new Promise((_, reject) => {
+      options?.onPhase?.('saving', 100)
+      fail = () => {
+        options?.onPhase?.('failed', 100)
+        reject(new Error('media processing failed'))
+      }
+    }))
+    const wrapper = shallowMount(PostComposer, { global: { plugins: [createPinia()], renderStubDefaultSlot: true } })
+    await flushPromises()
+    expect(postApi.resumeMedia).toHaveBeenCalledWith('kept', expect.any(Object))
+    expect(wrapper.get('.composer__media-progress').text()).toContain('保存中')
+    fail()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.composer__media-progress').text()).toContain('上传失败')
     wrapper.unmount()
   })
 })

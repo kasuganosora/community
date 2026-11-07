@@ -153,6 +153,90 @@ func TestFixtureTranscodeAndReject(t *testing.T) {
 	}
 }
 
+func TestFixtureOriginalWebMAudioPrivacyColorAndProgress(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil || exec.Command("ffprobe", "-version").Run() != nil {
+		t.Skip("ffmpeg or ffprobe is not installed")
+	}
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := allOn()
+	limits := Limits{MaxImagePixels: 16 * 1024 * 1024, MaxVideoPixels: 8294400, MaxFrameRate: 120, MaxDuration: 300, MaxImageBytes: 10 << 20, MaxVideoBytes: 40 << 20}
+	src := filepath.Join(dir, "orig.webm")
+	run(t, "ffmpeg", "-hide_banner", "-y", "-f", "lavfi", "-i", "color=c=green:s=64x64:d=1", "-f", "lavfi", "-i", "sine=f=440:d=1",
+		"-shortest", "-c:v", "libvpx-vp9", "-b:v", "200k", "-c:a", "libopus",
+		"-metadata", "comment=SECRETCOMMENT", "-metadata", "location=+10.000+20.000", "-metadata", "make=PhoneX", src)
+	original, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var progress []int
+	out, err := ProcessFile(WithProgress(ctx, func(p int) { progress = append(progress, p) }), src, dir, "video/webm", cfg, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.KeptOriginal || out.MIME != "video/webm" || !out.Info.HasAudio {
+		t.Fatalf("webm output: %+v", out)
+	}
+	body, _ := os.ReadFile(out.Path)
+	if bytes.Equal(body, original) {
+		t.Fatal("original webm was copied instead of re-encoded")
+	}
+	for _, marker := range []string{"SECRETCOMMENT", "+10.000+20.000", "PhoneX"} {
+		if bytes.Contains(body, []byte(marker)) {
+			t.Fatalf("webm kept %s", marker)
+		}
+	}
+	args := BuildEncodeArgs(src, out.Path, Plan{Action: ActionEncode, OutputMIME: "video/webm"}, Probe{HasAudio: true, ColorPrimaries: "bt709"}, cfg)
+	if slicesContains(args, "copy") {
+		t.Fatalf("stream copy in webm args: %v", args)
+	}
+	mid := false
+	for _, p := range progress {
+		if p > 0 && p < 100 {
+			mid = true
+		}
+	}
+	if !mid {
+		t.Fatalf("ffmpeg progress did not move: %v", progress)
+	}
+	thumb, _, _, _, err := defaultPreview(ctx, out.Path, out.MIME, dir)
+	if err != nil || thumb == "" {
+		t.Fatalf("thumbnail: %s %v", thumb, err)
+	}
+	poster, err := os.ReadFile(filepath.Join(dir, thumb))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{"SECRETCOMMENT", "+10.000+20.000", "PhoneX"} {
+		if bytes.Contains(poster, []byte(marker)) {
+			t.Fatalf("thumbnail kept %s", marker)
+		}
+	}
+	wide := filepath.Join(dir, "wide.mp4")
+	run(t, "ffmpeg", "-hide_banner", "-y", "-f", "lavfi", "-i", "color=c=red:s=64x64:d=0.3", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+		"-color_primaries", "bt2020", "-color_trc", "bt2020-10", "-colorspace", "bt2020nc", "-an", wide)
+	converted, err := ProcessFile(ctx, wide, dir, "video/mp4", cfg, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe, err := ProbeFile(ctx, converted.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ToLower(probe.ColorPrimaries) != "bt709" {
+		t.Fatalf("wide-gamut video primaries = %q", probe.ColorPrimaries)
+	}
+}
+
+func slicesContains(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
 func outPath(t *testing.T, ctx context.Context, dir, src, mime string, cfg systemsettings.MediaProcessing, limits Limits) string {
 	t.Helper()
 	work := filepath.Join(dir, "seed-"+filepath.Base(src))

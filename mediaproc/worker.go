@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,7 +26,52 @@ const (
 	maxVideoGlobal  = 8
 	leaseFor        = 2 * time.Minute
 	stagingMaxAge   = 24 * time.Hour
+	sweepEvery      = time.Minute
+	sweepBatch      = 32
 )
+
+// encodeSlots is one ffmpeg at a time in this process. The cap counts the
+// running encode plus waiters so a restarted queue cannot pile up unbounded
+// goroutines. It is not a cluster lock and it is not held as a database row
+// lock: another replica can encode its own claimed task.
+var (
+	encodeSlots   = make(chan struct{}, 1)
+	encodeMu      sync.Mutex
+	encodeWaiting int
+	encodeRunning int
+)
+
+func acquireEncode(ctx context.Context) error {
+	encodeMu.Lock()
+	if encodeRunning+encodeWaiting >= maxVideoGlobal {
+		encodeMu.Unlock()
+		return errQueue
+	}
+	encodeWaiting++
+	encodeMu.Unlock()
+	select {
+	case encodeSlots <- struct{}{}:
+		encodeMu.Lock()
+		encodeWaiting--
+		encodeRunning++
+		encodeMu.Unlock()
+		return nil
+	case <-ctx.Done():
+		encodeMu.Lock()
+		encodeWaiting--
+		encodeMu.Unlock()
+		return ctx.Err()
+	}
+}
+
+func releaseEncode() {
+	encodeMu.Lock()
+	if encodeRunning > 0 {
+		encodeRunning--
+	}
+	encodeMu.Unlock()
+	<-encodeSlots
+}
 
 type frozenConfig struct {
 	systemsettings.MediaProcessing
@@ -66,43 +112,124 @@ type errString string
 
 func (e errString) Error() string { return string(e) }
 
-// Claim takes one queued task, or a processing task whose lease has expired.
-// A live lease is not claimed again.
+// Claim takes one queued task, or a processing/saving task whose lease has
+// expired. A live lease is not claimed again. Reclaiming rotates the output
+// key and waits until this process's previous encode for that attachment has
+// stopped, so the old owner cannot publish or delete the new object.
 func Claim(ctx context.Context, conn *gorm.DB, now time.Time) (*models.MediaProcessTask, bool, error) {
+	var peek models.MediaProcessTask
+	err := conn.WithContext(ctx).Session(&gorm.Session{Logger: logger.Discard}).Where(
+		"state = ? OR (state IN ? AND (claim_expires_at IS NULL OR claim_expires_at <= ?))",
+		models.ProcessQueued, []string{models.ProcessProcessing, models.ProcessSaving}, now,
+	).Order("id").First(&peek).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
 	var claimed models.MediaProcessTask
-	var ok bool
-	err := conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var oldKey string
+	reclaimed := false
+	err = conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var task models.MediaProcessTask
-		q := tx.Session(&gorm.Session{Logger: logger.Discard}).Clauses(clause.Locking{Strength: "UPDATE"}).Where(
-			"state = ? OR (state = ? AND (claim_expires_at IS NULL OR claim_expires_at <= ?))",
-			models.ProcessQueued, models.ProcessProcessing, now,
-		).Order("id").Limit(1)
+		q := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where(
+			"id = ? AND (state = ? OR (state IN ? AND (claim_expires_at IS NULL OR claim_expires_at <= ?)))",
+			peek.ID, models.ProcessQueued, []string{models.ProcessProcessing, models.ProcessSaving}, now,
+		)
 		if err := q.First(&task).Error; err != nil {
 			return err
 		}
 		token := uuid.NewString()
 		until := now.Add(leaseFor)
-		res := tx.Model(&models.MediaProcessTask{}).Where(
-			"id = ? AND (state = ? OR (state = ? AND (claim_expires_at IS NULL OR claim_expires_at <= ?)))",
-			task.ID, models.ProcessQueued, models.ProcessProcessing, now,
-		).Updates(map[string]any{"state": models.ProcessProcessing, "claim_token": token, "claim_expires_at": until})
+		oldKey = task.OutputKey
+		newKey := task.OutputKey
+		if task.State != models.ProcessQueued {
+			reclaimed = true
+			newKey = isolatedKey(task.OutputKey)
+		}
+		res := tx.Model(&models.MediaProcessTask{}).Where("id = ? AND claim_token = ? AND state = ?", task.ID, task.ClaimToken, task.State).Updates(map[string]any{
+			"state": models.ProcessProcessing, "claim_token": token, "claim_expires_at": until, "output_key": newKey,
+		})
 		if res.Error != nil {
 			return res.Error
 		}
 		if res.RowsAffected == 0 {
-			return nil
+			return gorm.ErrRecordNotFound
 		}
 		task.State = models.ProcessProcessing
 		task.ClaimToken = token
 		task.ClaimExpiresAt = &until
+		task.OutputKey = newKey
 		claimed = task
-		ok = true
-		return tx.Model(&models.MediaAttachment{}).Where("id = ? AND process_state IN ?", task.MediaID, []string{models.ProcessQueued, models.ProcessProcessing}).Update("process_state", models.ProcessProcessing).Error
+		return tx.Model(&models.MediaAttachment{}).Where("id = ? AND process_state IN ?", task.MediaID, []string{models.ProcessQueued, models.ProcessProcessing, models.ProcessSaving}).Update("process_state", models.ProcessProcessing).Error
 	})
 	if err == gorm.ErrRecordNotFound {
 		return nil, false, nil
 	}
-	return &claimed, ok, err
+	if err != nil {
+		return nil, false, err
+	}
+	if reclaimed {
+		stopEncode(claimed.MediaID)
+		if oldKey != "" && oldKey != claimed.OutputKey {
+			_ = storage.Default().Delete(ctx, oldKey)
+		}
+	}
+	return &claimed, true, nil
+}
+
+// Renew extends the lease while this claim token still owns the task.
+func Renew(ctx context.Context, conn *gorm.DB, task *models.MediaProcessTask) bool {
+	if task == nil || task.ClaimToken == "" {
+		return false
+	}
+	until := time.Now().Add(leaseFor)
+	res := conn.WithContext(ctx).Model(&models.MediaProcessTask{}).Where(
+		"id = ? AND claim_token = ? AND state IN ?",
+		task.ID, task.ClaimToken, []string{models.ProcessProcessing, models.ProcessSaving},
+	).Update("claim_expires_at", until)
+	return res.Error == nil && res.RowsAffected == 1
+}
+
+func isolatedKey(key string) string {
+	ext := path.Ext(key)
+	dir := path.Dir(key)
+	if dir == "." || dir == "" {
+		dir = "media"
+	}
+	return path.Join(dir, uuid.NewString()+ext)
+}
+
+type localEncode struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+var encodes sync.Map
+
+func beginEncode(id uint64, cancel context.CancelFunc) *localEncode {
+	le := &localEncode{cancel: cancel, done: make(chan struct{})}
+	encodes.Store(id, le)
+	return le
+}
+
+func endEncode(id uint64, le *localEncode) {
+	encodes.CompareAndDelete(id, le)
+	close(le.done)
+}
+
+func stopEncode(id uint64) {
+	value, ok := encodes.Load(id)
+	if !ok {
+		return
+	}
+	le := value.(*localEncode)
+	le.cancel()
+	select {
+	case <-le.done:
+	case <-time.After(5 * time.Second):
+	}
 }
 
 // Cancel marks an in-flight upload cancelled. A later finalize with the old
@@ -144,17 +271,79 @@ func ProcessNext(ctx context.Context, conn *gorm.DB) error {
 	return runClaimed(ctx, conn, task)
 }
 
-func runClaimed(ctx context.Context, conn *gorm.DB, task *models.MediaProcessTask) error {
+func runClaimed(parent context.Context, conn *gorm.DB, task *models.MediaProcessTask) error {
+	ctx, cancel := context.WithCancel(parent)
+	le := beginEncode(task.MediaID, cancel)
+	defer func() {
+		cancel()
+		endEncode(task.MediaID, le)
+	}()
+	renewed := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(leaseFor / 3)
+		defer ticker.Stop()
+		defer close(renewed)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !Renew(context.Background(), conn, task) {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	var snap frozenConfig
-	if json.Unmarshal([]byte(task.ConfigJSON), &snap) != nil {
-		return failTask(ctx, conn, task, ErrProcess)
+	finish := func() context.Context {
+		cancel()
+		<-renewed
+		return context.WithoutCancel(parent)
 	}
+	if json.Unmarshal([]byte(task.ConfigJSON), &snap) != nil {
+		return failTask(finish(), conn, task, ErrProcess)
+	}
+	if task.StagingPath == "" || !fileExists(task.StagingPath) {
+		return failTask(finish(), conn, task, ErrProcess)
+	}
+	var last int
+	var lastAt time.Time
+	ctx = WithProgress(ctx, func(percent int) {
+		if percent < 100 && percent-last < 5 && time.Since(lastAt) < time.Second {
+			return
+		}
+		last, lastAt = percent, time.Now()
+		_ = conn.Model(&models.MediaProcessTask{}).Where("id = ? AND claim_token = ?", task.ID, task.ClaimToken).Update("progress", percent).Error
+		_ = conn.Model(&models.MediaAttachment{}).Where("id = ? AND process_state = ?", task.MediaID, models.ProcessProcessing).Update("process_progress", percent).Error
+	})
 	work := filepath.Dir(task.StagingPath)
 	out, err := processFile(ctx, task.StagingPath, work, task.DetectedMIME, snap.MediaProcessing, snap.Limits)
-	if err != nil {
-		return failTask(ctx, conn, task, err)
+	storeCtx := finish()
+	if parent.Err() != nil {
+		if owns(conn, task) {
+			return failTask(storeCtx, conn, task, parent.Err())
+		}
+		return nil
 	}
-	return publish(ctx, conn, task, out)
+	if !owns(conn, task) {
+		return nil
+	}
+	if err != nil {
+		return failTask(storeCtx, conn, task, err)
+	}
+	return publish(storeCtx, conn, task, out)
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func owns(conn *gorm.DB, task *models.MediaProcessTask) bool {
+	var n int64
+	_ = conn.Model(&models.MediaProcessTask{}).Where("id = ? AND claim_token = ?", task.ID, task.ClaimToken).Count(&n).Error
+	return n == 1
 }
 
 func publish(ctx context.Context, conn *gorm.DB, task *models.MediaProcessTask, out Output) error {
@@ -163,7 +352,6 @@ func publish(ctx context.Context, conn *gorm.DB, task *models.MediaProcessTask, 
 		return res.Error
 	}
 	if res.RowsAffected == 0 {
-		_ = os.RemoveAll(filepath.Dir(task.StagingPath))
 		return nil
 	}
 	_ = conn.WithContext(ctx).Model(&models.MediaAttachment{}).Where("id = ? AND process_state = ?", task.MediaID, models.ProcessProcessing).Updates(map[string]any{"process_state": models.ProcessSaving, "process_progress": 100})
@@ -231,11 +419,16 @@ func publish(ctx context.Context, conn *gorm.DB, task *models.MediaProcessTask, 
 		return nil
 	})
 	if !committed {
-		_ = storage.Default().Delete(ctx, task.OutputKey)
-		if thumbName != "" {
-			_ = storage.Default().Delete(ctx, filepath.ToSlash(filepath.Join(filepath.Dir(task.OutputKey), thumbName)))
+		var current models.MediaProcessTask
+		if err := conn.WithContext(ctx).First(&current, task.ID).Error; err == nil && (current.OutputKey == task.OutputKey || current.ClaimToken == task.ClaimToken) {
+			_ = storage.Default().Delete(ctx, task.OutputKey)
+			if thumbName != "" {
+				_ = storage.Default().Delete(ctx, filepath.ToSlash(filepath.Join(filepath.Dir(task.OutputKey), thumbName)))
+			}
 		}
-		_ = os.RemoveAll(filepath.Dir(task.StagingPath))
+		if owns(conn, task) && task.StagingPath != "" {
+			_ = os.RemoveAll(filepath.Dir(task.StagingPath))
+		}
 		return nil
 	}
 	_ = os.RemoveAll(filepath.Dir(task.StagingPath))
@@ -245,8 +438,14 @@ func publish(ctx context.Context, conn *gorm.DB, task *models.MediaProcessTask, 
 
 func failTask(ctx context.Context, conn *gorm.DB, task *models.MediaProcessTask, cause error) error {
 	msg := publicMessage(cause)
-	_ = conn.WithContext(ctx).Model(&models.MediaProcessTask{}).Where("id = ? AND claim_token = ?", task.ID, task.ClaimToken).Updates(map[string]any{"state": models.ProcessFailed, "error_text": msg, "claim_token": ""})
+	res := conn.WithContext(ctx).Model(&models.MediaProcessTask{}).Where("id = ? AND claim_token = ?", task.ID, task.ClaimToken).Updates(map[string]any{"state": models.ProcessFailed, "error_text": msg, "claim_token": ""})
+	if res.Error != nil || res.RowsAffected == 0 {
+		return cause
+	}
 	_ = conn.WithContext(ctx).Model(&models.MediaAttachment{}).Where("id = ? AND process_state IN ?", task.MediaID, []string{models.ProcessQueued, models.ProcessProcessing, models.ProcessSaving}).Updates(map[string]any{"process_state": models.ProcessFailed, "process_error": msg})
+	if task.OutputKey != "" {
+		_ = storage.Default().Delete(ctx, task.OutputKey)
+	}
 	if task.StagingPath != "" {
 		_ = os.RemoveAll(filepath.Dir(task.StagingPath))
 	}
@@ -273,19 +472,24 @@ func publicMessage(err error) string {
 	}
 }
 
-// Start resumes expired leases and orphan staging until ctx is cancelled.
-// One video is encoded at a time.
+// Start resumes expired leases and sweeps orphan staging until ctx is cancelled.
+// Encode parallelism is one ffmpeg in this process. The database queue of
+// eight is admission control across replicas, not a second encoder.
 func Start(ctx context.Context, conn *gorm.DB) {
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
-		sweepStaging()
+		nextSweep := time.Time{}
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
-				if err := ProcessNext(ctx, conn); err != nil && ctx.Err() == nil {
+			case now := <-ticker.C:
+				if !now.Before(nextSweep) {
+					sweepStaging(sweepBatch)
+					nextSweep = now.Add(sweepEvery)
+				}
+				if err := ProcessNext(ctx, conn); err != nil && ctx.Err() == nil && err != errQueue {
 					log.Warn("media processing: %v", err)
 				}
 			}
@@ -293,19 +497,25 @@ func Start(ctx context.Context, conn *gorm.DB) {
 	}()
 }
 
-func sweepStaging() {
+func sweepStaging(limit int) {
 	root := filepath.Join("uploads", ".private-staging")
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return
 	}
 	cutoff := time.Now().Add(-stagingMaxAge)
+	removed := 0
 	for _, entry := range entries {
+		if removed >= limit {
+			return
+		}
 		info, err := entry.Info()
 		if err != nil || info.ModTime().After(cutoff) {
 			continue
 		}
-		_ = os.RemoveAll(filepath.Join(root, entry.Name()))
+		if os.RemoveAll(filepath.Join(root, entry.Name())) == nil {
+			removed++
+		}
 	}
 }
 

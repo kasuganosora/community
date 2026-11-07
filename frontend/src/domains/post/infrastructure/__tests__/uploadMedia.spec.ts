@@ -47,6 +47,23 @@ describe('uploadMedia', () => {
     expect(result).toMatchObject({ id: 'vid', url: '/clip.webm' })
   })
 
+  it('reports saving and surfaces a processing failure', async () => {
+    post.mockResolvedValue({ data: { id: 'vid', type: 'unknown', url: '' } })
+    const phases: string[] = []
+    get.mockImplementation((url: string) => {
+      if (String(url).includes('/processing')) {
+        return phases.includes('saving')
+          ? Promise.resolve({ data: { state: 'failed', progress: 100, error: 'media processing failed' } })
+          : Promise.resolve({ data: { state: 'saving', progress: 100 } })
+      }
+      return Promise.resolve({ data: { id: 'vid', type: 'video', url: '/clip.webm' } })
+    })
+    const file = new File(['mp4'], 'clip.mp4', { type: 'video/mp4' })
+    await expect(postApi.uploadMedia(file, undefined, { onPhase: phase => { phases.push(phase) } })).rejects.toThrow('media processing failed')
+    expect(phases).toContain('saving')
+    expect(phases).toContain('failed')
+  })
+
   it('deletes the attachment when the poll is aborted', async () => {
     post.mockResolvedValue({ data: { id: 'vid', type: 'unknown', url: '' } })
     const controller = new AbortController()

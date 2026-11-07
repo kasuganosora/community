@@ -18,6 +18,22 @@ import (
 // Upload handler - success paths
 // ---------------------------------------------------------------------------
 
+func TestUploadCorruptImageLeavesNoRowOrObject(t *testing.T) {
+	withTempWorkDir(t)
+	gdb := setupMediaTestDB(t)
+	payload := append([]byte{0xff, 0xd8, 0xff}, []byte("this is not a decodable jpeg")...)
+	req := createMediaWithMultipartRequest(t, "bad.jpg", "image/jpeg", payload, nil)
+	c, w := newHandlerContext(t, nil, req)
+	Upload(c)
+	require.NotEqual(t, http.StatusOK, w.Code, w.Body.String())
+	var n int64
+	require.NoError(t, gdb.Model(&models.MediaAttachment{}).Count(&n).Error)
+	require.Zero(t, n)
+	matches, err := filepath.Glob(filepath.Join("uploads", "media", "*", "*", "*", "*"))
+	require.NoError(t, err)
+	require.Empty(t, matches)
+}
+
 func TestUpload_SuccessNonImage(t *testing.T) {
 	withTempWorkDir(t)
 	gdb := setupMediaTestDB(t)

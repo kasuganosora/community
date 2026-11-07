@@ -190,6 +190,50 @@ func TestGetProcessingOwnerOnly(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+func TestGetReportsInProgressAndFailureWithoutAPublicFile(t *testing.T) {
+	gdb := setupMediaTestDB(t)
+	for _, state := range []string{models.ProcessQueued, models.ProcessProcessing, models.ProcessSaving} {
+		require.NoError(t, gdb.Exec("DELETE FROM media_attachments").Error)
+		row := &models.MediaAttachment{AccountId: 1, FileName: "secret.png", FilePath: "private/secret.png", ContentType: "image/png", Type: models.MediaTypeImage, ProcessState: state}
+		require.NoError(t, gdb.Create(row).Error)
+		c, w := newHandlerContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(row.Id, 10)}}, httptest.NewRequest(http.MethodGet, "/", nil))
+		Get(c)
+		require.Equal(t, http.StatusPartialContent, w.Code, state)
+		require.NotContains(t, w.Body.String(), "private/secret.png")
+	}
+	for _, state := range []string{models.ProcessFailed, models.ProcessCancelled} {
+		require.NoError(t, gdb.Exec("DELETE FROM media_attachments").Error)
+		row := &models.MediaAttachment{AccountId: 1, FileName: "secret.png", FilePath: "private/secret.png", ContentType: "image/png", Type: models.MediaTypeImage, ProcessState: state, ProcessError: "media processing failed"}
+		require.NoError(t, gdb.Create(row).Error)
+		c, w := newHandlerContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(row.Id, 10)}}, httptest.NewRequest(http.MethodGet, "/", nil))
+		Get(c)
+		require.Equal(t, http.StatusUnprocessableEntity, w.Code, state)
+		require.NotContains(t, w.Body.String(), "private/secret.png")
+	}
+}
+
+func TestUpdateDoesNotOverwriteProcessState(t *testing.T) {
+	gdb := setupMediaTestDB(t)
+	row := &models.MediaAttachment{AccountId: 1, FileName: "a.png", FilePath: "a.png", ContentType: "image/png", Type: models.MediaTypeImage, ProcessState: models.ProcessProcessing, ProcessProgress: 40}
+	require.NoError(t, gdb.Create(row).Error)
+	require.NoError(t, gdb.Callback().Update().Before("gorm:update").Register("worker-advanced", func(tx *gorm.DB) {
+		if tx.Statement.Table != "media_attachments" {
+			return
+		}
+		_, _ = tx.Statement.ConnPool.ExecContext(tx.Statement.Context, "UPDATE media_attachments SET process_state = ?, process_progress = ? WHERE id = ?", models.ProcessSaving, 90, row.Id)
+	}))
+	req := httptest.NewRequest(http.MethodPut, "/", strings.NewReader(`{"description":"caption"}`))
+	req.Header.Set("Content-Type", "application/json")
+	c, w := newHandlerContext(t, gin.Params{{Key: "id", Value: strconv.FormatUint(row.Id, 10)}}, req)
+	Update(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var got models.MediaAttachment
+	require.NoError(t, gdb.First(&got, row.Id).Error)
+	require.Equal(t, models.ProcessSaving, got.ProcessState)
+	require.Equal(t, 90, got.ProcessProgress)
+	require.Equal(t, "caption", got.Description)
+}
+
 func TestGet_Success(t *testing.T) {
 	gdb := setupMediaTestDB(t)
 

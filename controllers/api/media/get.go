@@ -153,8 +153,26 @@ func Update(c *gin.Context) {
 		}
 	}
 
-	// 保存更新
-	if err := db.GetDB().Save(&media).Error; err != nil {
+	// Update only the fields this request edits. Saving the whole row would
+	// write a stale process_state over a worker that moved the attachment
+	// to processing, saving, or ready while this handler was in flight.
+	updates := map[string]any{}
+	if request.Description != "" {
+		updates["description"] = media.Description
+	}
+	if request.Focus != "" {
+		updates["focus_x"] = media.FocusX
+		updates["focus_y"] = media.FocusY
+	}
+	if len(updates) > 0 {
+		if err := db.GetDB().Model(&models.MediaAttachment{}).Where("id = ? AND account_id = ?", media.Id, account.Id).Updates(updates).Error; err != nil {
+			err = errors.Wrap(err, "Update media")
+			_ = c.Error(err)
+
+			return
+		}
+	}
+	if err := db.GetDB().Where("id = ? AND account_id = ?", media.Id, account.Id).First(&media).Error; err != nil {
 		err = errors.Wrap(err, "Update media")
 		_ = c.Error(err)
 

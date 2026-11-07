@@ -87,22 +87,63 @@ export const postApi = {
       } : undefined,
     })
     if (!video) return data
-    options?.onPhase?.('queued', 0)
-    const id = encodeURIComponent(data.id)
+    rememberPendingMedia(data.id, file.name)
     try {
-      for (;;) {
-        if (options?.signal?.aborted) throw new DOMException('aborted', 'AbortError')
-        const task = (await client.get<{ state: UploadPhase; progress?: number; error?: string }>(`/api/v1/media/${id}/processing`, { signal: options?.signal })).data
-        options?.onPhase?.(task.state, task.progress ?? 0)
-        if (task.state === 'ready') return (await client.get<MastodonAttachment>(`/api/v1/media/${id}`, { signal: options?.signal })).data
-        if (task.state === 'failed' || task.state === 'cancelled') throw new Error(task.error || 'media processing failed')
-        await waitForPoll(400, options?.signal)
-      }
-    } catch (err) {
-      if (options?.signal?.aborted) await client.delete(`/api/v1/media/${id}`).catch(() => undefined)
-      throw err
+      return await pollMedia(data.id, options)
+    } finally {
+      forgetPendingMedia(data.id)
     }
   },
+
+  resumeMedia(id: string, options?: { signal?: AbortSignal; onPhase?: (phase: UploadPhase, percent: number) => void }): Promise<MastodonAttachment> {
+    return pollMedia(id, options)
+  },
+}
+
+const pendingMediaKey = 'community.pendingMedia'
+
+export function rememberPendingMedia(id: string, name: string) {
+  const rows = loadPendingMedia().filter(row => row.id !== id)
+  rows.push({ id, name })
+  sessionStorage.setItem(pendingMediaKey, JSON.stringify(rows))
+}
+
+export function forgetPendingMedia(id: string) {
+  const rows = loadPendingMedia().filter(row => row.id !== id)
+  sessionStorage.setItem(pendingMediaKey, JSON.stringify(rows))
+}
+
+export function loadPendingMedia(): { id: string; name: string }[] {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(pendingMediaKey) || '[]') as { id?: string; name?: string }[]
+    return parsed.filter(row => row.id).map(row => ({ id: String(row.id), name: row.name || String(row.id) }))
+  } catch {
+    return []
+  }
+}
+
+async function pollMedia(id: string, options?: { signal?: AbortSignal; onPhase?: (phase: UploadPhase, percent: number) => void }): Promise<MastodonAttachment> {
+  options?.onPhase?.('queued', 0)
+  const encoded = encodeURIComponent(id)
+  try {
+    for (;;) {
+      if (options?.signal?.aborted) throw new DOMException('aborted', 'AbortError')
+      const task = (await client.get<{ state: UploadPhase; progress?: number; error?: string }>(`/api/v1/media/${encoded}/processing`, { signal: options?.signal })).data
+      options?.onPhase?.(task.state, task.progress ?? 0)
+      if (task.state === 'ready') {
+        forgetPendingMedia(id)
+        return (await client.get<MastodonAttachment>(`/api/v1/media/${encoded}`, { signal: options?.signal })).data
+      }
+      if (task.state === 'failed' || task.state === 'cancelled') throw new Error(task.error || 'media processing failed')
+      await waitForPoll(400, options?.signal)
+    }
+  } catch (err) {
+    if (options?.signal?.aborted) {
+      forgetPendingMedia(id)
+      await client.delete(`/api/v1/media/${encoded}`).catch(() => undefined)
+    }
+    throw err
+  }
 }
 
 export type UploadPhase = 'uploading' | 'queued' | 'processing' | 'saving' | 'ready' | 'failed' | 'cancelled'

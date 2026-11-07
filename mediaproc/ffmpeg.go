@@ -80,14 +80,15 @@ func DefaultLimits(imageBytes, videoBytes int64) Limits {
 
 // Probe is container metadata from ffprobe. Tags are not logged.
 type Probe struct {
-	Width, Height int
-	PixFmt        string
-	Duration      float64
-	FrameRate     float64
-	HasAudio      bool
-	HasAlpha      bool
-	Animated      bool
-	Tags          map[string]string
+	Width, Height  int
+	PixFmt         string
+	Duration       float64
+	FrameRate      float64
+	HasAudio       bool
+	HasAlpha       bool
+	Animated       bool
+	ColorPrimaries string
+	Tags           map[string]string
 }
 
 type Output struct {
@@ -103,6 +104,10 @@ type Output struct {
 // generated file. The original path is returned only when the plan is keep.
 func ProcessFile(ctx context.Context, inputPath, workDir string, detected string, cfg systemsettings.MediaProcessing, limits Limits) (out Output, err error) {
 	started := time.Now()
+	if err := acquireEncode(ctx); err != nil {
+		return Output{}, err
+	}
+	defer releaseEncode()
 	info, statErr := os.Stat(inputPath)
 	kind := kindOf(detected)
 	defer func() {
@@ -143,7 +148,7 @@ func ProcessFile(ctx context.Context, inputPath, workDir string, detected string
 	}
 	ext := extensionFor(plan.OutputMIME)
 	dest := filepath.Join(workDir, "output"+ext)
-	if err = Encode(ctx, inputPath, dest, plan, probe, cfg, nil); err != nil {
+	if err = Encode(ctx, inputPath, dest, plan, probe, cfg, progressFrom(ctx)); err != nil {
 		return Output{}, err
 	}
 	checked, err := validateOutput(ctx, dest, plan.OutputMIME, probe, limits, kind)
@@ -260,6 +265,7 @@ func ProbeFile(ctx context.Context, path string) (Probe, error) {
 			Duration  string            `json:"duration"`
 			NbFrames  string            `json:"nb_frames"`
 			Rate      string            `json:"avg_frame_rate"`
+			Primaries string            `json:"color_primaries"`
 			Tags      map[string]string `json:"tags"`
 		} `json:"streams"`
 		Format struct {
@@ -292,6 +298,9 @@ func ProbeFile(ctx context.Context, path string) (Probe, error) {
 		}
 		probe.Width, probe.Height = s.Width, s.Height
 		probe.PixFmt = s.PixFmt
+		if s.Primaries != "" {
+			probe.ColorPrimaries = s.Primaries
+		}
 		probe.FrameRate = parseRate(s.Rate)
 		if d := parseFloat(s.Duration); d > probe.Duration {
 			probe.Duration = d
@@ -505,7 +514,7 @@ func BuildEncodeArgs(in, out string, plan Plan, probe Probe, cfg systemsettings.
 		if probe.HasAlpha {
 			pix = "yuva420p"
 		}
-		args = append(args, "-vf", "scale='max(2,trunc((iw+1)/2)*2)':'max(2,trunc((ih+1)/2)*2)',format="+pix, "-c:v", "libwebp", "-quality", strconv.Itoa(cfg.ImageQuality), "-pix_fmt", pix)
+		args = append(args, "-vf", imageScale(probe)+","+colorFilter(probe)+",format="+pix, "-c:v", "libwebp", "-quality", strconv.Itoa(cfg.ImageQuality), "-pix_fmt", pix)
 		if probe.Animated {
 			args = append(args, "-loop", "0")
 		} else {
@@ -523,7 +532,7 @@ func BuildEncodeArgs(in, out string, plan Plan, probe Probe, cfg systemsettings.
 		if probe.HasAlpha {
 			pix = "yuva420p"
 		}
-		args = append(args, "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:v", "libvpx-vp9", "-crf", strconv.Itoa(cfg.VideoCRF), "-b:v", "0", "-cpu-used", "4", "-deadline", "good", "-row-mt", "1", "-pix_fmt", pix)
+		args = append(args, "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,"+colorFilter(probe)+",format="+pix, "-c:v", "libvpx-vp9", "-crf", strconv.Itoa(cfg.VideoCRF), "-b:v", "0", "-cpu-used", "4", "-deadline", "good", "-row-mt", "1", "-pix_fmt", pix)
 		if probe.HasAudio {
 			args = append(args, "-c:a", "libopus", "-b:a", "64k")
 		} else {
@@ -535,7 +544,7 @@ func BuildEncodeArgs(in, out string, plan Plan, probe Probe, cfg systemsettings.
 		if plan.OutputMIME == "video/quicktime" {
 			format = "mov"
 		}
-		args = append(args, "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:v", "libx264", "-crf", strconv.Itoa(cfg.VideoCRF), "-pix_fmt", "yuv420p", "-movflags", "+faststart")
+		args = append(args, "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,"+colorFilter(probe)+",format=yuv420p", "-c:v", "libx264", "-crf", strconv.Itoa(cfg.VideoCRF), "-pix_fmt", "yuv420p", "-movflags", "+faststart")
 		if probe.HasAudio {
 			args = append(args, "-c:a", "aac", "-b:a", "96k")
 		} else {
@@ -549,8 +558,40 @@ func BuildEncodeArgs(in, out string, plan Plan, probe Probe, cfg systemsettings.
 	case "audio/wav":
 		args = append(args, "-c:a", "pcm_s16le", "-vn", "-f", "wav")
 	}
-	args = append(args, "-flags", "+bitexact", out)
+	args = append(args, "-flags", "+bitexact", "-progress", "pipe:1", out)
 	return args
+}
+
+func imageScale(probe Probe) string {
+	return "scale='max(2,trunc((iw+1)/2)*2)':'max(2,trunc((ih+1)/2)*2)'"
+}
+
+// colorFilter converts tagged primaries into bt.709. Untagged JPEG input is
+// assigned bt.709 because this ffmpeg build's mjpeg decoder reports unknown
+// primaries, so the pixels cannot be converted from an ICC profile it did not
+// read. Alpha frames skip the filter; colorspace rejects their pixel format.
+func colorFilter(probe Probe) string {
+	if probe.HasAlpha {
+		return "scale=iw:ih"
+	}
+	switch strings.ToLower(strings.TrimSpace(probe.ColorPrimaries)) {
+	case "", "unknown", "unspecified", "bt709":
+		return "colorspace=all=bt709:iall=bt709:range=tv:fast=1"
+	default:
+		return "colorspace=all=bt709:range=tv:fast=1"
+	}
+}
+
+type progressContextKey struct{}
+
+// WithProgress attaches the callback Encode uses for ffmpeg -progress.
+func WithProgress(ctx context.Context, fn func(int)) context.Context {
+	return context.WithValue(ctx, progressContextKey{}, fn)
+}
+
+func progressFrom(ctx context.Context) func(int) {
+	fn, _ := ctx.Value(progressContextKey{}).(func(int))
+	return fn
 }
 
 func jpegQScale(quality int) int {
