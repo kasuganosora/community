@@ -376,6 +376,13 @@ func imageFullyOpaque(path string) bool {
 		return false
 	}
 	defer func() { _ = f.Close() }()
+	cfg, _, err := image.DecodeConfig(f)
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > maxImageEdge || cfg.Height > maxImageEdge || int64(cfg.Width)*int64(cfg.Height) > 1_000_000 {
+		return false
+	}
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		return false
+	}
 	img, _, err := image.Decode(f)
 	if err != nil {
 		return false

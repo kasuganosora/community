@@ -12,6 +12,7 @@ beforeEach(() => {
   post.mockReset()
   get.mockReset()
   del.mockReset()
+  sessionStorage.clear()
 })
 
 describe('uploadMedia', () => {
@@ -75,5 +76,29 @@ describe('uploadMedia', () => {
     const file = new File(['mp4'], 'clip.webm', { type: 'video/webm' })
     await expect(postApi.uploadMedia(file, undefined, { signal: controller.signal, onPhase: () => {} })).rejects.toThrow()
     expect(del).toHaveBeenCalledWith('/api/v1/media/vid')
+    expect(sessionStorage.getItem('community.pendingMedia')).toBeNull()
+  })
+
+  it('keeps the task when observation stops and deletes it on an explicit cancel', async () => {
+    post.mockResolvedValue({ data: { id: 'vid', type: 'unknown', url: '' } })
+    const controller = new AbortController()
+    get.mockImplementation(() => {
+      controller.abort(new DOMException('dispose', 'AbortError'))
+      return Promise.resolve({ data: { state: 'processing', progress: 10 } })
+    })
+    const file = new File(['mp4'], 'clip.mp4', { type: 'video/mp4' })
+    await expect(postApi.uploadMedia(file, undefined, { signal: controller.signal, ownerId: 'user-a', onPhase: () => {} })).rejects.toThrow()
+    expect(del).not.toHaveBeenCalled()
+    expect(JSON.parse(sessionStorage.getItem('community.pendingMedia') || '[]')).toEqual([
+      expect.objectContaining({ id: 'vid', owner: 'user-a' }),
+    ])
+    del.mockResolvedValue({ data: {} })
+    get.mockResolvedValue({ data: { state: 'processing', progress: 20 } })
+    const cancel = new AbortController()
+    const pending = postApi.resumeMedia('vid', { signal: cancel.signal })
+    cancel.abort(new DOMException('cancel', 'AbortError'))
+    await expect(pending).rejects.toThrow()
+    expect(del).toHaveBeenCalledWith('/api/v1/media/vid')
+    expect(JSON.parse(sessionStorage.getItem('community.pendingMedia') || '[]')).toEqual([])
   })
 })

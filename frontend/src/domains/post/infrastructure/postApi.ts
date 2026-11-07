@@ -72,7 +72,7 @@ export const postApi = {
    * Video uses /api/v2/media and polls /processing until the durable task
    * is ready, failed, or cancelled.
    */
-  async uploadMedia(file: File, description?: string, options?: { signal?: AbortSignal; onProgress?: (percent: number) => void; onPhase?: (phase: UploadPhase, percent: number) => void }): Promise<MastodonAttachment> {
+  async uploadMedia(file: File, description?: string, options?: { signal?: AbortSignal; onProgress?: (percent: number) => void; onPhase?: (phase: UploadPhase, percent: number) => void; ownerId?: string; onAccepted?: (id: string) => void }): Promise<MastodonAttachment> {
     const form = new FormData()
     form.append('file', file)
     if (description) form.append('description', description)
@@ -87,39 +87,81 @@ export const postApi = {
       } : undefined,
     })
     if (!video) return data
-    rememberPendingMedia(data.id, file.name)
+    rememberPendingMedia(data.id, file.name, options?.ownerId ?? '')
+    options?.onAccepted?.(data.id)
     try {
       return await pollMedia(data.id, options)
-    } finally {
-      forgetPendingMedia(data.id)
+    } catch (err) {
+      if (!isObservationStop(options?.signal)) forgetPendingMedia(data.id)
+      throw err
     }
   },
 
   resumeMedia(id: string, options?: { signal?: AbortSignal; onPhase?: (phase: UploadPhase, percent: number) => void }): Promise<MastodonAttachment> {
     return pollMedia(id, options)
   },
+
+  async discardMedia(id: string): Promise<void> {
+    forgetPendingMedia(id)
+    await client.delete(`/api/v1/media/${encodeURIComponent(id)}`).catch(() => undefined)
+  },
 }
 
 const pendingMediaKey = 'community.pendingMedia'
+/** Owner-scoped ids older than this are dropped and never resumed. */
+export const pendingMediaTTL = 24 * 60 * 60 * 1000
 
-export function rememberPendingMedia(id: string, name: string) {
-  const rows = loadPendingMedia().filter(row => row.id !== id)
-  rows.push({ id, name })
-  sessionStorage.setItem(pendingMediaKey, JSON.stringify(rows))
-}
+interface PendingMedia { id: string; name: string; owner: string; at: number }
 
-export function forgetPendingMedia(id: string) {
-  const rows = loadPendingMedia().filter(row => row.id !== id)
-  sessionStorage.setItem(pendingMediaKey, JSON.stringify(rows))
-}
-
-export function loadPendingMedia(): { id: string; name: string }[] {
+function readPendingMedia(): PendingMedia[] {
   try {
-    const parsed = JSON.parse(sessionStorage.getItem(pendingMediaKey) || '[]') as { id?: string; name?: string }[]
-    return parsed.filter(row => row.id).map(row => ({ id: String(row.id), name: row.name || String(row.id) }))
+    const parsed = JSON.parse(sessionStorage.getItem(pendingMediaKey) || '[]') as Partial<PendingMedia>[]
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap(row => {
+      if (!row || typeof row.id !== 'string' || !row.id) return []
+      if (typeof row.owner !== 'string' || !row.owner) return []
+      if (typeof row.at !== 'number' || !Number.isFinite(row.at)) return []
+      return [{ id: row.id, name: typeof row.name === 'string' && row.name ? row.name : row.id, owner: row.owner, at: row.at }]
+    })
   } catch {
     return []
   }
+}
+
+function writePendingMedia(rows: PendingMedia[]) {
+  if (!rows.length) sessionStorage.removeItem(pendingMediaKey)
+  else sessionStorage.setItem(pendingMediaKey, JSON.stringify(rows))
+}
+
+export function rememberPendingMedia(id: string, name: string, owner: string) {
+  if (!id || !owner) return
+  const now = Date.now()
+  const rows = readPendingMedia().filter(row => row.id !== id && now - row.at < pendingMediaTTL)
+  rows.push({ id, name, owner, at: now })
+  writePendingMedia(rows)
+}
+
+export function forgetPendingMedia(id: string) {
+  writePendingMedia(readPendingMedia().filter(row => row.id !== id))
+}
+
+export function clearPendingMedia() {
+  sessionStorage.removeItem(pendingMediaKey)
+}
+
+export function loadPendingMedia(owner: string): { id: string; name: string }[] {
+  if (!owner) return []
+  const now = Date.now()
+  const rows = readPendingMedia()
+  const mine = rows.filter(row => row.owner === owner && now - row.at < pendingMediaTTL)
+  if (mine.length !== rows.length) writePendingMedia(mine)
+  return mine.map(({ id, name }) => ({ id, name }))
+}
+
+/** dispose stops watching a task. Any other abort, including a bare abort(), cancels it. */
+export function isObservationStop(signal?: AbortSignal) {
+  const reason = signal?.reason
+  return !!signal?.aborted && reason instanceof DOMException && reason.name === 'AbortError' && reason.message === 'dispose'
 }
 
 async function pollMedia(id: string, options?: { signal?: AbortSignal; onPhase?: (phase: UploadPhase, percent: number) => void }): Promise<MastodonAttachment> {
@@ -127,18 +169,21 @@ async function pollMedia(id: string, options?: { signal?: AbortSignal; onPhase?:
   const encoded = encodeURIComponent(id)
   try {
     for (;;) {
-      if (options?.signal?.aborted) throw new DOMException('aborted', 'AbortError')
+      if (options?.signal?.aborted) throw new DOMException(isObservationStop(options.signal) ? 'dispose' : 'cancel', 'AbortError')
       const task = (await client.get<{ state: UploadPhase; progress?: number; error?: string }>(`/api/v1/media/${encoded}/processing`, { signal: options?.signal })).data
       options?.onPhase?.(task.state, task.progress ?? 0)
       if (task.state === 'ready') {
         forgetPendingMedia(id)
         return (await client.get<MastodonAttachment>(`/api/v1/media/${encoded}`, { signal: options?.signal })).data
       }
-      if (task.state === 'failed' || task.state === 'cancelled') throw new Error(task.error || 'media processing failed')
+      if (task.state === 'failed' || task.state === 'cancelled') {
+        forgetPendingMedia(id)
+        throw new Error(task.error || 'media processing failed')
+      }
       await waitForPoll(400, options?.signal)
     }
   } catch (err) {
-    if (options?.signal?.aborted) {
+    if (options?.signal?.aborted && !isObservationStop(options.signal)) {
       forgetPendingMedia(id)
       await client.delete(`/api/v1/media/${encoded}`).catch(() => undefined)
     }

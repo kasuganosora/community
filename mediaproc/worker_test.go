@@ -19,8 +19,13 @@ import (
 
 func workerDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	conn, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "worker.db")), &gorm.Config{})
+	conn, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "worker.db")+"?_pragma=busy_timeout(5000)"), &gorm.Config{})
 	require.NoError(t, err)
+	sqlDB, err := conn.DB()
+	require.NoError(t, err)
+	// One connection makes the two claim attempts wait their turn. SQLite
+	// otherwise returns SQLITE_BUSY instead of the loser's empty update.
+	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, conn.AutoMigrate(&models.MediaAttachment{}, &models.MediaProcessTask{}))
 	return conn
 }

@@ -4,9 +4,10 @@ import { createPinia } from 'pinia'
 import PostComposer from '../PostComposer.vue'
 import EmojiPicker from '../EmojiPicker.vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { userApi } from '@/domains/user/infrastructure/userApi'
-import type { MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
+import type { MastodonAccount, MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
 
 afterEach(() => {
   sessionStorage.clear()
@@ -137,7 +138,10 @@ describe('PostComposer video processing phases', () => {
   })
 
   it('resumes a stored task into saving and then shows the failure', async () => {
-    sessionStorage.setItem('community.pendingMedia', JSON.stringify([{ id: 'kept', name: 'clip.mp4' }]))
+    const pinia = createPinia()
+    const auth = useAuthStore(pinia)
+    auth.currentUser = { id: 'user-a', acct: 'a' } as MastodonAccount
+    sessionStorage.setItem('community.pendingMedia', JSON.stringify([{ id: 'kept', name: 'clip.mp4', owner: 'user-a', at: Date.now() }]))
     let fail!: () => void
     vi.spyOn(postApi, 'resumeMedia').mockImplementation((_id, options) => new Promise((_, reject) => {
       options?.onPhase?.('saving', 100)
@@ -146,7 +150,7 @@ describe('PostComposer video processing phases', () => {
         reject(new Error('media processing failed'))
       }
     }))
-    const wrapper = shallowMount(PostComposer, { global: { plugins: [createPinia()], renderStubDefaultSlot: true } })
+    const wrapper = shallowMount(PostComposer, { global: { plugins: [pinia], renderStubDefaultSlot: true } })
     await flushPromises()
     expect(postApi.resumeMedia).toHaveBeenCalledWith('kept', expect.any(Object))
     expect(wrapper.get('.composer__media-progress').text()).toContain('保存中')
