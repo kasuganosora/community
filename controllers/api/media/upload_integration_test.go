@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -209,6 +210,10 @@ func assertIndependentMedia(t *testing.T, a, b models.MediaAttachment) {
 	require.NotEmpty(t, a.ThumbPath())
 	require.NotEmpty(t, b.ThumbPath())
 	require.NotEqual(t, a.ThumbnailStorageKey(), b.ThumbnailStorageKey(), "thumbnail objects must not share a storage key")
+	require.NotEqual(t, "thumb_frame.jpg", a.ThumbPath())
+	require.NotEqual(t, "thumb_frame.jpg", b.ThumbPath())
+	require.Contains(t, a.ThumbPath(), strings.TrimSuffix(a.FileName, filepath.Ext(a.FileName)))
+	require.Contains(t, b.ThumbPath(), strings.TrimSuffix(b.FileName, filepath.Ext(b.FileName)))
 	aOrig, err := os.ReadFile(filepath.Join("uploads", filepath.FromSlash(a.StorageKey())))
 	require.NoError(t, err)
 	bOrig, err := os.ReadFile(filepath.Join("uploads", filepath.FromSlash(b.StorageKey())))

@@ -2,6 +2,7 @@ package mediaproc
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +53,9 @@ func Preview(ctx context.Context, path, mime, work string) (string, string, int,
 // that name unchanged would overwrite one object for every upload that day.
 func BindThumbnail(dir, publicFile, generated string) (string, error) {
 	name := thumbnailName(publicFile, generated)
+	if sharedPreviewName(name) {
+		return "", fmt.Errorf("%w: shared thumbnail name", ErrProcess)
+	}
 	if name == generated {
 		return name, nil
 	}
@@ -81,4 +85,13 @@ func thumbnailName(publicFile, generated string) string {
 		stem = "image"
 	}
 	return "thumb_" + stem + ext
+}
+
+func sharedPreviewName(name string) bool {
+	switch strings.ToLower(name) {
+	case "thumb_frame.jpg", "thumb_frame.jpeg", "frame.jpg", "thumb_output.jpg", "thumb_output.jpeg", "thumb_output.png", "thumb_output.webp":
+		return true
+	default:
+		return false
+	}
 }
