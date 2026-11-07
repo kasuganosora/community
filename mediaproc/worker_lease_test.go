@@ -106,43 +106,22 @@ func TestExpiredSavingIsRecoveredAndMissingStagingFreesTheQueue(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestEncodeSlotRunsOneAndRejectsOverflow(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(func() {
-		cancel()
-		encodeMu.Lock()
-		running := encodeRunning
-		encodeWaiting = 0
-		encodeRunning = 0
-		encodeMu.Unlock()
-		for range running {
-			select {
-			case <-encodeSlots:
-			default:
-			}
-		}
-	})
+func TestEncodeSlotRunsOneAndWaits(t *testing.T) {
 	require.NoError(t, acquireEncode(context.Background()))
 	wait, stop := context.WithTimeout(context.Background(), 40*time.Millisecond)
 	defer stop()
-	require.Error(t, acquireEncode(wait))
-	entered := make(chan struct{}, maxVideoGlobal)
-	for range maxVideoGlobal - 1 {
-		go func() {
-			entered <- struct{}{}
-			if acquireEncode(ctx) == nil {
-				releaseEncode()
-			}
-		}()
-	}
-	for range maxVideoGlobal - 1 {
-		<-entered
-	}
-	time.Sleep(40 * time.Millisecond)
-	quick, stopQuick := context.WithTimeout(context.Background(), 40*time.Millisecond)
-	defer stopQuick()
-	require.ErrorIs(t, acquireEncode(quick), errQueue)
+	require.ErrorIs(t, acquireEncode(wait), context.DeadlineExceeded)
 	releaseEncode()
+	require.NoError(t, acquireEncode(context.Background()))
+	encodeMu.Lock()
+	running := encodeRunning
+	encodeMu.Unlock()
+	require.Equal(t, 1, running)
+	releaseEncode()
+	encodeMu.Lock()
+	running = encodeRunning
+	encodeMu.Unlock()
+	require.Equal(t, 0, running)
 }
 
 func TestFailedEncodeDeletesItsObjectAndMarksTheRowFailed(t *testing.T) {

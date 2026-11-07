@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/tests/pgtest"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -18,6 +21,102 @@ import (
 
 func TestConcurrentVideoEnqueueRespectsCaps(t *testing.T) {
 	admitAcrossConnections(t, openAdmissionDB(t, sqlite.Open(filepath.Join(t.TempDir(), "admit.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate")))
+}
+
+func TestAPIAndMatrixShareVideoAdmission(t *testing.T) {
+	shareVideoAdmission(t, openAdmissionDB(t, sqlite.Open(filepath.Join(t.TempDir(), "share.db")+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate")))
+}
+
+func TestAPIAndMatrixShareVideoAdmissionOnPostgres(t *testing.T) {
+	if !pgtest.Enabled() {
+		t.Skip("TEST_DATABASE_URL is not set; PostgreSQL admission was not run")
+	}
+	conn := pgtest.Open(t, &gorm.Config{Logger: logger.Discard})
+	require.NoError(t, conn.AutoMigrate(&models.MediaAttachment{}, &models.MediaProcessTask{}, &models.MediaQueueGate{}))
+	sqlDB, err := conn.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(8)
+	shareVideoAdmission(t, conn)
+}
+
+func shareVideoAdmission(t *testing.T, conn *gorm.DB) {
+	t.Helper()
+	require.Error(t, func() error { _, err := HoldVideo(context.Background(), conn, 0, "staged", 1); return err }())
+	require.NoError(t, Enqueue(context.Background(), conn, 1, 7, "video", "video/mp4", "api-staged", "api-1", 1))
+	hold, err := HoldVideo(context.Background(), conn, 7, "matrix-staged", 1)
+	require.NoError(t, err)
+	_, err = HoldVideo(context.Background(), conn, 7, "matrix-staged-2", 1)
+	require.ErrorIs(t, err, ErrQueue)
+	require.ErrorIs(t, Enqueue(context.Background(), conn, 2, 7, "video", "video/mp4", "api-staged-2", "api-2", 1), ErrQueue)
+	require.EqualValues(t, maxVideoPerUser, liveVideos(t, conn))
+
+	require.NoError(t, hold.Release(context.Background(), conn, models.ProcessFailed))
+	require.NoError(t, Enqueue(context.Background(), conn, 3, 7, "video", "video/mp4", "api-staged-3", "api-3", 1))
+	var again models.MediaProcessTask
+	require.NoError(t, conn.Where("account_id = ? AND state = ?", 7, models.ProcessQueued).First(&again).Error)
+	require.NoError(t, conn.Model(&again).Update("state", models.ProcessCancelled).Error)
+	hold, err = HoldVideo(context.Background(), conn, 7, "matrix-after-cancel", 1)
+	require.NoError(t, err)
+	require.NoError(t, hold.Release(context.Background(), conn, models.ProcessCancelled))
+
+	ok, full, other := raceEnqueue(t, conn, 20, func(i int) (uint64, uint64) {
+		return uint64(5000 + i), uint64(6000 + i)
+	})
+	require.Zero(t, other)
+	left := maxVideoGlobal - 1
+	require.Equal(t, left, ok)
+	require.Equal(t, 20-left, full)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	var mu sync.Mutex
+	held := 0
+	rejected := 0
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			h, herr := HoldVideo(context.Background(), conn, 9, "blocked", 1)
+			mu.Lock()
+			defer mu.Unlock()
+			if herr == nil {
+				held++
+				_ = h.Release(context.Background(), conn, models.ProcessReady)
+			} else if errors.Is(herr, ErrQueue) {
+				rejected++
+			} else {
+				other++
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	require.Zero(t, other)
+	require.Zero(t, held)
+	require.Equal(t, 4, rejected)
+	require.EqualValues(t, maxVideoGlobal, liveVideos(t, conn))
+
+	dir := t.TempDir()
+	staged := filepath.Join(dir, "clip.mp4")
+	require.NoError(t, os.WriteFile(staged, []byte("video"), 0o600))
+	require.NoError(t, conn.Model(&models.MediaProcessTask{}).Where("state IN ?", []string{models.ProcessQueued, models.ProcessProcessing, models.ProcessSaving}).Update("state", models.ProcessReady).Error)
+	expired, err := HoldVideo(context.Background(), conn, 11, staged, 4)
+	require.NoError(t, err)
+	require.NoError(t, conn.Model(&models.MediaProcessTask{}).Where("id = ?", expired.TaskID).Update("claim_expires_at", time.Now().Add(-time.Minute)).Error)
+	encodes := 0
+	prev := processFile
+	processFile = func(context.Context, string, string, string, systemsettings.MediaProcessing, Limits) (Output, error) {
+		encodes++
+		return Output{}, nil
+	}
+	t.Cleanup(func() { processFile = prev })
+	_ = ProcessNext(context.Background(), conn)
+	require.Zero(t, encodes, "an expired synchronous hold must not be encoded again")
+	var recovered models.MediaProcessTask
+	require.NoError(t, conn.First(&recovered, expired.TaskID).Error)
+	require.Equal(t, models.ProcessFailed, recovered.State)
+	_, statErr := os.Stat(dir)
+	require.True(t, os.IsNotExist(statErr))
 }
 
 func TestConcurrentVideoEnqueueRespectsCapsOnPostgres(t *testing.T) {

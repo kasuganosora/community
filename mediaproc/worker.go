@@ -2,6 +2,8 @@ package mediaproc
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,10 +33,9 @@ const (
 	sweepBatch      = 32
 )
 
-// encodeSlots is one ffmpeg at a time in this process. The cap counts the
-// running encode plus waiters so a restarted queue cannot pile up unbounded
-// goroutines. It is not a cluster lock and it is not held as a database row
-// lock: another replica can encode its own claimed task.
+// encodeSlots is one ffmpeg at a time in this process. Callers wait for that
+// slot or stop when their context ends. It is not the global queue cap and
+// it is not a lock across replicas.
 var (
 	encodeSlots   = make(chan struct{}, 1)
 	encodeMu      sync.Mutex
@@ -44,10 +45,6 @@ var (
 
 func acquireEncode(ctx context.Context) error {
 	encodeMu.Lock()
-	if encodeRunning+encodeWaiting >= maxVideoGlobal {
-		encodeMu.Unlock()
-		return errQueue
-	}
 	encodeWaiting++
 	encodeMu.Unlock()
 	select {
@@ -76,7 +73,8 @@ func releaseEncode() {
 
 type frozenConfig struct {
 	systemsettings.MediaProcessing
-	Limits Limits `json:"limits"`
+	Limits   Limits `json:"limits"`
+	SyncHold bool   `json:"syncHold,omitempty"`
 }
 
 // Enqueue freezes the current settings onto a task. The attachment row must
@@ -134,7 +132,148 @@ func lockVideoAdmission(tx *gorm.DB) error {
 	return nil
 }
 
-var errQueue = errString("upload queue is full")
+func syncHold(configJSON string) bool {
+	var snap frozenConfig
+	return json.Unmarshal([]byte(configJSON), &snap) == nil && snap.SyncHold
+}
+
+// VideoHold is one in-flight video that is encoded by the caller, not the
+// queue worker. It occupies the same global and per-owner capacity as a
+// queued API task until Release. The admission transaction ends before the
+// caller starts ffmpeg.
+type VideoHold struct {
+	TaskID    uint64
+	MediaID   uint64
+	AccountID uint64
+	Token     string
+}
+
+// HoldVideo reserves capacity for a video the caller will encode itself.
+// accountID must be the authenticated owner's account. A full queue returns
+// ErrQueue and inserts nothing.
+func HoldVideo(ctx context.Context, conn *gorm.DB, accountID uint64, stagingPath string, inputBytes int64) (*VideoHold, error) {
+	if accountID == 0 {
+		return nil, fmt.Errorf("video admission requires an owner")
+	}
+	snap := frozenConfig{MediaProcessing: systemsettings.LoadMediaProcessing(), Limits: DefaultLimits(systemsettings.MediaImageSizeLimit(), systemsettings.MediaVideoSizeLimit()), SyncHold: true}
+	raw, err := json.Marshal(snap)
+	if err != nil {
+		return nil, err
+	}
+	var hold *VideoHold
+	err = conn.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockVideoAdmission(tx); err != nil {
+			return err
+		}
+		var globalN, userN int64
+		live := []string{models.ProcessQueued, models.ProcessProcessing, models.ProcessSaving}
+		if err := tx.Model(&models.MediaProcessTask{}).Where("kind = ? AND state IN ?", "video", live).Count(&globalN).Error; err != nil {
+			return err
+		}
+		if globalN >= maxVideoGlobal {
+			return ErrQueue
+		}
+		if err := tx.Model(&models.MediaProcessTask{}).Where("kind = ? AND account_id = ? AND state IN ?", "video", accountID, live).Count(&userN).Error; err != nil {
+			return err
+		}
+		if userN >= maxVideoPerUser {
+			return ErrQueue
+		}
+		mediaID, err := freshMediaID(tx)
+		if err != nil {
+			return err
+		}
+		until := time.Now().Add(leaseFor)
+		task := models.MediaProcessTask{
+			MediaID: mediaID, AccountID: accountID, Kind: "video", DetectedMIME: "video/mp4",
+			State: models.ProcessProcessing, StagingPath: stagingPath, ClaimToken: uuid.NewString(),
+			ClaimExpiresAt: &until, ConfigJSON: string(raw), InputBytes: inputBytes,
+		}
+		if err := tx.Create(&task).Error; err != nil {
+			return err
+		}
+		hold = &VideoHold{TaskID: task.ID, MediaID: task.MediaID, AccountID: accountID, Token: task.ClaimToken}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return hold, nil
+}
+
+func freshMediaID(tx *gorm.DB) (uint64, error) {
+	for range 5 {
+		var buf [8]byte
+		if _, err := rand.Read(buf[:]); err != nil {
+			return 0, err
+		}
+		id := binary.BigEndian.Uint64(buf[:]) & 0x7fffffffffffffff
+		if id == 0 {
+			continue
+		}
+		var n int64
+		if err := tx.Model(&models.MediaProcessTask{}).Where("media_id = ?", id).Count(&n).Error; err != nil {
+			return 0, err
+		}
+		if n == 0 {
+			return id, nil
+		}
+	}
+	return 0, fmt.Errorf("video admission id")
+}
+
+// Release frees the capacity. state is ready, failed, or cancelled. A hold
+// whose lease was already recovered is left as the recovery recorded it.
+func (h *VideoHold) Release(ctx context.Context, conn *gorm.DB, state string) error {
+	if h == nil {
+		return nil
+	}
+	switch state {
+	case models.ProcessReady, models.ProcessFailed, models.ProcessCancelled:
+	default:
+		state = models.ProcessFailed
+	}
+	res := conn.WithContext(ctx).Model(&models.MediaProcessTask{}).Where("id = ? AND claim_token = ? AND state = ?", h.TaskID, h.Token, models.ProcessProcessing).Updates(map[string]any{"state": state, "claim_token": "", "claim_expires_at": nil})
+	return res.Error
+}
+
+// Keep renews the lease until stop. If renewal loses the row, the returned
+// context is cancelled so the caller stops encoding.
+func (h *VideoHold) Keep(parent context.Context, conn *gorm.DB) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(leaseFor / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !h.renew(conn) {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return ctx, func() {
+		cancel()
+		<-done
+	}
+}
+
+func (h *VideoHold) renew(conn *gorm.DB) bool {
+	until := time.Now().Add(leaseFor)
+	res := conn.Model(&models.MediaProcessTask{}).Where("id = ? AND claim_token = ? AND state = ?", h.TaskID, h.Token, models.ProcessProcessing).Update("claim_expires_at", until)
+	return res.Error == nil && res.RowsAffected == 1
+}
+
+// ErrQueue is returned when a video would exceed the global or per-owner cap.
+var ErrQueue = errString("upload queue is full")
+
+var errQueue = ErrQueue
 
 type errString string
 
@@ -185,7 +324,10 @@ func claimOnce(ctx context.Context, conn *gorm.DB, now time.Time) (*models.Media
 		until := now.Add(leaseFor)
 		oldKey = task.OutputKey
 		newKey := task.OutputKey
-		if task.State != models.ProcessQueued {
+		// A synchronous hold is already being encoded by the request that
+		// reserved it. An expired hold is failed by runClaimed, not encoded
+		// again, and its output key stays empty so recovery does not publish.
+		if task.State != models.ProcessQueued && !syncHold(task.ConfigJSON) {
 			reclaimed = true
 			newKey = isolatedKey(task.OutputKey)
 		}
@@ -343,6 +485,9 @@ func runClaimed(parent context.Context, conn *gorm.DB, task *models.MediaProcess
 		return context.WithoutCancel(parent)
 	}
 	if json.Unmarshal([]byte(task.ConfigJSON), &snap) != nil {
+		return failTask(finish(), conn, task, ErrProcess)
+	}
+	if snap.SyncHold {
 		return failTask(finish(), conn, task, ErrProcess)
 	}
 	if task.StagingPath == "" || !fileExists(task.StagingPath) {

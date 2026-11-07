@@ -132,7 +132,7 @@ func (s *MediaService) uploadMedia(file io.Reader, header *multipart.FileHeader,
 
 	finalPath, finalType, finalSize := tmpPath, contentType, fileSize
 	if origin == "local" {
-		gated, gerr := gateLocalUpload(context.Background(), tmpPath, contentType)
+		gated, gerr := gateLocalUpload(context.Background(), tmpPath, contentType, uploaderID)
 		if gerr != nil {
 			return nil, gerr
 		}
@@ -414,6 +414,9 @@ func handleUploadMedia(c *gin.Context) {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			c.JSON(413, gin.H{"errcode": "M_TOO_LARGE", "error": "Media exceeds 50 MiB"})
+			return
+		}
+		if rejectMatrixAdmission(c, err) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{

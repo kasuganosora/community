@@ -218,7 +218,7 @@ func (ams *AsyncMediaService) CompleteAsyncUpload(ctx context.Context, mediaID, 
 	if err = file.Close(); err != nil {
 		return nil, err
 	}
-	gated, err := gateLocalUpload(ctx, path, contentType)
+	gated, err := gateLocalUpload(ctx, path, contentType, uploader)
 	if err != nil {
 		return nil, err
 	}
@@ -419,6 +419,8 @@ func handleCompleteAsyncUpload(c *gin.Context) {
 			c.JSON(403, gin.H{"errcode": "M_FORBIDDEN", "error": "Media belongs to another user"})
 		} else if errors.Is(err, ErrMediaTooLarge) || errors.As(err, &tooLarge) {
 			c.JSON(413, gin.H{"errcode": "M_TOO_LARGE", "error": "Media exceeds upload limit"})
+		} else if rejectMatrixAdmission(c, err) {
+			return
 		} else if errors.Is(err, ErrCannotOverwriteMedia) {
 			c.JSON(http.StatusConflict, gin.H{
 				"errcode": "M_CANNOT_OVERWRITE_MEDIA",

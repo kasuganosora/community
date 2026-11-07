@@ -2,14 +2,22 @@ package homeserver
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/h2non/filetype"
+	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/mediaproc"
+	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 )
+
+// processLocal is the encode used for a local Matrix upload. Tests replace it.
+var processLocal = mediaproc.ProcessFile
 
 type gatedUpload struct {
 	Path string
@@ -20,15 +28,44 @@ type gatedUpload struct {
 // gateLocalUpload runs the shared media pipeline for a local Matrix upload.
 // Remote federation copies do not call it. Non-media files stay opaque.
 // A claimed image, video, or audio type whose bytes are not that media is
-// rejected instead of stored.
-func gateLocalUpload(ctx context.Context, path, claimed string) (gatedUpload, error) {
+// rejected instead of stored. Video reserves the same durable queue slot as
+// an API upload before ffmpeg starts, then releases it when this call returns.
+func gateLocalUpload(ctx context.Context, path, claimed, uploader string) (gated gatedUpload, err error) {
 	detected := sniffStaged(path)
 	if processableMedia(detected) {
+		encodeCtx := ctx
+		if strings.HasPrefix(detected, "video/") {
+			owner, ownerErr := localVideoOwner(uploader)
+			if ownerErr != nil {
+				return gatedUpload{}, ownerErr
+			}
+			info, statErr := os.Stat(path)
+			if statErr != nil {
+				return gatedUpload{}, statErr
+			}
+			hold, holdErr := mediaproc.HoldVideo(ctx, db.GetDB(), owner, path, info.Size())
+			if holdErr != nil {
+				return gatedUpload{}, holdErr
+			}
+			defer func() {
+				state := models.ProcessReady
+				if err != nil {
+					state = models.ProcessFailed
+					if ctx.Err() != nil {
+						state = models.ProcessCancelled
+					}
+				}
+				_ = hold.Release(context.WithoutCancel(ctx), db.GetDB(), state)
+			}()
+			var stop func()
+			encodeCtx, stop = hold.Keep(ctx, db.GetDB())
+			defer stop()
+		}
 		cfg := systemsettings.LoadMediaProcessing()
 		limits := mediaproc.DefaultLimits(systemsettings.MediaImageSizeLimit(), systemsettings.MediaVideoSizeLimit())
-		out, err := mediaproc.ProcessFile(ctx, path, filepath.Dir(path), detected, cfg, limits)
-		if err != nil {
-			return gatedUpload{}, err
+		out, encodeErr := processLocal(encodeCtx, path, filepath.Dir(path), detected, cfg, limits)
+		if encodeErr != nil {
+			return gatedUpload{}, encodeErr
 		}
 		return gatedUpload{Path: out.Path, MIME: out.MIME, Size: out.OutputBytes}, nil
 	}
@@ -44,6 +81,29 @@ func gateLocalUpload(ctx context.Context, path, claimed string) (gatedUpload, er
 		mime = "application/octet-stream"
 	}
 	return gatedUpload{Path: path, MIME: mime, Size: info.Size()}, nil
+}
+
+// localVideoOwner maps the authenticated Matrix user to the local account
+// that owns the video quota. An empty id, a remote MXID, or a bridge actor
+// does not get a slot and does not share account 0.
+func localVideoOwner(uploader string) (uint64, error) {
+	localpart, _, ok := ParseMatrixUserID(strings.TrimSpace(uploader))
+	if !ok || localpart == "" || models.IsReservedBridgeUsername(localpart) {
+		return 0, errors.New("uploader is not a local account")
+	}
+	var account models.Account
+	if err := db.GetDB().Where("username = ?", localpart).First(&account).Error; err != nil || account.Id == 0 {
+		return 0, errors.New("uploader is not a local account")
+	}
+	return account.Id, nil
+}
+
+func rejectMatrixAdmission(c *gin.Context, err error) bool {
+	if errors.Is(err, mediaproc.ErrQueue) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"errcode": "M_LIMIT_EXCEEDED", "error": err.Error()})
+		return true
+	}
+	return false
 }
 
 func sniffStaged(path string) string {
