@@ -175,6 +175,37 @@ var (
 		},
 		[]string{"cache_name"},
 	)
+
+	// MediaProcessingTotal counts local processing outcomes. kind is
+	// image, video, audio, or other. result is ok or rejected.
+	MediaProcessingTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "media_processing_total",
+			Help:      "Local media processing outcomes",
+		},
+		[]string{"kind", "result"},
+	)
+
+	// MediaProcessingBytes counts validated input and stored output bytes.
+	MediaProcessingBytes = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "media_processing_bytes_total",
+			Help:      "Bytes read or stored by local media processing",
+		},
+		[]string{"direction"},
+	)
+
+	// MediaProcessingDuration is the wall time of one local processing attempt.
+	MediaProcessingDuration = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: namespace,
+			Name:      "media_processing_duration_seconds",
+			Help:      "Wall time of one local media processing attempt",
+			Buckets:   []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 5, 15, 60, 180},
+		},
+	)
 )
 
 func init() {
@@ -190,6 +221,29 @@ func init() {
 	prometheus.MustRegister(FederatedEvents)
 	prometheus.MustRegister(CacheHits)
 	prometheus.MustRegister(CacheMisses)
+	prometheus.MustRegister(MediaProcessingTotal)
+	prometheus.MustRegister(MediaProcessingBytes)
+	prometheus.MustRegister(MediaProcessingDuration)
+}
+
+// RecordMediaProcessing adds one attempt. Values are counts and durations only.
+func RecordMediaProcessing(kind, result string, inputBytes, outputBytes int64, elapsed time.Duration) {
+	switch kind {
+	case "image", "video", "audio":
+	default:
+		kind = "other"
+	}
+	if result != "ok" {
+		result = "rejected"
+	}
+	MediaProcessingTotal.WithLabelValues(kind, result).Inc()
+	if inputBytes > 0 {
+		MediaProcessingBytes.WithLabelValues("in").Add(float64(inputBytes))
+	}
+	if outputBytes > 0 {
+		MediaProcessingBytes.WithLabelValues("out").Add(float64(outputBytes))
+	}
+	MediaProcessingDuration.Observe(elapsed.Seconds())
 }
 
 // MetricsMiddleware Prometheus 指标收集中间件.

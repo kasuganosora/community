@@ -48,7 +48,13 @@ RUN npm run build
 FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
 # python3 + psql run the Misskey exporter used by the setup wizard.
-RUN apk add --no-cache ca-certificates tzdata ffmpeg python3 postgresql17-client
+# ffmpeg's Alpine package provides both ffmpeg and ffprobe. util-linux
+# provides prlimit, which sets resource caps before ffmpeg or ffprobe runs.
+# The version checks fail the image build if any of them is missing.
+RUN apk add --no-cache ca-certificates tzdata ffmpeg util-linux python3 postgresql17-client \
+ && ffmpeg -hide_banner -version \
+ && ffprobe -hide_banner -version \
+ && prlimit --version
 
 WORKDIR /app
 

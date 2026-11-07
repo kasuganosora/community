@@ -5,7 +5,7 @@ import { useDismiss } from '@/shared/composables/useDismiss'
 import { displayAccount } from '@/shared/utils/accountDisplay'
 import { ref, computed, reactive, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
-import { postApi } from '@/domains/post/infrastructure/postApi'
+import { clearPendingMedia, loadPendingMedia, postApi } from '@/domains/post/infrastructure/postApi'
 import { mentionAtCaret } from '@/domains/post/domain/mentionQuery'
 import { userApi } from '@/domains/user/infrastructure/userApi'
 import { sameOriginMediaUrl } from '@/shared/utils/mediaUrl'
@@ -187,15 +187,44 @@ useDismiss(pickerOpen, () => [emojiPickerEl.value?.$el as HTMLElement | undefine
 const poll = ref<PollDraft | null>(null)
 const pollLimits = usePollLimits()
 const pollOptionLength = (value: string) => Array.from(value).length
-interface MediaItem { key: string; name: string; uploading: boolean; preview: string; attachment?: MastodonAttachment; error?: string; file?: File; progress?: number }
+interface MediaItem { key: string; name: string; uploading: boolean; preview: string; attachment?: MastodonAttachment; error?: string; file?: File; progress?: number; phase?: 'uploading' | 'queued' | 'processing' | 'saving' | 'ready' | 'failed' | 'cancelled'; remoteId?: string; cancel?: () => void }
 const media = reactive<MediaItem[]>([])
 const posting = ref(false)
 const uploadStarted = ref(false)
 let postVersion = 0
 let uploadController: AbortController | undefined
-function cancelPendingPost() { postVersion++; uploadController?.abort(); uploadController = undefined; posting.value = false }
+let observeController: AbortController | undefined
+function disposeSignal() { return new DOMException('dispose', 'AbortError') }
+function cancelSignal() { return new DOMException('cancel', 'AbortError') }
+function stopObserving() {
+  postVersion++
+  observeController?.abort(disposeSignal())
+  observeController = undefined
+  uploadController?.abort(disposeSignal())
+  uploadController = undefined
+}
+function cancelPendingPost() {
+  postVersion++
+  observeController?.abort(cancelSignal())
+  observeController = undefined
+  uploadController?.abort(cancelSignal())
+  uploadController = undefined
+  posting.value = false
+  clearPendingMedia()
+}
+function bindAbort(item: MediaItem, parent?: AbortSignal) {
+  const own = new AbortController()
+  const forward = () => own.abort(parent?.reason)
+  if (parent?.aborted) own.abort(parent.reason)
+  else parent?.addEventListener('abort', forward)
+  item.cancel = () => {
+    parent?.removeEventListener('abort', forward)
+    own.abort(cancelSignal())
+  }
+  return { signal: own.signal, release() { parent?.removeEventListener('abort', forward) } }
+}
 onBeforeUnmount(() => {
-  cancelPendingPost()
+  stopObserving()
   for (const item of media) if (item.preview) URL.revokeObjectURL(item.preview)
 })
 watch(sessionEpoch, () => { cancelPendingPost(); reset() }, { flush: 'sync' })
@@ -223,7 +252,32 @@ const uploading = computed(() => media.some(m => m.uploading))
 // Unsent work survives a deploy auto-reload (see useVersionSync).
 interface PersistedPost { text: string; spoilerEnabled: boolean; spoilerText: string; visibility: Visibility; attachments: MastodonAttachment[] }
 let prefilledText: string | null = null
-onMounted(() => { prefilledText ??= content.value })
+onMounted(() => {
+  prefilledText ??= content.value
+  const owner = authStore.currentUser?.id
+  if (!owner) return
+  observeController = new AbortController()
+  for (const pending of loadPendingMedia(owner)) {
+    const item: MediaItem = { key: pending.id, name: pending.name, uploading: true, preview: '', phase: 'queued', progress: 0, remoteId: pending.id }
+    media.push(item)
+    const index = media.length - 1
+    const bound = bindAbort(item, observeController.signal)
+    void postApi.resumeMedia(pending.id, {
+      signal: bound.signal,
+      onPhase: (phase, percent) => { media[index].phase = phase; media[index].progress = percent },
+    }).then(attachment => {
+      media[index].attachment = attachment
+      media[index].phase = 'ready'
+      media[index].progress = 100
+      media[index].uploading = false
+    }).catch(err => {
+      if (bound.signal.aborted && bound.signal.reason instanceof DOMException && bound.signal.reason.message === 'dispose') return
+      media[index].uploading = false
+      media[index].phase = 'failed'
+      media[index].error = err instanceof Error ? err.message : String(err)
+    }).finally(() => bound.release())
+  }
+})
 useUnsavedWork<PersistedPost>(() => props.editStatus ? null : `post:${props.replyTo?.id ?? 'new'}:${props.quoteTo?.id ?? ''}`, {
   busy: () => posting.value || uploading.value || media.length > 0 || (content.value.trim() !== '' && content.value !== prefilledText) || spoilerText.value.trim() !== '',
   snapshot: () => {
@@ -375,26 +429,34 @@ async function addFiles(files: File[]) {
 }
 
 async function uploadItem(item: MediaItem, signal: AbortSignal, current: () => boolean) {
-  if (!item.file || item.attachment || !current()) return
+  if (!item.file || item.attachment || !current() || !media.includes(item)) return
   item.uploading = true
   item.progress = 0
   item.error = undefined
+  const bound = bindAbort(item, signal)
   try {
     const attachment = await postApi.uploadMedia(item.file, undefined, {
-      signal,
-      onProgress: percent => { if (current()) item.progress = Math.max(item.progress ?? 0, percent) },
+      signal: bound.signal,
+      ownerId: authStore.currentUser?.id ?? '',
+      onAccepted: id => { item.remoteId = id },
+      onProgress: percent => { if (current()) { item.phase = 'uploading'; item.progress = Math.max(item.progress ?? 0, percent) } },
+      onPhase: (phase, percent) => { if (current()) { item.phase = phase; item.progress = percent } },
     })
-    if (current()) { item.attachment = attachment; item.progress = 100 }
+    if (current() && media.includes(item)) { item.attachment = attachment; item.phase = 'ready'; item.progress = 100 }
   } catch (err) {
-    if (!current()) return
+    if (!current() || !media.includes(item) || (bound.signal.aborted && bound.signal.reason instanceof DOMException && bound.signal.reason.message === 'dispose')) return
     item.error = err instanceof Error ? err.message : t('shared.PostComposer.s38')
     error.value = t('shared.PostComposer.s39', [item.name, item.error])
-  } finally { item.uploading = false }
+  } finally { bound.release(); item.uploading = false }
 }
 
 function mediaProgressLabel(item: MediaItem) {
-  if (item.attachment) return t('shared.PostComposer.uploadComplete')
-  if (item.error) return t('shared.PostComposer.uploadError')
+  if (item.phase === 'cancelled') return t('shared.PostComposer.uploadCancelled')
+  if (item.phase === 'failed' || item.error) return t('shared.PostComposer.uploadError')
+  if (item.phase === 'saving') return t('shared.PostComposer.uploadSaving')
+  if (item.phase === 'processing') return t('shared.PostComposer.processingPercent', [item.progress ?? 0])
+  if (item.phase === 'queued') return t('shared.PostComposer.serverQueued')
+  if (item.phase === 'ready' || item.attachment) return t('shared.PostComposer.uploadComplete')
   if (item.uploading) return (item.progress ?? 0) >= 100
     ? t('shared.PostComposer.uploadProcessing') : t('shared.PostComposer.uploadPercent', [item.progress ?? 0])
   return t('shared.PostComposer.uploadQueued')
@@ -403,9 +465,11 @@ function mediaProgressLabel(item: MediaItem) {
 const { dragging: mediaDragging } = useMediaDrop(composerRoot, { onFiles: files => { void addFiles(files) }, enabled: mediaEnabled, accept: acceptMedia })
 
 function removeMedia(i: number) {
-  if (posting.value) return
   const item = media[i]
-  if (item?.preview) URL.revokeObjectURL(item.preview)
+  if (!item || (posting.value && item.attachment)) return
+  item.cancel?.()
+  if (item.remoteId) void postApi.discardMedia(item.remoteId)
+  if (item.preview) URL.revokeObjectURL(item.preview)
   media.splice(i, 1)
 }
 
@@ -456,11 +520,12 @@ async function handlePost() {
         const worker = async () => {
           while (current() && cursor < pending.length) {
             const item = pending[cursor++]!
+            if (!media.includes(item)) continue
             await uploadItem(item, controller.signal, current)
           }
         }
         await Promise.all(Array.from({ length: Math.min(2, pending.length) }, worker))
-        if (!current() || media.some(item => !item.attachment)) return
+        if (!current() || pending.some(item => !media.includes(item) || !item.attachment)) return
       }
       if (!current()) return
       status = await postApi.create(buildCreateParams({ ...submitted, mediaIds: [...mediaIds.value] }))
@@ -710,10 +775,10 @@ defineExpose({ focus, reset })
             <span v-else class="composer__media-name">{{ m.uploading ? $t('shared.PostComposer.s8') : m.name }}</span>
             <div class="composer__media-progress" :class="{ 'composer__media-progress--error': m.error }" :title="m.error || m.name">
               <span>{{ mediaProgressLabel(m) }}</span>
-              <progress v-if="m.uploading" max="100" :value="Math.min(99, m.progress ?? 0)" :aria-label="$t('shared.PostComposer.uploadFile', [m.name])" />
+              <progress v-if="m.uploading || m.phase === 'queued' || m.phase === 'processing' || m.phase === 'saving'" max="100" :value="m.phase === 'uploading' || m.uploading && !m.phase ? Math.min(99, m.progress ?? 0) : (m.progress ?? 0)" :aria-label="$t('shared.PostComposer.uploadFile', [m.name])" />
             </div>
             <button
-              v-if="!posting"
+              v-if="!posting || !m.attachment"
               type="button"
               class="composer__media-remove"
               :aria-label="$t('shared.PostComposer.s9', [m.name])"

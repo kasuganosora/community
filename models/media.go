@@ -21,6 +21,21 @@ const (
 	MediaTypeUnknown MediaType = "unknown"
 )
 
+const (
+	ProcessReady      = "ready"
+	ProcessQueued     = "queued"
+	ProcessProcessing = "processing"
+	ProcessSaving     = "saving"
+	ProcessFailed     = "failed"
+	ProcessCancelled  = "cancelled"
+)
+
+// ProcessPublishable reports whether a status may reference this attachment.
+// An empty state is the pre-migration value and is treated as ready.
+func (m *MediaAttachment) ProcessPublishable() bool {
+	return m.ProcessState == "" || m.ProcessState == ProcessReady
+}
+
 // MediaAttachment 媒体附件.
 type MediaAttachment struct {
 	Id            uint64    `gorm:"primaryKey;autoIncrement"           json:"id"`
@@ -47,8 +62,14 @@ type MediaAttachment struct {
 	// delete also refreshes, so rows unlinked before this column existed are
 	// still eligible once they are old enough.
 	DetachedAt *time.Time `gorm:"index"                              json:"-"`
-	CreatedAt  time.Time  `gorm:"autoCreateTime"                     json:"created_at"`
-	UpdatedAt  time.Time  `gorm:"autoUpdateTime"                     json:"updated_at"`
+	// ProcessState is ready for published files. Empty means the same thing
+	// for rows written before the column existed. queued, processing, saving,
+	// failed, and cancelled are not attachable and are not served.
+	ProcessState    string    `gorm:"size:16;not null;default:'ready';index" json:"-"`
+	ProcessProgress int       `gorm:"not null;default:0"                     json:"-"`
+	ProcessError    string    `gorm:"size:200"                               json:"-"`
+	CreatedAt       time.Time `gorm:"autoCreateTime"                     json:"created_at"`
+	UpdatedAt       time.Time `gorm:"autoUpdateTime"                     json:"updated_at"`
 
 	// 关联
 	Account *Account `gorm:"foreignKey:AccountId" json:"-"`

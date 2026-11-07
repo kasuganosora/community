@@ -69,7 +69,7 @@ func TestEmojiManagementValidatedUploadMetadataAndIsolation(t *testing.T) {
 		require.NoError(t, emojiasset.DeleteAsset(&emojiasset.Asset{URL: upload.Url, StaticURL: upload.StaticUrl}))
 	})
 	require.NotEmpty(t, upload.Id)
-	require.Equal(t, "image/png", upload.ContentType)
+	require.Equal(t, "image/webp", upload.ContentType)
 	require.Positive(t, upload.FileSize)
 	require.NoError(t, conn.Create(&models.Role{ID: 9, Name: "reviewer"}).Error)
 	body := map[string]any{"shortcode": "wave", "image_id": upload.Id, "aliases": []string{"hello", "hello", "你好"}, "license": "CC0", "category": "greetings", "local_only": true, "is_sensitive": true, "reaction_role_ids": []string{"9"}}

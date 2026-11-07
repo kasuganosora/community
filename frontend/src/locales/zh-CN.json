@@ -210,6 +210,10 @@
       "uploadProcessing": "处理中…",
       "uploadPercent": "上传中 {0}%",
       "uploadQueued": "待上传",
+      "serverQueued": "服务器排队中",
+      "processingPercent": "处理中 {0}%",
+      "uploadSaving": "保存中…",
+      "uploadCancelled": "已取消",
       "uploadFile": "{0} 上传进度",
       "uploadSummary": "已上传 {0}/{1}",
       "uploadTotal": "附件上传总进度",
@@ -3967,6 +3971,14 @@
     "appealLoadFailed": "无法读取这次封禁，请稍后再试",
     "appealResolveFailed": "无法保存处理结果，请稍后再试",
     "appealInvalidStatus": "帖子 ID 无效",
-    "appealNoCase": "没有可申诉的自动封禁"
+    "appealNoCase": "没有可申诉的自动封禁",
+    "mediaCorrupt": "文件无效或已损坏，未附加。",
+    "mediaDuration": "视频超过服务器允许的时长。",
+    "mediaPixels": "图片或视频的像素过多。",
+    "mediaQueue": "上传队列已满，请稍后再试。",
+    "mediaDisk": "临时存储已满，请稍后再试。",
+    "mediaFailed": "处理失败，未发布原始文件。",
+    "mediaCancelled": "处理已取消。",
+    "mediaNotReady": "附件尚未就绪。"
   }
 }

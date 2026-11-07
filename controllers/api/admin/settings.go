@@ -85,7 +85,7 @@ func settingsSections() map[string]SettingsSection {
 		{Key: systemsettings.KeyAPITokenInactivityExpiry, Label: "自动吊销 6 个月未使用的 API 令牌", Type: "boolean", Value: false, Description: "开启后，最后一次使用（从未使用则为创建时间）超过 180 天的访问令牌会在下次使用时被吊销。"},
 	}}
 	sections["email"] = SettingsSection{Title: "邮件服务器", Description: "保存后立即用于新的邮件连接。数据库中的值优先；只有该配置还没保存过时，才使用已有的环境变量。测试连接不会发送邮件。", Fields: emailSettingsFields()}
-	sections["storage"] = SettingsSection{Title: "对象存储", Description: "保存后立即切换存储连接，不必重启；不会自动迁移已有文件。数据库中的值优先；只有该配置还没保存过时，才使用已有的环境变量。未填写的存储桶会保持空白。", Fields: storageSettingsFields()}
+	sections["storage"] = SettingsSection{Title: "对象存储", Description: "保存后立即切换存储连接，不必重启；不会自动迁移已有文件。数据库中的值优先；只有该配置还没保存过时，才使用已有的环境变量。未填写的存储桶会保持空白。下方的媒体处理开关只作用于新的本地上传，互不改写，也不受环境变量覆盖。", Fields: append(storageSettingsFields(), mediaProcessingFields()...)}
 	sections["database"] = SettingsSection{Title: "数据库", Description: "数据库连接由部署环境管理，这里仅展示当前连接池诊断，不提供 SQL 执行或凭据。", Fields: databaseSettingsFields()}
 	sections["external"] = SettingsSection{Title: "外部服务", Description: "管理实际使用的搜索集成，查看翻译服务部署配置。", Fields: externalSettingsFields()}
 	return sections

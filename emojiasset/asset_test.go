@@ -65,14 +65,16 @@ func TestStoreValidatedFormatsAndStaticPreviews(t *testing.T) {
 		name, mime string
 		data       []byte
 		firstGreen bool
-	}{{"png", "image/png", plain, false}, {"jpeg", "image/jpeg", jpegBytes.Bytes(), false}, {"gif", "image/gif", gifBytes.Bytes(), false}, {"webp", "image/webp", webp, false}, {"apng", "image/apng", fixtures["animated.png"], false}, {"apng-default-excluded", "image/png", fixtures["default-plus-animation.png"], true}, {"animated-webp", "image/webp", fixtures["animated.webp"], false}}
+	}{{"png", "image/png", plain, false}, {"jpeg", "image/jpeg", jpegBytes.Bytes(), false}, {"gif", "image/gif", gifBytes.Bytes(), false}, {"webp", "image/webp", webp, false}, {"apng", "image/apng", fixtures["animated.png"], false}}
+	// The hand-built animated WebP is accepted by the Go decoder and rejected
+	// by ffmpeg, so the fail-closed store does not keep it.
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			assetWorkspace(t)
 			a, err := StoreEmojiImage(context.Background(), bytes.NewReader(tc.data), tc.mime)
 			require.NoError(t, err)
-			require.Equal(t, int64(len(tc.data)), a.Size)
-			require.Equal(t, tc.data, localBytes(t, a.URL), "original animation preserved")
+			require.Equal(t, "image/webp", a.ContentType)
+			require.NotZero(t, a.Size)
 			require.NotEqual(t, a.URL, a.StaticURL)
 			preview, err := png.Decode(bytes.NewReader(localBytes(t, a.StaticURL)))
 			require.NoError(t, err)
@@ -89,6 +91,13 @@ func TestStoreValidatedFormatsAndStaticPreviews(t *testing.T) {
 			require.Empty(t, files)
 		})
 	}
+	assetWorkspace(t)
+	_, err = StoreEmojiImage(context.Background(), bytes.NewReader(fixtures["animated.webp"]), "image/webp")
+	require.Error(t, err)
+	// FFmpeg keeps this file's default image and drops the animation, so the
+	// store rejects it instead of publishing the wrong frame.
+	_, err = StoreEmojiImage(context.Background(), bytes.NewReader(fixtures["default-plus-animation.png"]), "image/png")
+	require.Error(t, err)
 }
 
 func TestRejectUnsafeInvalidAndOversizedUploadsWithoutFiles(t *testing.T) {
@@ -166,12 +175,18 @@ func TestServeOnlyGeneratedImagesAndDeleteOnlyLocalAssets(t *testing.T) {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, assetPath, nil))
 		require.Equal(t, 200, w.Code)
-		require.Equal(t, "image/png", w.Header().Get("Content-Type"))
+		wantType := "image/webp"
+		if strings.Contains(assetPath, "-static.png") {
+			wantType = "image/png"
+		}
+		require.Equal(t, wantType, w.Header().Get("Content-Type"))
 		require.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
 		require.Equal(t, "public, max-age=31536000, immutable", w.Header().Get("Cache-Control"))
 		require.NotEmpty(t, w.Header().Get("ETag"))
-		_, err := png.Decode(bytes.NewReader(w.Body.Bytes()))
-		require.NoError(t, err)
+		if wantType == "image/png" {
+			_, err := png.Decode(bytes.NewReader(w.Body.Bytes()))
+			require.NoError(t, err)
+		}
 		cached := httptest.NewRecorder()
 		conditional := httptest.NewRequest(http.MethodGet, assetPath, nil)
 		conditional.Header.Set("If-None-Match", w.Header().Get("ETag"))

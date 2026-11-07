@@ -142,6 +142,13 @@ func buildNoteFromStatus(status *models.Status, account *models.Account, baseURL
 				"url":       url,
 				"name":      att.Description,
 			}
+			if att.Width != nil && att.Height != nil && *att.Width > 0 && *att.Height > 0 {
+				attachment["width"] = *att.Width
+				attachment["height"] = *att.Height
+			}
+			if att.Duration != nil && *att.Duration > 0 {
+				attachment["duration"] = *att.Duration
+			}
 			if att.Blurhash != "" {
 				attachment["blurhash"] = att.Blurhash
 			}

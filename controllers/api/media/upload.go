@@ -86,32 +86,37 @@ func Upload(c *gin.Context) {
 
 	// Store the original (and thumbnail) through the storage backend; the
 	// row keeps only the key below "media/", never a URL or host path.
-	stored, err := storeMediaFile(c.Request.Context(), file, validatedContentType)
-	if err != nil {
-		err = errors.Wrap(err, "Failed to store media")
-		_ = c.Error(err)
-		c.JSON(500, gin.H{"error": "Internal server error"})
-
+	if models.GetMediaType(validatedContentType) == models.MediaTypeVideo {
+		acceptAsync(c, account.Id, file, validatedContentType, description, focusX, focusY, true)
 		return
 	}
 
-	mediaType := models.GetMediaType(validatedContentType)
+	stored, err := storeMediaFile(c.Request.Context(), file, validatedContentType)
+	if err != nil {
+		writeMediaError(c, err)
+		return
+	}
+
+	mediaType := models.GetMediaType(stored.ContentType)
 
 	// 创建数据库记录
 	mediaRecord := &models.MediaAttachment{
-		AccountId:     account.Id,
-		FileName:      stored.FileName,
-		FilePath:      stored.FilePath,
-		FileSize:      stored.Size,
-		ContentType:   validatedContentType,
-		Type:          mediaType,
-		Width:         stored.Width,
-		Height:        stored.Height,
-		ThumbnailPath: stored.ThumbnailPath,
-		Blurhash:      stored.Blurhash,
-		Description:   description,
-		FocusX:        focusX,
-		FocusY:        focusY,
+		AccountId:       account.Id,
+		FileName:        stored.FileName,
+		FilePath:        stored.FilePath,
+		FileSize:        stored.Size,
+		ContentType:     stored.ContentType,
+		ProcessState:    models.ProcessReady,
+		ProcessProgress: 100,
+		Type:            mediaType,
+		Width:           stored.Width,
+		Height:          stored.Height,
+		Duration:        stored.Duration,
+		ThumbnailPath:   stored.ThumbnailPath,
+		Blurhash:        stored.Blurhash,
+		Description:     description,
+		FocusX:          focusX,
+		FocusY:          focusY,
 	}
 
 	if err := db.GetDB().Create(mediaRecord).Error; err != nil {
@@ -338,90 +343,52 @@ func UploadAsync(c *gin.Context) {
 		return
 	}
 
-	// 尝试获取并发处理槽位，防止内存耗尽（DoS 防护）
+	// The in-process kick is bounded. A full slot means the task would sit
+	// without a worker in tests and would pile up under a restart loop, so
+	// refuse before staging.
 	select {
 	case asyncUploadSem <- struct{}{}:
-		// 获取到槽位，继续处理
+		<-asyncUploadSem
 	default:
 		c.JSON(503, gin.H{"error": "Server is busy processing uploads, please retry later"})
 
 		return
 	}
 
-	// Read file content into memory now, since multipart data may be cleaned up
-	// after the request handler returns.
-	fileData, err := readAllFromFileHeader(request.File)
+	file, err := request.File.Open()
 	if err != nil {
-		<-asyncUploadSem // 释放槽位
 		_ = c.Error(errors.Wrap(err, "Failed to read file"))
 		c.JSON(500, gin.H{"error": "Internal server error"})
 
 		return
 	}
+	defer func() { _ = file.Close() }()
 
-	// 解析焦点位置（可选）
 	var focusX, focusY float64
-
 	if request.Focus != "" {
 		parts := strings.Split(request.Focus, ",")
 		if len(parts) == 2 {
 			if x, errX := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64); errX == nil {
 				focusX = x
 			}
-
 			if y, errY := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64); errY == nil {
 				focusY = y
 			}
 		}
 	}
-
-	// 创建临时媒体记录（processing 状态）
-	mediaRecord := &models.MediaAttachment{
-		AccountId:   account.Id,
-		FileName:    "processing",
-		FilePath:    "",
-		FileSize:    0,
-		ContentType: validatedContentType,
-		Type:        models.MediaTypeUnknown,
-		Description: request.Description,
-		FocusX:      focusX,
-		FocusY:      focusY,
-	}
-
-	if err := db.GetDB().Create(mediaRecord).Error; err != nil {
-		<-asyncUploadSem // 释放槽位
-		err = errors.Wrap(err, "Failed to create media record")
-		_ = c.Error(err)
-		c.JSON(500, gin.H{"error": "Internal server error"})
-
-		return
-	}
-
-	// 异步处理文件上传
-	go func() {
-		defer func() { <-asyncUploadSem }()
-		processUploadAsync(mediaRecord.Id, fileData, validatedContentType)
-	}()
-
-	// 返回 202 Accepted
-	c.JSON(202, gin.H{
-		"id":          strconv.FormatUint(mediaRecord.Id, 10),
-		"type":        "unknown",
-		"url":         "",
-		"preview_url": "",
-		"description": request.Description,
-		"blurhash":    "",
-	})
+	acceptAsync(c, account.Id, file, validatedContentType, request.Description, focusX, focusY, false)
 }
 
-// processUploadAsync 异步处理文件上传.
+// processUploadAsync finishes a row that tests or a recovered task already
+// created. Failure removes the row and any objects. It does not keep the
+// original bytes.
 func processUploadAsync(mediaId uint64, fileData []byte, validatedContentType string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
 	stored, err := storeMediaFile(ctx, bytes.NewReader(fileData), validatedContentType)
 	if err != nil {
-		log.Error("Failed to store media %d: %v", mediaId, err)
+		log.Info("media %d processing rejected", mediaId)
 		updateMediaError(mediaId, nil)
 
 		return
@@ -430,16 +397,20 @@ func processUploadAsync(mediaId uint64, fileData []byte, validatedContentType st
 	if err := db.GetDB().Model(&models.MediaAttachment{}).
 		Where("id = ?", mediaId).
 		Updates(map[string]any{
-			"file_name":      stored.FileName,
-			"file_path":      stored.FilePath,
-			"file_size":      stored.Size,
-			"type":           models.GetMediaType(validatedContentType),
-			"width":          stored.Width,
-			"height":         stored.Height,
-			"thumbnail_path": stored.ThumbnailPath,
-			"blurhash":       stored.Blurhash,
+			"file_name":        stored.FileName,
+			"file_path":        stored.FilePath,
+			"file_size":        stored.Size,
+			"content_type":     stored.ContentType,
+			"type":             models.GetMediaType(stored.ContentType),
+			"width":            stored.Width,
+			"height":           stored.Height,
+			"duration":         stored.Duration,
+			"thumbnail_path":   stored.ThumbnailPath,
+			"blurhash":         stored.Blurhash,
+			"process_state":    models.ProcessReady,
+			"process_progress": 100,
 		}).Error; err != nil {
-		log.Error("Failed to update media record %d: %v", mediaId, err)
+		log.Info("media %d processing rejected", mediaId)
 		updateMediaError(mediaId, stored)
 
 		return

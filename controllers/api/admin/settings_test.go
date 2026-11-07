@@ -176,6 +176,36 @@ func TestStorageSettingsApplyWithoutRestart(t *testing.T) {
 	require.Equal(t, storage.KindS3, storage.Default().Kind())
 }
 
+func TestMediaProcessingSettingsStayIndependent(t *testing.T) {
+	env := newAdminTestEnv(t)
+	for _, key := range []string{systemsettings.KeyMediaImageToWebP, systemsettings.KeyMediaVideoToWebM, systemsettings.KeyMediaImageQuality, systemsettings.KeyMediaVideoCRF} {
+		t.Cleanup(func() { systemsettings.Unset(key) })
+	}
+	c, w := newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "storage"}}, map[string]any{"values": map[string]any{
+		systemsettings.KeyMediaImageToWebP:  false,
+		systemsettings.KeyMediaImageQuality: float64(80),
+	}})
+	UpdateSettings(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.False(t, systemsettings.LoadMediaProcessing().ImageToWebP)
+	require.True(t, systemsettings.LoadMediaProcessing().VideoToWebM)
+	require.Equal(t, 80, systemsettings.LoadMediaProcessing().ImageQuality)
+	var row models.SystemSetting
+	require.NoError(t, env.gdb.Where(map[string]any{"key": systemsettings.KeyMediaImageToWebP}).First(&row).Error)
+	require.Equal(t, false, row.Val)
+
+	c, w = newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "storage"}}, map[string]any{"values": map[string]any{systemsettings.KeyMediaImageQuality: float64(10)}})
+	UpdateSettings(c)
+	require.Equal(t, 422, w.Code, w.Body.String())
+	c, w = newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "storage"}}, map[string]any{"values": map[string]any{systemsettings.KeyMediaVideoCRF: float64(99)}})
+	UpdateSettings(c)
+	require.Equal(t, 422, w.Code, w.Body.String())
+	c, w = newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "storage"}}, map[string]any{"values": map[string]any{systemsettings.KeyMediaStripPrivacy: "yes"}})
+	UpdateSettings(c)
+	require.Equal(t, 422, w.Code, w.Body.String())
+	require.True(t, systemsettings.LoadMediaProcessing().StripPrivacy)
+}
+
 func TestNewAccountModSettingsRoundTrip(t *testing.T) {
 	env := newAdminTestEnv(t)
 	keys := []string{newacctmod.KeyEnabled, newacctmod.KeyObservationN, newacctmod.KeyContextX, newacctmod.KeyPolicyText, newacctmod.KeyHoldFederate}

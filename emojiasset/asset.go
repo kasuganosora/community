@@ -19,12 +19,14 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/activitypub"
+	"github.com/kasuganosora/community/mediaproc"
 	"github.com/kasuganosora/community/storage"
 	"github.com/kasuganosora/community/systemsettings"
 	_ "golang.org/x/image/webp"
@@ -70,6 +72,14 @@ func StoreEmojiImage(ctx context.Context, reader io.Reader, declaredType string)
 	if err != nil {
 		return nil, err
 	}
+	data, format, err = processEmojiBytes(ctx, data, format)
+	if err != nil {
+		return nil, err
+	}
+	preview, format, width, height, err = decodeImage(data, "image/"+format)
+	if err != nil {
+		return nil, err
+	}
 	var static bytes.Buffer
 	if err = png.Encode(&static, preview); err != nil {
 		return nil, fmt.Errorf("encode emoji preview: %w", err)
@@ -99,6 +109,39 @@ func StoreEmojiImage(ctx context.Context, reader io.Reader, declaredType string)
 		return nil, err
 	}
 	return asset, nil
+}
+
+func processEmojiBytes(ctx context.Context, data []byte, format string) ([]byte, string, error) {
+	mimeType := "image/" + format
+	cfg := systemsettings.LoadMediaProcessing()
+	if mediaproc.Decide(mimeType, cfg).Action != mediaproc.ActionEncode {
+		return data, format, nil
+	}
+	dir, err := os.MkdirTemp("", "emoji-proc-")
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	ext := map[string]string{"png": ".png", "jpeg": ".jpg", "gif": ".gif", "webp": ".webp"}[format]
+	in := filepath.Join(dir, "input"+ext)
+	if err = os.WriteFile(in, data, 0o600); err != nil {
+		return nil, "", err
+	}
+	limits := mediaproc.DefaultLimits(MaxSize, MaxSize)
+	limits.MaxImagePixels = MaxDimension * MaxDimension
+	out, err := mediaproc.ProcessFile(ctx, in, dir, mimeType, cfg, limits)
+	if err != nil {
+		return nil, "", err
+	}
+	next, err := os.ReadFile(out.Path)
+	if err != nil {
+		return nil, "", err
+	}
+	if int64(len(next)) > MaxSize {
+		return nil, "", errors.New("emoji image exceeds 2 MiB")
+	}
+	nextFormat := strings.TrimPrefix(out.MIME, "image/")
+	return next, nextFormat, nil
 }
 
 func ImportEmojiImage(ctx context.Context, remoteURL string) (*Asset, error) {

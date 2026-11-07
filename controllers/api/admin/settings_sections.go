@@ -1,9 +1,11 @@
 package admin
 
 import (
+	"os"
+
 	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db"
-	"os"
+	"github.com/kasuganosora/community/systemsettings"
 )
 
 func deploymentField(prefix, key, label, kind, env string, value any) SettingsField {
@@ -48,6 +50,18 @@ func storageSettingsFields() []SettingsField {
 	fields[8].Options = []string{"auto", "true", "false"}
 	fields[8].Description = "true 使用 https://端点/桶名/对象 形式（R2、MinIO 推荐）；false 使用虚拟主机风格；auto 由客户端判断。"
 	return fields
+}
+
+func mediaProcessingFields() []SettingsField {
+	return []SettingsField{
+		{Key: systemsettings.KeyMediaImageToWebP, Label: "图片转为 WebP", Type: "boolean", Value: true, Description: "开启后，新上传的本地图片一律完整解码并重新编码为 WebP，即使原文件已是 WebP 也不会复制码流。关闭后，输出由「强制重编码」和「清理隐私元数据」分别决定。保存本项不会改写其他开关。"},
+		{Key: systemsettings.KeyMediaVideoToWebM, Label: "视频转为 WebM", Type: "boolean", Value: true, Description: "开启后，新上传的本地视频一律完整解码并重新编码为 WebM，即使原文件已是 WebM。关闭 WebM 并不能省掉重编码：强制重编码或隐私清理仍会完整解码再编码。并发、时长和分辨率上限用来限制 CPU。"},
+		{Key: systemsettings.KeyMediaImageForceReencode, Label: "图片强制同格式重编码", Type: "boolean", Value: true, Description: "仅在「图片转为 WebP」关闭时改变输出：对 JPEG、PNG、GIF、WebP 做同格式完整重编码。转码开启时本项仍按保存的值保留，但输出格式由转码决定。关闭本项不会自动关闭隐私清理。"},
+		{Key: systemsettings.KeyMediaVideoForceReencode, Label: "视频强制同格式重编码", Type: "boolean", Value: true, Description: "仅在「视频转为 WebM」关闭时改变输出：对 MP4、WebM、QuickTime 做同格式完整重编码。转码开启时本项仍按保存的值保留。关闭本项不会自动关闭隐私清理。"},
+		{Key: systemsettings.KeyMediaStripPrivacy, Label: "清理隐私元数据", Type: "boolean", Value: true, Description: "开启时去掉 GPS、相机或设备型号、时间、作者、注释、EXIF/XMP 和内嵌预览。图片会先按方向写入像素并完成色彩转换，再丢弃配置文件。若转码和强制重编码都关闭，仍按原格式重写以完成清理，且不会因此打开强制重编码。关闭后，只有在不转码、不强制重编码时才原样保存，位置和设备信息可能仍在，保证更弱。凡是新生成的文件都使用元数据允许列表，关闭本项也不会把 GPS 复制进去。无法安全清理时拒绝该文件。"},
+		{Key: systemsettings.KeyMediaImageQuality, Label: "图片质量", Type: "number", Value: systemsettings.DefaultImageQuality, Min: systemsettings.MinImageQuality, Max: systemsettings.MaxImageQuality, Description: "WebP 与同格式图片重编码的质量，整数 40–95，默认 80。数值越高体积越大、细节越多。"},
+		{Key: systemsettings.KeyMediaVideoCRF, Label: "视频 CRF", Type: "number", Value: systemsettings.DefaultVideoCRF, Min: systemsettings.MinVideoCRF, Max: systemsettings.MaxVideoCRF, Description: "WebM（VP9）和同格式视频重编码（H.264）共用的 CRF，整数 20–50，默认 32。数值越高压缩越强、体积越小。"},
+	}
 }
 func databaseSettingsFields() []SettingsField {
 	fields := []SettingsField{{Key: "database.driver", Label: "数据库类型", Type: "text", Value: config.C.DbConnection, ReadOnly: true}}

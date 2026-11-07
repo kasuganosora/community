@@ -187,7 +187,9 @@ func TestWebGroupMediaCurrentAvatarAndProtectedMemberAvatar(t *testing.T) {
 	roomAvatar := "/api/v1/chat/groups/" + webGroupID(roomID) + "/avatar"
 	response := webGroupFixtureDownload(router, roomAvatar, "@bob:test.local")
 	require.Equal(t, 200, response.Code, response.Body.String())
-	require.Equal(t, "image/png", response.Header().Get("Content-Type"))
+	info, _ := content["info"].(map[string]any)
+	require.Equal(t, "image/webp", info["mimetype"])
+	require.Equal(t, "image/jpeg", response.Header().Get("Content-Type"))
 	require.Contains(t, response.Header().Get("Content-Disposition"), "inline")
 	require.Equal(t, 403, webGroupFixtureDownload(router, roomAvatar, "@mallory:test.local").Code)
 	// Native/federated profiles are authoritative in m.room.member state; the

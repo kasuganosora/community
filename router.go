@@ -415,6 +415,7 @@ func SetRouter(app gin.IRouter) {
 	mediaGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteMedia})).
 		POST("/media", media.Upload).
 		POST("/media/v2", media.UploadAsync).
+		GET("/media/:id/processing", media.GetProcessing).
 		GET("/media/:id", media.Get).
 		PUT("/media/:id", media.Update).
 		DELETE("/media/:id", media.Delete)

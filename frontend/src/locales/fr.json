@@ -210,6 +210,10 @@
       "uploadProcessing": "Traitement…",
       "uploadPercent": "Envoi {0}%",
       "uploadQueued": "En attente",
+      "serverQueued": "En file sur le serveur",
+      "processingPercent": "Traitement {0} %",
+      "uploadSaving": "Enregistrement…",
+      "uploadCancelled": "Annulé",
       "uploadFile": "Progression de l’envoi de {0}",
       "uploadSummary": "Envoyés : {0}/{1}",
       "uploadTotal": "Progression totale des pièces jointes",
@@ -3967,6 +3971,14 @@
     "appealLoadFailed": "Impossible de charger cette suspension. Réessayez plus tard",
     "appealResolveFailed": "La décision n’a pas pu être enregistrée. Réessayez plus tard",
     "appealInvalidStatus": "Identifiant de post invalide",
-    "appealNoCase": "Aucune suspension automatique à contester"
+    "appealNoCase": "Aucune suspension automatique à contester",
+    "mediaCorrupt": "Le fichier est invalide ou corrompu et n’a pas été joint.",
+    "mediaDuration": "La vidéo dépasse la durée autorisée.",
+    "mediaPixels": "L’image ou la vidéo a trop de pixels.",
+    "mediaQueue": "La file d’envoi est pleine. Réessayez bientôt.",
+    "mediaDisk": "Le stockage temporaire est plein. Réessayez plus tard.",
+    "mediaFailed": "Le traitement a échoué. Le fichier d’origine n’a pas été publié.",
+    "mediaCancelled": "Le traitement a été annulé.",
+    "mediaNotReady": "La pièce jointe n’est pas encore prête."
   }
 }

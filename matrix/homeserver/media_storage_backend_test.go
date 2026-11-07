@@ -45,7 +45,8 @@ func TestMatrixMediaUsesObjectStorage(t *testing.T) {
 			require.NoError(t, err)
 			got, _ := io.ReadAll(rc)
 			_ = rc.Close()
-			require.Equal(t, payload, got)
+			require.Equal(t, "image/webp", m.ContentType)
+			require.True(t, bytes.HasPrefix(got, []byte("RIFF")))
 
 			th, rc, err := svc.GetThumbnail("local.test", m.MediaID, 32, 32, "scale")
 			require.NoError(t, err)

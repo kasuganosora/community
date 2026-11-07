@@ -210,6 +210,10 @@
       "uploadProcessing": "Verarbeitung…",
       "uploadPercent": "Upload {0}%",
       "uploadQueued": "Wartet",
+      "serverQueued": "Wartet auf dem Server",
+      "processingPercent": "Verarbeitung {0} %",
+      "uploadSaving": "Speichern…",
+      "uploadCancelled": "Abgebrochen",
       "uploadFile": "Upload-Fortschritt für {0}",
       "uploadSummary": "Hochgeladen: {0}/{1}",
       "uploadTotal": "Gesamter Upload-Fortschritt",
@@ -3967,6 +3971,14 @@
     "appealLoadFailed": "Diese Sperre konnte nicht geladen werden. Bitte später erneut versuchen",
     "appealResolveFailed": "Die Entscheidung konnte nicht gespeichert werden. Bitte später erneut versuchen",
     "appealInvalidStatus": "Ungültige Beitrags-ID",
-    "appealNoCase": "Keine automatische Sperre, gegen die Einspruch eingelegt werden kann"
+    "appealNoCase": "Keine automatische Sperre, gegen die Einspruch eingelegt werden kann",
+    "mediaCorrupt": "Die Datei ist ungültig oder beschädigt und wurde nicht angehängt.",
+    "mediaDuration": "Das Video ist länger als der Server erlaubt.",
+    "mediaPixels": "Das Bild oder Video hat zu viele Pixel.",
+    "mediaQueue": "Die Upload-Warteschlange ist voll. Bitte kurz warten.",
+    "mediaDisk": "Der Zwischenspeicher ist voll. Bitte später erneut versuchen.",
+    "mediaFailed": "Die Verarbeitung ist fehlgeschlagen. Die Originaldatei wurde nicht veröffentlicht.",
+    "mediaCancelled": "Die Verarbeitung wurde abgebrochen.",
+    "mediaNotReady": "Der Anhang ist noch nicht fertig."
   }
 }

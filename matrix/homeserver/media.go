@@ -103,31 +103,16 @@ func (s *MediaService) uploadMedia(file io.Reader, header *multipart.FileHeader,
 	// 生成 Media ID (MXC URI 格式的本地部分)
 	mediaID := generateMediaID()
 
-	// 获取文件扩展名
-	ext := ""
-	if header != nil {
-		ext = filepath.Ext(header.Filename)
-	} else {
-		// 从 Content-Type 推断扩展名
-		exts, _ := mime.ExtensionsByType(contentType)
-		if len(exts) > 0 {
-			ext = exts[0]
-		}
-	}
-
 	// Stage the bytes in a private temp dir (the thumbnailer needs a file),
 	// then write original and thumbnail through the storage backend. Rows
 	// keep storage keys ("matrix/<origin>/<date>/<file>"), never host paths or URLs.
-	fileName := mediaID + ext
-	key := "matrix/" + origin + "/" + time.Now().Format("2006/01/02") + "/" + fileName
-
 	tmpDir, err := os.MkdirTemp("", "community-matrix-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create staging directory: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	tmpPath := filepath.Join(tmpDir, fileName)
+	tmpPath := filepath.Join(tmpDir, "input")
 
 	dst, err := os.Create(tmpPath) //nolint:gosec // G304: private temp dir
 	if err != nil {
@@ -145,15 +130,35 @@ func (s *MediaService) uploadMedia(file io.Reader, header *multipart.FileHeader,
 		return nil, fmt.Errorf("failed to save file: %w", err)
 	}
 
+	finalPath, finalType, finalSize := tmpPath, contentType, fileSize
+	if origin == "local" {
+		gated, gerr := gateLocalUpload(context.Background(), tmpPath, contentType, uploaderID)
+		if gerr != nil {
+			return nil, gerr
+		}
+		finalPath, finalType, finalSize = gated.Path, gated.MIME, gated.Size
+	}
+	ext := extensionForMIME(finalType)
+	if ext == "" && header != nil {
+		ext = filepath.Ext(header.Filename)
+	}
+	if ext == "" {
+		if exts, _ := mime.ExtensionsByType(finalType); len(exts) > 0 {
+			ext = exts[0]
+		}
+	}
+	fileName := mediaID + ext
+	key := "matrix/" + origin + "/" + time.Now().Format("2006/01/02") + "/" + fileName
+
 	var (
 		width, height *int
 		thumbnailPath string
 	)
 
-	if strings.HasPrefix(contentType, "image/") {
+	if strings.HasPrefix(finalType, "image/") {
 		processor := media.NewImageProcessor()
 
-		thumbName, w, h, err := processor.ProcessImageThumbnail(tmpPath)
+		thumbName, w, h, err := processor.ProcessImageThumbnail(finalPath)
 		if err == nil {
 			width = &w
 			height = &h
@@ -168,7 +173,7 @@ func (s *MediaService) uploadMedia(file io.Reader, header *multipart.FileHeader,
 		}
 	}
 
-	if err := storage.PutFile(context.Background(), tmpPath, key, contentType); err != nil {
+	if err := storage.PutFile(context.Background(), finalPath, key, finalType); err != nil {
 		if thumbnailPath != "" {
 			_ = storage.Delete(thumbnailPath)
 		}
@@ -182,8 +187,8 @@ func (s *MediaService) uploadMedia(file io.Reader, header *multipart.FileHeader,
 		MediaID:     mediaID,
 		ServerName:  s.hs.Config.ServerName,
 		FileName:    originalMediaFilename(header, fileName),
-		ContentType: contentType,
-		FileSize:    fileSize,
+		ContentType: finalType,
+		FileSize:    finalSize,
 		Width:       width,
 		Height:      height,
 		FilePath:    key,
@@ -409,6 +414,9 @@ func handleUploadMedia(c *gin.Context) {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			c.JSON(413, gin.H{"errcode": "M_TOO_LARGE", "error": "Media exceeds 50 MiB"})
+			return
+		}
+		if rejectMatrixAdmission(c, err) {
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{

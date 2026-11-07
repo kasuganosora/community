@@ -39,6 +39,11 @@ func Serve(c *gin.Context) {
 
 		return
 	}
+	if !media.ProcessPublishable() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+
+		return
+	}
 
 	// Only these two exact names are served, so the request path can never
 	// be used to reach other objects.

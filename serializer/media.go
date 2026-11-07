@@ -24,6 +24,15 @@ type MediaAttachmentResponse struct {
 	Meta             *MediaAttachmentMeta `json:"meta"`
 	Description      *string              `json:"description"`
 	Blurhash         *string              `json:"blurhash"`
+	Processing       *ProcessingState     `json:"processing,omitempty"`
+}
+
+// ProcessingState is the owner-visible task progress. It is omitted once the
+// file is ready so existing clients keep the Mastodon attachment shape.
+type ProcessingState struct {
+	State    string `json:"state"`
+	Progress int    `json:"progress"`
+	Error    string `json:"error,omitempty"`
 }
 
 // MediaAttachmentMeta 媒体元数据.
@@ -66,8 +75,11 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 	// 获取基础 URL
 	baseURL := strings.TrimRight(systemsettings.GetBaseURL(), "/")
 
-	// 构建文件 URL
-	url := fmt.Sprintf("%s/media/%s/%s", baseURL, strconv.FormatUint(media.Id, 10), media.FileName)
+	// 构建文件 URL. Unpublished uploads have no public address.
+	url := ""
+	if media.ProcessPublishable() && media.FileName != "" && media.FileName != "processing" {
+		url = fmt.Sprintf("%s/media/%s/%s", baseURL, strconv.FormatUint(media.Id, 10), media.FileName)
+	}
 
 	// Remote attachments have no local cache file. Return their validated origin
 	// URL instead of a nonexistent local /media path.
@@ -137,11 +149,17 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 		blurhash = &media.Blurhash
 	}
 
+	var processing *ProcessingState
+	if !media.ProcessPublishable() {
+		previewUrl = ""
+		processing = &ProcessingState{State: media.ProcessState, Progress: media.ProcessProgress, Error: media.ProcessError}
+	}
 	return &MediaAttachmentResponse{
 		Id:               strconv.FormatUint(media.Id, 10),
 		Type:             normalizeMediaType(string(media.Type)),
 		Url:              url,
 		PreviewUrl:       previewUrl,
+		Processing:       processing,
 		RemoteUrl:        remoteUrl,
 		PreviewRemoteUrl: nil,
 		TextUrl:          nil,

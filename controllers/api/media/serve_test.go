@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -57,6 +58,30 @@ func TestServe(t *testing.T) {
 		"/media/2/a.png",
 	} {
 		assert.Equal(t, http.StatusNotFound, get(p).Code, p)
+	}
+}
+
+func TestServeHidesUnreadyBytes(t *testing.T) {
+	withTempWorkDir(t)
+	gdb := setupMediaTestDB(t)
+	gin.SetMode(gin.TestMode)
+	dayDir := filepath.Join("uploads", "media", "2026", "09", "26")
+	require.NoError(t, os.MkdirAll(dayDir, 0o755))
+	secret := []byte("UNREADY-SECRET-BYTES")
+	require.NoError(t, os.WriteFile(filepath.Join(dayDir, "a.png"), secret, 0o600))
+	for _, state := range []string{models.ProcessQueued, models.ProcessProcessing, models.ProcessSaving, models.ProcessFailed, models.ProcessCancelled} {
+		require.NoError(t, gdb.Exec("DELETE FROM media_attachments").Error)
+		m := &models.MediaAttachment{
+			AccountId: 1, FileName: "a.png", FilePath: "2026/09/26/a.png",
+			ContentType: "image/png", Type: models.MediaTypeImage, ProcessState: state,
+		}
+		require.NoError(t, gdb.Create(m).Error)
+		r := gin.New()
+		r.GET("/media/:id/*file", Serve)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/media/"+strconv.FormatUint(m.Id, 10)+"/a.png", nil))
+		require.Equal(t, http.StatusNotFound, w.Code, state)
+		require.NotContains(t, w.Body.String(), "UNREADY-SECRET-BYTES")
 	}
 }
 

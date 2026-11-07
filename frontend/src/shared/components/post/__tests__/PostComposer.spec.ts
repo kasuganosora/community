@@ -1,12 +1,18 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { shallowMount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import PostComposer from '../PostComposer.vue'
 import EmojiPicker from '../EmojiPicker.vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
+import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { postApi } from '@/domains/post/infrastructure/postApi'
 import { userApi } from '@/domains/user/infrastructure/userApi'
-import type { MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
+import type { MastodonAccount, MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
+
+afterEach(() => {
+  sessionStorage.clear()
+  vi.restoreAllMocks()
+})
 
 describe('PostComposer media upload', () => {
   it('uploads only after publish and submits once after the attachment is ready', async () => {
@@ -111,6 +117,49 @@ describe('PostComposer media upload', () => {
 
 })
 
+
+describe('PostComposer video processing phases', () => {
+  it('shows queued and processing percent before the attachment is ready', async () => {
+    let finish!: (value: MastodonAttachment) => void
+    vi.spyOn(postApi, 'uploadMedia').mockImplementation((_file, _description, options) => new Promise(resolve => {
+      options?.onPhase?.('processing', 40)
+      finish = resolve
+    }))
+    const wrapper = shallowMount(PostComposer, { global: { plugins: [createPinia()], renderStubDefaultSlot: true } })
+    const input = wrapper.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [new File(['video'], 'clip.mp4', { type: 'video/mp4' })] })
+    await input.trigger('change')
+    await wrapper.trigger('keydown', { key: 'Enter', ctrlKey: true })
+    await flushPromises()
+    expect(wrapper.get('.composer__media-progress').text()).toContain('处理中 40%')
+    finish({ id: 'video-1', type: 'video', url: '/clip.webm' } as MastodonAttachment)
+    await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('resumes a stored task into saving and then shows the failure', async () => {
+    const pinia = createPinia()
+    const auth = useAuthStore(pinia)
+    auth.currentUser = { id: 'user-a', acct: 'a' } as MastodonAccount
+    sessionStorage.setItem('community.pendingMedia', JSON.stringify([{ id: 'kept', name: 'clip.mp4', owner: 'user-a', at: Date.now() }]))
+    let fail!: () => void
+    vi.spyOn(postApi, 'resumeMedia').mockImplementation((_id, options) => new Promise((_, reject) => {
+      options?.onPhase?.('saving', 100)
+      fail = () => {
+        options?.onPhase?.('failed', 100)
+        reject(new Error('media processing failed'))
+      }
+    }))
+    const wrapper = shallowMount(PostComposer, { global: { plugins: [pinia], renderStubDefaultSlot: true } })
+    await flushPromises()
+    expect(postApi.resumeMedia).toHaveBeenCalledWith('kept', expect.any(Object))
+    expect(wrapper.get('.composer__media-progress').text()).toContain('保存中')
+    fail()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.get('.composer__media-progress').text()).toContain('上传失败')
+    wrapper.unmount()
+  })
+})
 
 describe('PostComposer delete and repost', () => {
   const original = { id: 'old', visibility: 'private', content: '<p>Original</p>', spoiler_text: '', media_attachments: [] } as unknown as MastodonStatus
