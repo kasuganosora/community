@@ -157,13 +157,14 @@ func TestUpdateCredentialsPersistsOwnedStaticImages(t *testing.T) {
 	require.NotEqual(t, original, thumb)
 	require.False(t, bytes.HasPrefix(original, []byte{0xff, 0xd8, 0xff}))
 
-	// Sending the current avatar again repairs a stale static without touching the header.
+	// Echoing the current avatar keeps the stored pair, including a static URL
+	// that no longer matches the thumbnail. A resend is not a repair.
 	require.NoError(t, conn.Model(&models.Account{}).Where("id = ?", owner.Id).Update("avatar_static", oldStatic).Error)
 	body = patchCredentials(t, owner, map[string]any{"avatar": animatedMedia.URL})
-	require.Equal(t, staticURL, body["avatar_static"])
+	require.Equal(t, oldStatic, body["avatar_static"])
 	saved = reloadAccount(t, conn, owner.Id)
 	require.Equal(t, animatedMedia.URL, saved.Avatar)
-	require.Equal(t, staticURL, saved.AvatarStatic)
+	require.Equal(t, oldStatic, saved.AvatarStatic)
 	require.Equal(t, header.URL, saved.HeaderStatic)
 
 	beforeFail := reloadAccount(t, conn, owner.Id)

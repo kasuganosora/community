@@ -16,6 +16,7 @@ import (
 	"github.com/kasuganosora/community/storage"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 )
 
 // ErrProfileImage means the caller did not name an image this account can use
@@ -28,12 +29,19 @@ var ErrProfileImage = errors.New("profile image is not an owned ready image")
 // thumbnail for the static field. The animated file URL is never returned as
 // the static URL.
 func ProfileImagePair(ctx context.Context, accountID uint64, raw string) (string, string, error) {
+	return ProfileImagePairOn(ctx, db.GetDB(), accountID, raw)
+}
+
+// ProfileImagePairOn is ProfileImagePair using conn for the attachment lookup.
+// Credential saves pass the locked account transaction so the lookup cannot
+// race a single-connection test database or a concurrent profile write.
+func ProfileImagePairOn(ctx context.Context, conn *gorm.DB, accountID uint64, raw string) (string, string, error) {
 	id, name, err := parseProfileMediaURL(raw)
 	if err != nil {
 		return "", "", ErrProfileImage
 	}
 	var att models.MediaAttachment
-	if err = db.GetDB().WithContext(ctx).First(&att, id).Error; err != nil {
+	if err = conn.WithContext(ctx).First(&att, id).Error; err != nil {
 		return "", "", ErrProfileImage
 	}
 	if att.AccountId != accountID || att.FileName != name || att.Type != models.MediaTypeImage || !att.ProcessPublishable() || att.DetachedAt != nil || att.FilePath == "" {

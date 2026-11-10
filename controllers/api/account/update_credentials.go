@@ -1,13 +1,15 @@
 package account
 
 import (
+	"context"
+	"maps"
+	"net/http"
+	"time"
+
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/profileverify"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	"maps"
-	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/cache"
@@ -139,38 +141,6 @@ func UpdateCredentials(c *gin.Context) {
 		updates["require_signin_to_view"] = *req.RequireSigninToView
 	}
 
-	// Avatar and header are owned, ready images. The static column is the same
-	// still image, or the attachment's JPEG thumbnail when the file is animated.
-	// Omitted fields stay as they are, including a previously stale static URL.
-	if req.Avatar != "" {
-		primary, static, err := mediactl.ProfileImagePair(c.Request.Context(), account.Id, req.Avatar)
-		if err != nil {
-			if errors.Is(err, mediactl.ErrProfileImage) {
-				c.AbortWithStatusJSON(422, gin.H{"error": "invalid avatar"})
-				return
-			}
-			_ = c.Error(errors.Wrap(err, "resolve avatar"))
-			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-			return
-		}
-		updates["avatar"] = primary
-		updates["avatar_static"] = static
-	}
-	if req.Header != "" {
-		primary, static, err := mediactl.ProfileImagePair(c.Request.Context(), account.Id, req.Header)
-		if err != nil {
-			if errors.Is(err, mediactl.ErrProfileImage) {
-				c.AbortWithStatusJSON(422, gin.H{"error": "invalid header"})
-				return
-			}
-			_ = c.Error(errors.Wrap(err, "resolve header"))
-			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-			return
-		}
-		updates["header"] = primary
-		updates["header_static"] = static
-	}
-
 	// Update timestamp
 	now := time.Now()
 	updates["updated_at"] = &now
@@ -183,6 +153,16 @@ func UpdateCredentials(c *gin.Context) {
 		}
 		if locked.DeletionRequestedAt != nil || locked.IsBan {
 			return gorm.ErrRecordNotFound
+		}
+		// Compare with the locked row, not the account copied into the request.
+		// That copy can be a stale cache. An exact current value is left alone,
+		// so a legacy URL or an existing animation and still pair is not
+		// re-resolved. A different value must be an owned ready image.
+		if err := assignProfileImage(c.Request.Context(), tx, &updates, locked.Id, "avatar", req.Avatar, locked.Avatar); err != nil {
+			return err
+		}
+		if err := assignProfileImage(c.Request.Context(), tx, &updates, locked.Id, "header", req.Header, locked.Header); err != nil {
+			return err
 		}
 		if req.Indexable != nil {
 			updates["no_index"] = !*req.Indexable
@@ -222,6 +202,11 @@ func UpdateCredentials(c *gin.Context) {
 		return tx.Preload("Emojis").Preload("Extra").First(account, account.Id).Error
 	})
 	if err != nil {
+		var rejected *profileImageRejected
+		if errors.As(err, &rejected) {
+			c.AbortWithStatusJSON(422, gin.H{"error": "invalid " + rejected.field})
+			return
+		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(403, gin.H{"error": "account is unavailable"})
 			return
@@ -238,6 +223,29 @@ func UpdateCredentials(c *gin.Context) {
 	result := serializer.ToAccount(account)
 	result.FollowedMessage = account.FollowedMessage
 	c.JSON(200, result)
+}
+
+type profileImageRejected struct{ field string }
+
+func (e *profileImageRejected) Error() string { return "invalid " + e.field }
+
+// assignProfileImage writes a changed avatar or header from the locked row.
+// The submitted value is compared with current after the row lock. An empty
+// value and an exact copy of current do not touch either column.
+func assignProfileImage(ctx context.Context, tx *gorm.DB, updates *map[string]any, accountID uint64, field, submitted, current string) error {
+	if submitted == "" || submitted == current {
+		return nil
+	}
+	primary, static, err := mediactl.ProfileImagePairOn(ctx, tx, accountID, submitted)
+	if err != nil {
+		if errors.Is(err, mediactl.ErrProfileImage) {
+			return &profileImageRejected{field: field}
+		}
+		return err
+	}
+	(*updates)[field] = primary
+	(*updates)[field+"_static"] = static
+	return nil
 }
 
 // GetAccountSettings handles GET /api/v1/accounts/settings (extension).
