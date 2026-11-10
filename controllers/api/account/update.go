@@ -141,10 +141,21 @@ func UpdateAccount(c *gin.Context) {
 
 			return
 		}
+		primary, static, err := mediactl.ProfileImagePair(c.Request.Context(), account.Id, imageURL)
+		if err != nil {
+			if errors.Is(err, mediactl.ErrProfileImage) {
+				c.JSON(422, gin.H{"error": "invalid avatar"})
+				return
+			}
+			_ = c.Error(errors.Wrap(err, "UpdateAccount"))
+			c.JSON(500, gin.H{"error": "upload avatar failed"})
+			return
+		}
 
-		account.Avatar = imageURL
+		account.Avatar = primary
+		account.AvatarStatic = static
 
-		updateFields = append(updateFields, "avatar")
+		updateFields = append(updateFields, "avatar", "avatar_static")
 	}
 
 	// 如果有头图，就更新头图
@@ -158,10 +169,21 @@ func UpdateAccount(c *gin.Context) {
 
 			return
 		}
+		primary, static, err := mediactl.ProfileImagePair(c.Request.Context(), account.Id, imageURL)
+		if err != nil {
+			if errors.Is(err, mediactl.ErrProfileImage) {
+				c.JSON(422, gin.H{"error": "invalid header"})
+				return
+			}
+			_ = c.Error(errors.Wrap(err, "UpdateAccount"))
+			c.JSON(500, gin.H{"error": "upload header failed"})
+			return
+		}
 
-		account.Header = imageURL
+		account.Header = primary
+		account.HeaderStatic = static
 
-		updateFields = append(updateFields, "header")
+		updateFields = append(updateFields, "header", "header_static")
 	}
 
 	// 更新其他信息

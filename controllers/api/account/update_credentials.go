@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/cache"
+	mediactl "github.com/kasuganosora/community/controllers/api/media"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/moderation"
@@ -138,14 +139,36 @@ func UpdateCredentials(c *gin.Context) {
 		updates["require_signin_to_view"] = *req.RequireSigninToView
 	}
 
-	// Update avatar if provided
+	// Avatar and header are owned, ready images. The static column is the same
+	// still image, or the attachment's JPEG thumbnail when the file is animated.
+	// Omitted fields stay as they are, including a previously stale static URL.
 	if req.Avatar != "" {
-		updates["avatar"] = req.Avatar
+		primary, static, err := mediactl.ProfileImagePair(c.Request.Context(), account.Id, req.Avatar)
+		if err != nil {
+			if errors.Is(err, mediactl.ErrProfileImage) {
+				c.AbortWithStatusJSON(422, gin.H{"error": "invalid avatar"})
+				return
+			}
+			_ = c.Error(errors.Wrap(err, "resolve avatar"))
+			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+			return
+		}
+		updates["avatar"] = primary
+		updates["avatar_static"] = static
 	}
-
-	// Update header if provided
 	if req.Header != "" {
-		updates["header"] = req.Header
+		primary, static, err := mediactl.ProfileImagePair(c.Request.Context(), account.Id, req.Header)
+		if err != nil {
+			if errors.Is(err, mediactl.ErrProfileImage) {
+				c.AbortWithStatusJSON(422, gin.H{"error": "invalid header"})
+				return
+			}
+			_ = c.Error(errors.Wrap(err, "resolve header"))
+			c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
+			return
+		}
+		updates["header"] = primary
+		updates["header_static"] = static
 	}
 
 	// Update timestamp
