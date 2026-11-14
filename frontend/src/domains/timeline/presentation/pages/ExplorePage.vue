@@ -7,6 +7,8 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { useFeedStream } from '@/shared/composables/useFeedStream'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
+import { useAutoTimelineReveal } from '@/shared/composables/useTouchTracking'
+import { useTimelineScrollReturn } from '@/shared/composables/useScrollReturn'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 import { readListSnapshot, restoreListScroll, saveListSnapshot } from '@/shared/utils/listMemory'
@@ -51,20 +53,19 @@ const feed = usePaginatedList((maxId, limit) => timelineApi.getPublicTimeline({
   limit,
   ...(feedTab.value === 'local' ? { local: true } : {}),
 }), TIMELINE_PAGE_SIZE, 8, { prefetchNewer: true })
-const { items: statuses, loading, error, hasMore, newer, hasPrevious } = feed
+const { items: statuses, loading, error, hasMore, newer, hasPrevious, gap } = feed
 const streamTarget = computed(() => feedTab.value === 'local' ? 'stream=public:local' : 'stream=public')
 useFeedStream(streamTarget, async (reason) => reason === 'poll' ? feed.catchUpHead() : feed.revalidate(), {
   onStatus: (status) => feed.applyStreamed(status),
 })
 async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
-watch(
+const pullRefresh = () => feed.refresh({ preserveWindow: true })
+const { onHeaderTap } = useTimelineScrollReturn(() => `explore:${activeTab.value}`)
+useAutoTimelineReveal(
   () => (activeTab.value !== 'groups' && !visitorBlocked.value && !loading.value
     ? newer.value.map(row => row.id).join(',')
     : ''),
-  (key) => {
-    if (key) void Promise.resolve(feed.revealNewer({ silent: true })).catch(() => {})
-  },
-  { flush: 'post' },
+  () => feed.revealNewer({ silent: true, preserveWindow: true }),
 )
 
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
@@ -127,7 +128,7 @@ function retryFeed() {
 
 <template>
   <div class="explore-page">
-    <div ref="timelineHeader" class="page-header">
+    <div ref="timelineHeader" class="page-header" @click="onHeaderTap">
       <h1 class="page-header__title">{{ $t('timeline.ExplorePage.s1') }}</h1>
     </div>
     <!-- The right rail (with its search field) is hidden on narrow screens,
@@ -155,8 +156,12 @@ function retryFeed() {
       :statuses="statuses"
       :scope-key="streamTarget"
       :has-previous="hasPrevious"
+      :gap-after-id="gap?.afterId"
+      :gap-loading="!!gap?.isLoading"
+      :pull-refresh="pullRefresh"
       @reload-head="reloadHead"
       @load-previous="feed.loadPrevious"
+      @load-gap="feed.loadGap"
       @pinned-ids="feed.setPinnedIds"
       :loading="loading"
       :has-more="hasMore"

@@ -15,6 +15,7 @@ import { activeNavSection } from '@/shared/utils/nav'
 import { t } from '@/shared/i18n'
 import { useNotificationUnread } from '@/shared/composables/useNotificationUnread'
 import { useNavUnread } from '@/shared/composables/useNavUnread'
+import { triggerScrollTopOrReturn } from '@/shared/composables/useScrollReturn'
 const { unread: unreadNotifications, label: unreadLabel } = useNotificationUnread()
 const { announcements: unreadAnnouncements, conversations: unreadConversations } = useNavUnread()
 /** Announcements and messages show a plain dot; notifications keep their count badge. */
@@ -34,6 +35,10 @@ const accountButton = ref<HTMLButtonElement>()
 useDismiss(menuOpen, () => [accountButton.value, document.querySelector<HTMLElement>('.sidebar-account-popup')])
 
 function goHome() {
+  if (route.path === '/') {
+    triggerScrollTopOrReturn()
+    return
+  }
   router.push({ name: 'home' }).catch(() => {})
 }
 
@@ -56,6 +61,10 @@ const navItems = computed(() => [
 const activeItem = computed(() => activeNavSection(route.path, authStore.currentUser?.username))
 
 function navigateTo(item: typeof navItems.value[0]) {
+  if (route.path === item.route) {
+    triggerScrollTopOrReturn()
+    return
+  }
   // Catch to avoid unhandled rejection if navigation is cancelled/redirected
   router.push(item.route).catch(() => {})
 }

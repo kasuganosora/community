@@ -202,7 +202,8 @@
       "s24": "{0} 不感興趣或停止推薦作者隻影響發現內容，不會遮蔽該帳號。可在設定中檢視和撤銷。",
       "s25": "知道了",
       "localOnly": "僅本站",
-      "localOnlyHint": "此貼文尚未傳送至其他站台。"
+      "localOnlyHint": "此貼文尚未傳送至其他站台。",
+      "openDetail": "查看對話詳情"
     },
     "PostComposer": {
       "uploadComplete": "已上傳",
@@ -362,7 +363,9 @@
     },
     "ComposeSheet": {
       "s1": "新帖子",
-      "s2": "已發布"
+      "s2": "已發布",
+      "replyTitle": "回覆貼文",
+      "replyPosted": "已回覆"
     },
     "AdvertisementCard": {
       "s1": "廣告"
@@ -3403,7 +3406,10 @@
       "s7": "載入失敗",
       "s8": "這裡還沒有內容",
       "s9": "關注其他使用者後，他們的帖子會出現在這裡。",
-      "s10": "載入更多"
+      "s10": "載入更多",
+      "loadGap": "展開中間的新貼文",
+      "loadingGap": "載入中…",
+      "refreshing": "正在重新整理"
     },
     "ExplorePage": {
       "s1": "探索",

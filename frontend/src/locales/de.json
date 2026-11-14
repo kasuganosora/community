@@ -202,7 +202,8 @@
       "s24": "{0} „Kein Interesse“ und „Autor nicht mehr empfehlen“ wirken nur auf Empfehlungen und blockieren das Konto nicht. In den Einstellungen kannst du sie ansehen und rückgängig machen.",
       "s25": "Verstanden",
       "localOnly": "Nur lokal",
-      "localOnlyHint": "Dieser Beitrag wurde nicht an andere Server gesendet."
+      "localOnlyHint": "Dieser Beitrag wurde nicht an andere Server gesendet.",
+      "openDetail": "Unterhaltung anzeigen"
     },
     "PostComposer": {
       "uploadComplete": "Hochgeladen",
@@ -362,7 +363,9 @@
     },
     "ComposeSheet": {
       "s1": "Neue Beiträge",
-      "s2": "Gepostet"
+      "s2": "Gepostet",
+      "replyTitle": "Antworten",
+      "replyPosted": "Antwort veröffentlicht"
     },
     "AdvertisementCard": {
       "s1": "Anzeige"
@@ -3403,7 +3406,10 @@
       "s7": "Laden fehlgeschlagen",
       "s8": "Hier ist noch nichts",
       "s9": "Folge anderen, dann erscheinen ihre Beiträge hier.",
-      "s10": "Mehr laden"
+      "s10": "Mehr laden",
+      "loadGap": "Fehlende Beiträge laden",
+      "loadingGap": "Wird geladen…",
+      "refreshing": "Wird aktualisiert"
     },
     "ExplorePage": {
       "s1": "Entdecken",

@@ -47,6 +47,56 @@ describe('custom emoji picker', () => {
     expect(wrapper.get('button[aria-label="插入 :secret:"]').attributes('disabled')).toBeUndefined()
     wrapper.unmount()
   })
+  it('places Recent before All, defaults to Recent when history exists, and searches all emojis when typing', async () => {
+    localStorage.setItem('emoji-recent', JSON.stringify(['wave']))
+    const pinia = createPinia(), store = useEmojiStore(pinia)
+    vi.spyOn(store, 'load').mockResolvedValue()
+    store.emojis = [
+      base,
+      { ...base, shortcode: 'parrot', aliases: ['鹦鹉'], category: '动物' },
+    ]
+    const wrapper = mount(EmojiPicker, { global: { plugins: [pinia] } })
+    await flushPromises()
+
+    const catButtons = wrapper.findAll('.emoji-picker__cats button')
+    expect(catButtons.map(b => b.text())).toEqual(['最近', '全部'])
+    expect(catButtons[0]!.attributes('aria-pressed')).toBe('true')
+    expect(catButtons[1]!.attributes('aria-pressed')).toBe('false')
+    expect(wrapper.findAll('.emoji-picker__grid button').map(b => b.text())).toEqual(['wave'])
+
+    // Typing a query while on Recent automatically searches across all emojis.
+    await wrapper.get('input[type=search]').setValue('鹦鹉')
+    expect(wrapper.findAll('.emoji-picker__grid button').map(b => b.text())).toEqual(['parrot'])
+    expect(catButtons[0]!.attributes('aria-pressed')).toBe('false')
+    expect(catButtons[1]!.attributes('aria-pressed')).toBe('true')
+
+    // Clearing the search returns to Recent.
+    await wrapper.get('[aria-label="清除表情搜索"]').trigger('click')
+    expect(wrapper.findAll('.emoji-picker__grid button').map(b => b.text())).toEqual(['wave'])
+    expect(catButtons[0]!.attributes('aria-pressed')).toBe('true')
+
+    // Clicking All shows the full catalogue.
+    await catButtons[1]!.trigger('click')
+    expect(wrapper.findAll('.emoji-picker__grid button').map(b => b.text())).toEqual(['wave', 'parrot'])
+    expect(catButtons[0]!.attributes('aria-pressed')).toBe('false')
+    expect(catButtons[1]!.attributes('aria-pressed')).toBe('true')
+
+    wrapper.unmount()
+  })
+  it('defaults to Recent even when the emoji catalogue finishes loading asynchronously', async () => {
+    localStorage.setItem('emoji-recent', JSON.stringify(['blob']))
+    vi.spyOn(client, 'get').mockResolvedValue({
+      data: [base, { ...base, shortcode: 'blob', aliases: [], category: '其他' }],
+    })
+    const wrapper = mount(EmojiPicker, { global: { plugins: [createPinia()] } })
+    await flushPromises()
+
+    const catButtons = wrapper.findAll('.emoji-picker__cats button')
+    expect(catButtons.map(b => b.text())).toEqual(['最近', '全部'])
+    expect(catButtons[0]!.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('.emoji-picker__grid button').map(b => b.text())).toEqual(['blob'])
+    wrapper.unmount()
+  })
 })
 
 describe('emoji picker catalogue loading', () => {

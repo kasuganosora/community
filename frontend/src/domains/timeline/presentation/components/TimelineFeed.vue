@@ -4,12 +4,16 @@ import type { MastodonStatus } from '@/shared/types/mastodon'
 import PostCard from '@/shared/components/post/PostCard.vue'
 import TimelineRow from './TimelineRow.vue'
 import { useTimelineWindow } from '../composables/useTimelineWindow'
+import { usePullToRefresh } from '@/shared/composables/usePullToRefresh'
 import type { DiscoveryReason } from '@/domains/discovery/infrastructure/discoveryApi'
 
 const props = withDefaults(defineProps<{
   statuses: MastodonStatus[]
   scopeKey?: string
   hasPrevious?: boolean
+  gapAfterId?: string | null
+  gapLoading?: boolean
+  pullRefresh?: () => Promise<unknown>
   loading?: boolean
   hasMore?: boolean
   error?: string | null
@@ -23,6 +27,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   loadMore: []
   loadPrevious: []
+  loadGap: []
   reloadHead: []
   pinnedIds: [ids: string[]]
   retry: []
@@ -32,8 +37,10 @@ const emit = defineEmits<{
   recommendationFeedback: [status: MastodonStatus, action: 'hide_status' | 'hide_author']
 }>()
 
+const feedRoot = ref<HTMLElement>()
 const sentinel = ref<HTMLElement>()
 const region = ref<HTMLElement>()
+const { pullOffset, pullArmed, pullRefreshing } = usePullToRefresh(feedRoot, () => props.pullRefresh)
 const windowed = useTimelineWindow(
   () => props.statuses,
   () => props.scopeKey ?? window.location.pathname,
@@ -42,7 +49,12 @@ const windowed = useTimelineWindow(
   ids => emit('pinnedIds', ids),
 )
 const { visible, tail, prefix, scrollTop, renderVersion } = windowed
-defineExpose({ revealHead: windowed.revealHead })
+defineExpose({
+  revealHead: windowed.revealHead,
+  captureAnchor: windowed.captureAnchor,
+  restoreAnchor: windowed.restoreAnchor,
+  scrollToTop: windowed.scrollToTop,
+})
 const distantHistory = computed(() => !!props.hasPrevious && scrollTop.value < prefix.value - 6000)
 // Re-read an evicted page using its API cursor, never a pixel-derived ID.
 watch([scrollTop, () => props.loading, () => props.hasPrevious], () => {
@@ -74,9 +86,33 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="timeline-feed">
+  <div ref="feedRoot" class="timeline-feed" :class="{ 'timeline-feed--pulling': pullOffset > 0 || pullRefreshing }">
+    <div
+      v-if="pullOffset > 0 || pullRefreshing"
+      class="timeline-ptr"
+      :style="{ height: `${pullOffset}px` }"
+      :aria-label="$t('timeline.TimelineFeed.refreshing')"
+      data-testid="timeline-ptr"
+    >
+      <t-loading v-if="pullRefreshing" size="small" />
+      <t-icon
+        v-else
+        name="arrow-up"
+        :size="18"
+        class="timeline-ptr__arrow"
+        :class="{ 'timeline-ptr__arrow--armed': pullArmed }"
+      />
+    </div>
     <button v-if="hasPrevious" type="button" class="timeline-previous btn btn--secondary btn--sm" :disabled="loading" @click="emit('loadPrevious')">{{ $t('timeline.TimelineFeed.s1') }}</button>
-    <div ref="region" class="timeline-window" role="feed" tabindex="-1" :aria-label="$t('timeline.TimelineFeed.s2')" :aria-busy="loading">
+    <div
+      ref="region"
+      class="timeline-window"
+      role="feed"
+      tabindex="-1"
+      :aria-label="$t('timeline.TimelineFeed.s2')"
+      :aria-busy="loading"
+      :style="pullOffset > 0 ? { transform: `translate3d(0, ${pullOffset}px, 0)` } : undefined"
+    >
       <div v-if="distantHistory" class="timeline-released" role="status">
         <div><p>{{ $t('timeline.TimelineFeed.s3') }}</p><button type="button" class="btn btn--secondary btn--sm" :disabled="loading" @click="emit('reloadHead')">{{ $t('timeline.TimelineFeed.s4') }}</button></div>
       </div>
@@ -94,6 +130,17 @@ onUnmounted(() => {
             @bookmark="emit('bookmark', $event)"
             @recommendation-feedback="(status, action) => emit('recommendationFeedback', status, action)"
           />
+          <div v-if="gapAfterId === row.status.id" class="timeline-gap">
+            <button
+              type="button"
+              class="btn btn--secondary btn--sm"
+              data-testid="timeline-gap-btn"
+              :disabled="gapLoading || loading"
+              @click="emit('loadGap')"
+            >
+              {{ gapLoading ? $t('timeline.TimelineFeed.loadingGap') : $t('timeline.TimelineFeed.loadGap') }}
+            </button>
+          </div>
         </TimelineRow>
       </template>
       <div v-if="tail" :style="{ height: `${tail}px` }" aria-hidden="true" />
@@ -136,6 +183,41 @@ onUnmounted(() => {
 <style scoped>
 .timeline-feed {
   min-height: 12.5rem;
+}
+
+.timeline-feed--pulling {
+  position: relative;
+}
+
+.timeline-ptr {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--color-label-secondary);
+  pointer-events: none;
+}
+
+.timeline-ptr__arrow {
+  transform: rotate(180deg);
+  transition: transform var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+
+.timeline-ptr__arrow--armed {
+  transform: rotate(0deg);
+  color: var(--color-accent-text);
+}
+
+.timeline-gap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3) var(--gutter);
+  border-bottom: var(--hairline) solid var(--color-separator);
 }
 
 .timeline-window {

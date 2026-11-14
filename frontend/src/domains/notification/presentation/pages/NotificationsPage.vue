@@ -11,6 +11,8 @@ import { isInboxNotification, notificationIcon, notificationTarget, notification
 import { stripHtml } from '@/shared/utils/sanitize'
 import { isInteractiveClick } from '@/shared/utils/dom'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
+import { useScrollReturn } from '@/shared/composables/useScrollReturn'
+import { useAutoTimelineReveal } from '@/shared/composables/useTouchTracking'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
@@ -42,12 +44,19 @@ const feed = usePaginatedList<MastodonNotification>(
 const { items: notifications, loading, error, hasMore } = feed
 const shown = computed(() => notifications.value.filter(n => isInboxNotification(n.type)))
 const { markRead } = useNotificationUnread()
+const { onHeaderTap } = useScrollReturn(() => `notifications:${filter.value}`)
+const { isTouchTracking } = useAutoTimelineReveal(
+  () => (!loading.value ? feed.newer.value.map(row => row.id).join(',') : ''),
+  () => feed.revealNewer({ silent: true, preserveWindow: true }),
+)
 // The newest loaded notification is what the user has now seen.
 watch(() => (filter.value === 'all' ? notifications.value[0]?.id : undefined), (id) => { if (id) void markRead(id) })
 // New notifications (any type, e.g. a closed poll) appear without reloading.
 useFeedStream(ref('stream=notification'), async () => {
   const ok = await feed.revalidate()
-  if (feed.newer.value.length) await feed.revealNewer()
+  if (!isTouchTracking.value && feed.newer.value.length) {
+    await feed.revealNewer({ silent: true, preserveWindow: true })
+  }
   return ok
 })
 
@@ -130,7 +139,7 @@ watch(filter, () => {
 
 <template>
   <div class="notifications-page">
-    <div class="page-header notifications-header">
+    <div class="page-header notifications-header" @click="onHeaderTap">
       <h1 class="page-header__title">{{ $t('notification.NotificationsPage.s1') }}</h1>
       <button
         v-if="shown.length > 0 && !confirmClear"

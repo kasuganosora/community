@@ -1,6 +1,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch, type Ref } from 'vue'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { sessionEpoch } from '@/shared/api/sessionScope'
+import { prefersReducedMotion } from '@/shared/motion/spring'
+import type { ScrollAnchorPoint } from '@/shared/composables/useScrollReturn'
 
 const ESTIMATED_HEIGHT = 240
 const OVERSCAN = 1200
@@ -9,6 +11,8 @@ export const MAX_TIMELINE_PINS = 8
 export const MAX_TIMELINE_MEASUREMENTS = 512
 const snapshots = new Map<string, { first: string; prefix: number; heights: [string, number][]; flags: [string, Record<string, boolean>][] }>()
 watch(sessionEpoch, () => snapshots.clear(), { flush: 'sync' })
+
+const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
 
 /** Window scrolling, deliberately specific to timeline cards. No retained status objects. */
 export function useTimelineWindow(
@@ -34,6 +38,7 @@ export function useTimelineWindow(
   let restoring = false
   let generation = 0
   let navigation = 0
+  let programmaticUntil = 0
   const key = () => `${sessionEpoch.value}:${scope()}`
   let activeKey = key()
   const ids = computed(() => statuses().map(status => status.id))
@@ -95,6 +100,10 @@ export function useTimelineWindow(
     const index = indexAt(Math.max(0, viewportTop - prefix.value), oldOffsets)
     return { id: oldIds[index], top: prefix.value + (oldOffsets[index] ?? 0) - viewportTop }
   }
+  function captureAnchor(): ScrollAnchorPoint {
+    const current = anchor()
+    return { id: current.id, top: current.top, scrollY: window.scrollY }
+  }
   async function restore(point: ReturnType<typeof anchor>) {
     const expected = generation
     const expectedNavigation = navigation
@@ -104,6 +113,27 @@ export function useTimelineWindow(
     if (index < 0) return
     const desired = origin() + prefix.value + offsets.value[index]! - point.top
     if (Math.abs(window.scrollY - desired) > 0.5) window.scrollTo({ top: Math.max(0, desired), behavior: 'instant' })
+    readScroll()
+  }
+  async function restoreAnchor(point: ScrollAnchorPoint) {
+    const expected = generation
+    navigation++
+    const behavior: ScrollBehavior = prefersReducedMotion() ? 'instant' : 'smooth'
+    await nextTick()
+    if (disposed || expected !== generation) return
+    const index = point.id ? ids.value.indexOf(point.id) : -1
+    const desired = index >= 0
+      ? Math.max(0, origin() + prefix.value + offsets.value[index]! - point.top)
+      : Math.max(0, point.scrollY)
+    if (behavior === 'smooth') programmaticUntil = nowMs() + 750
+    window.scrollTo({ top: desired, behavior })
+    readScroll()
+  }
+  async function scrollToTop() {
+    navigation++
+    const behavior: ScrollBehavior = prefersReducedMotion() ? 'instant' : 'smooth'
+    if (behavior === 'smooth') programmaticUntil = nowMs() + 750
+    window.scrollTo({ top: 0, behavior })
     readScroll()
   }
   async function revealHead(headerHeight: number, focus: boolean) {
@@ -143,7 +173,7 @@ export function useTimelineWindow(
     if (changed) {
       trimMetadata()
       revision.value++
-      void restore(point)
+      if (nowMs() > programmaticUntil) void restore(point)
     }
   }
   function bind(id: string, element: unknown) {
@@ -181,6 +211,7 @@ export function useTimelineWindow(
   }
   function reset() {
     generation++
+    programmaticUntil = 0
     renderVersion.value++
     heights.clear(); flags.clear(); pins.value = []; prefix.value = 0
     onPins([])
@@ -206,11 +237,26 @@ export function useTimelineWindow(
     currentFirst = next[0]
     if (scopeIds === next) { scopeIds = undefined; return }
     if (!previous.length) { loadSnapshot(); return }
+    const prevPrefix = prefix.value
     const oldOffsets = [0]
     for (const id of previous) oldOffsets.push(oldOffsets[oldOffsets.length - 1]! + (heights.get(id) ?? ESTIMATED_HEIGHT))
-    const point = anchor(previous, oldOffsets)
+    let point = anchor(previous, oldOffsets)
     const dropped = next.length ? previous.indexOf(next[0]!) : -1
     const prepended = next.indexOf(previous[0]!)
+    const liveAtTop = prepended > 0 && dropped <= 0 && !hasPrevious() && prevPrefix === 0 && window.scrollY <= 2 && pins.value.length === 0
+    if (prepended === 0 && dropped === 0) {
+      let diff = -1
+      for (let i = 0; i < previous.length && i < next.length; i++) {
+        if (previous[i] !== next[i]) { diff = i; break }
+      }
+      if (diff > 0 && next.indexOf(previous[diff]!) > diff) {
+        const viewportTop = window.scrollY - origin()
+        const rowTop = prevPrefix + oldOffsets[diff]!
+        if (rowTop >= viewportTop && rowTop <= viewportTop + viewportHeight.value) {
+          point = { id: previous[diff], top: rowTop - viewportTop }
+        }
+      }
+    }
     if (dropped > 0 && hasPrevious()) prefix.value += oldOffsets[dropped]!
     else if (prepended > 0) {
       prefix.value = Math.max(0, prefix.value - next.slice(0, prepended).reduce((sum, id) => sum + (heights.get(id) ?? ESTIMATED_HEIGHT), 0))
@@ -221,7 +267,11 @@ export function useTimelineWindow(
     pins.value = pins.value.filter(id => allowed.has(id))
     onPins(pins.value)
     revision.value++
-    if (!restoring) void restore(point)
+    if (liveAtTop) {
+      readScroll()
+    } else if (!restoring) {
+      void restore(point)
+    }
   }, { flush: 'pre' })
   onMounted(() => {
     if (typeof ResizeObserver !== 'undefined') {
@@ -243,5 +293,19 @@ export function useTimelineWindow(
     if (frame) cancelAnimationFrame(frame)
     onPins([])
   })
-  return { visible, tail, prefix, bind, rowFlags, pin, scrollTop, totalHeight, renderVersion, revealHead }
+  return {
+    visible,
+    tail,
+    prefix,
+    bind,
+    rowFlags,
+    pin,
+    scrollTop,
+    totalHeight,
+    renderVersion,
+    revealHead,
+    captureAnchor,
+    restoreAnchor,
+    scrollToTop,
+  }
 }

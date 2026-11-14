@@ -44,3 +44,62 @@ describe('visible sentinel pagination', () => {
     wrapper.unmount()
   })
 })
+
+function dispatchTouch(el: Element, type: string, clientX: number, clientY: number) {
+  const evt = new Event(type, { bubbles: true, cancelable: true })
+  const touches = type === 'touchend' || type === 'touchcancel' ? [] : [{ clientX, clientY }]
+  Object.defineProperty(evt, 'touches', { value: touches })
+  el.dispatchEvent(evt)
+}
+
+describe('mobile touch pull-to-refresh', () => {
+  it('keeps zero resting chrome, arms past threshold, invokes pullRefresh, and yields to horizontal swipes', async () => {
+    window.matchMedia = vi.fn().mockReturnValue({ matches: true }) as unknown as typeof window.matchMedia
+    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(0)
+    let resolveRefresh!: () => void
+    const pullRefresh = vi.fn(() => new Promise<void>(r => { resolveRefresh = r }))
+
+    const wrapper = mount(TimelineFeed, {
+      props: {
+        statuses: [{ id: '1' }] as MastodonStatus[],
+        hasMore: false,
+        pullRefresh,
+      },
+      global: { stubs: { PostCard: true, 't-loading': true, 't-icon': true } },
+    })
+
+    // Resting state has zero PTR DOM or inline transform.
+    expect(wrapper.find('[data-testid="timeline-ptr"]').exists()).toBe(false)
+    expect(wrapper.get('.timeline-window').attributes('style')).toBeUndefined()
+
+    const root = wrapper.get('.timeline-feed').element
+
+    // Horizontal swipe yields immediately so PostCard swipe gestures work cleanly.
+    dispatchTouch(root, 'touchstart', 100, 100)
+    dispatchTouch(root, 'touchmove', 160, 105)
+    dispatchTouch(root, 'touchend', 160, 105)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="timeline-ptr"]').exists()).toBe(false)
+    expect(pullRefresh).not.toHaveBeenCalled()
+
+    // Vertical pull down past threshold arms and triggers pullRefresh on release.
+    dispatchTouch(root, 'touchstart', 120, 80)
+    dispatchTouch(root, 'touchmove', 120, 96) // enters pulling
+    dispatchTouch(root, 'touchmove', 120, 230) // raw > 110 -> offset >= 48 (armed)
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="timeline-ptr"]').exists()).toBe(true)
+    expect(wrapper.find('.timeline-ptr__arrow--armed').exists()).toBe(true)
+
+    dispatchTouch(root, 'touchend', 120, 230)
+    await wrapper.vm.$nextTick()
+    expect(pullRefresh).toHaveBeenCalledTimes(1)
+
+    resolveRefresh()
+    await Promise.resolve()
+    await Promise.resolve()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-testid="timeline-ptr"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+

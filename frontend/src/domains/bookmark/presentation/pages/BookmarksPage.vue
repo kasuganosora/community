@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
+import { useScrollReturn } from '@/shared/composables/useScrollReturn'
 import { bookmarkApi } from '../../infrastructure/bookmarkApi'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import PostCard from '@/shared/components/post/PostCard.vue'
@@ -8,6 +9,7 @@ import PostCard from '@/shared/components/post/PostCard.vue'
 const feed = usePaginatedList((maxId, limit) => bookmarkApi.list({ max_id: maxId, limit }), 40)
 const { items: bookmarks, loading, error, hasMore } = feed
 const load = feed.refresh
+const { onHeaderTap } = useScrollReturn(() => 'bookmarks')
 
 // Reuse the shared action handlers — optimistic update on the local array.
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
@@ -20,7 +22,7 @@ onMounted(load)
 
 <template>
   <div class="bookmarks-page">
-    <div class="page-header">
+    <div class="page-header" @click="onHeaderTap">
       <h1 class="page-header__title">{{ $t('bookmark.BookmarksPage.s1') }}</h1>
     </div>
 

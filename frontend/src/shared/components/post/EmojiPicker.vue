@@ -8,13 +8,11 @@ import { t } from '@/shared/i18n'
 const emit = defineEmits<{ select: [emoji: MastodonEmoji]; close: [] }>()
 const store = useEmojiStore()
 const query = ref('')
-const category = ref('')
 const sensitive = ref(false)
 const recentCodes = ref(readRecentEmoji())
 const grid = ref<HTMLElement>()
 const searchInput = ref<HTMLInputElement>()
 const highlighted = ref<MastodonEmoji | null>(null)
-watch([query, category, sensitive], () => { highlighted.value = null })
 const available = computed(() => store.emojis.filter(e => e.visible_in_picker && !e.disabled))
 const categories = computed(() => [...new Set(available.value.map(e => e.category || t('shared.EmojiPicker.s26')))].sort())
 const recentEmojis = computed(() => {
@@ -24,9 +22,29 @@ const recentEmojis = computed(() => {
     return emoji ? [emoji] : []
   })
 })
+const category = ref(recentEmojis.value.length > 0 ? '__recent' : '')
+let initializedDefault = available.value.length > 0 || recentCodes.value.length === 0
+watch(
+  () => [available.value.length, recentEmojis.value.length] as const,
+  ([availCount, recentCount]) => {
+    if (!initializedDefault && availCount > 0) {
+      initializedDefault = true
+      if (recentCount > 0 && category.value === '') category.value = '__recent'
+    } else if (availCount > 0 && recentCount === 0 && category.value === '__recent') {
+      category.value = ''
+    }
+  },
+)
+watch([query, category, sensitive], () => { highlighted.value = null })
+function selectCategory(next: string) {
+  initializedDefault = true
+  if (next === '__recent' && query.value.trim()) query.value = ''
+  category.value = next
+}
+const hasQuery = computed(() => query.value.trim().length > 0)
 const matches = computed(() => {
-  const source = category.value === '__recent' ? recentEmojis.value : available.value
   const q = query.value.trim().toLocaleLowerCase()
+  const source = category.value === '__recent' && !q ? recentEmojis.value : available.value
   return source.filter(e => {
     return (category.value === '__recent' || !category.value || (e.category || t('shared.EmojiPicker.s26')) === category.value)
       && (!q || [e.shortcode, ...(e.aliases || [])].some(s => s.toLocaleLowerCase().includes(q)))
@@ -73,14 +91,14 @@ onMounted(() => { void store.load(true); searchInput.value?.focus({ preventScrol
     <div class="emoji-picker__search"><AppIcon name="search" /><input ref="searchInput" v-model="query" type="search" :aria-label="$t('shared.EmojiPicker.s6')" :placeholder="$t('shared.EmojiPicker.s7')" /><button v-if="query" type="button" class="icon-button" :aria-label="$t('shared.EmojiPicker.s8')" @click="query = ''; searchInput?.focus()"><AppIcon name="close" /></button></div>
     <div class="emoji-picker__filters">
       <div class="emoji-picker__cats" :aria-label="$t('shared.EmojiPicker.s9')">
-        <button type="button" :aria-pressed="category !== '__recent'" @click="category = ''">{{ $t('shared.EmojiPicker.s10') }}</button>
-        <button v-if="recentEmojis.length" type="button" :aria-pressed="category === '__recent'" @click="category = '__recent'"><AppIcon name="time" />{{ $t('shared.EmojiPicker.s11') }}</button>
+        <button v-if="recentEmojis.length" type="button" :aria-pressed="category === '__recent' && !hasQuery" @click="selectCategory('__recent')"><AppIcon name="time" />{{ $t('shared.EmojiPicker.s11') }}</button>
+        <button type="button" :aria-pressed="category !== '__recent' || hasQuery" @click="selectCategory('')">{{ $t('shared.EmojiPicker.s10') }}</button>
       </div>
-      <select :value="category === '__recent' ? '' : category" :aria-label="$t('shared.EmojiPicker.s12')" @change="category = ($event.target as HTMLSelectElement).value"><option value="">{{ $t('shared.EmojiPicker.s13') }}</option><option v-for="c in categories" :key="c">{{ c }}</option></select>
+      <select :value="category === '__recent' ? '' : category" :aria-label="$t('shared.EmojiPicker.s12')" @change="selectCategory(($event.target as HTMLSelectElement).value)"><option value="">{{ $t('shared.EmojiPicker.s13') }}</option><option v-for="c in categories" :key="c">{{ c }}</option></select>
     </div>
     <div v-if="store.loading && !matches.length" class="emoji-picker__empty" role="status"><AppIcon name="refresh" /><strong>{{ $t('shared.EmojiPicker.s14') }}</strong><span>{{ $t('shared.EmojiPicker.s15') }}</span></div>
     <div v-else-if="store.error" class="emoji-picker__empty" role="alert"><AppIcon name="error-circle" /><strong>{{ $t('shared.EmojiPicker.s16') }}</strong><span>{{ store.error }}</span><button type="button" class="retry-button" @click="store.load(true)">{{ $t('shared.EmojiPicker.s17') }}</button></div>
-    <div v-else-if="!matches.length" class="emoji-picker__empty"><AppIcon name="search" /><strong>{{ category === '__recent' ? $t('shared.EmojiPicker.s18') : $t('shared.EmojiPicker.s19') }}</strong><span>{{ query ? $t('shared.EmojiPicker.s20') : $t('shared.EmojiPicker.s21') }}</span></div>
+    <div v-else-if="!matches.length" class="emoji-picker__empty"><AppIcon name="search" /><strong>{{ category === '__recent' && !hasQuery ? $t('shared.EmojiPicker.s18') : $t('shared.EmojiPicker.s19') }}</strong><span>{{ query ? $t('shared.EmojiPicker.s20') : $t('shared.EmojiPicker.s21') }}</span></div>
     <div v-else ref="grid" class="emoji-picker__grid">
       <button v-for="emoji in matches" :key="emoji.shortcode" type="button" :aria-label="$t('shared.EmojiPicker.s23', [emoji.shortcode, emoji.local_only ? $t('shared.EmojiPicker.s22') : ''])" :title="`${emoji.shortcode}${emoji.license ? ' · ' + emoji.license : ''}`" :disabled="!!emoji.is_sensitive && !sensitive" @mouseenter="highlighted = emoji" @focus="highlighted = emoji" @click="choose(emoji)">
         <img v-if="(!emoji.is_sensitive || sensitive) && emojiUrl(emoji)" :src="emojiUrl(emoji)!" :alt="`:${emoji.shortcode}:`" loading="lazy" referrerpolicy="no-referrer" />

@@ -3,6 +3,9 @@ import { sessionEpoch } from '@/shared/api/sessionScope'
 
 export interface TimelineHeadTarget {
   revealHead: (headerHeight: number, focus: boolean) => Promise<void>
+  captureAnchor?: () => { id?: string; top: number; scrollY: number }
+  restoreAnchor?: (point: { id?: string; top: number; scrollY: number }) => Promise<void> | void
+  scrollToTop?: () => Promise<void> | void
 }
 
 /** Commit first, then navigate to the new head. A failed or obsolete read never scrolls. */
@@ -42,5 +45,5 @@ export function useTimelineReveal(
   function scrollToHead() {
     return feed.value?.revealHead?.(header.value?.getBoundingClientRect().height ?? 0, false)
   }
-  return { reveal, scrollToHead }
+  return { reveal, scrollToHead, timelineView: feed }
 }

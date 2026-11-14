@@ -493,3 +493,34 @@ it('invalidates a ready head when an edited post is only in that pending page', 
   expect(list.items.value).toEqual([{ id: '2', content: 'after edit' }])
   expect(fetcher).toHaveBeenCalledTimes(3)
 })
+
+describe('Tweetbot preserveWindow and gap bridging in usePaginatedList', () => {
+  it('preserves older loaded pages and bridges non-overlapping bursts via loadGap', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(page(10, 9))
+      .mockResolvedValueOnce(page(8, 7))
+      .mockResolvedValueOnce(page(20, 19))
+      .mockResolvedValueOnce(page(18, 10))
+
+    const list = usePaginatedList(fetcher, 2, 8, { prefetchNewer: true })
+    await list.refresh()
+    await list.loadMore()
+    expect(list.items.value.map(r => r.id)).toEqual(['10', '9', '8', '7'])
+
+    list.applyStreamed({ event: 'update', id: '20' })
+    expect(await list.revealNewer({ silent: true, preserveWindow: true })).toBe(true)
+
+    expect(list.items.value.map(r => r.id)).toEqual(['20', '19', '10', '9', '8', '7'])
+    expect(list.gap.value).toEqual({
+      afterId: '19',
+      beforeId: '10',
+      isLoading: false,
+    })
+
+    await list.loadGap()
+    expect(fetcher).toHaveBeenLastCalledWith('19', 2)
+    expect(list.gap.value).toBeNull()
+    expect(list.items.value.map(r => r.id)).toEqual(['20', '19', '18', '10', '9', '8', '7'])
+  })
+})
+

@@ -8,6 +8,8 @@ import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import { useFeedStream } from '@/shared/composables/useFeedStream'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
+import { useAutoTimelineReveal } from '@/shared/composables/useTouchTracking'
+import { useTimelineScrollReturn } from '@/shared/composables/useScrollReturn'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 import TimelineFeed from '../components/TimelineFeed.vue'
@@ -60,18 +62,17 @@ const feed = usePaginatedList(
   8,
   { prefetchNewer: true },
 )
-const { items: statuses, loading, error, hasMore, newer, hasPrevious } = feed
+const { items: statuses, loading, error, hasMore, newer, hasPrevious, gap } = feed
 const streamTarget = computed(() => `stream=hashtag&tag=${encodeURIComponent(tag.value)}`)
 useFeedStream(streamTarget, async (reason) => reason === 'poll' ? feed.catchUpHead() : feed.revalidate(), {
   onStatus: (status) => feed.applyStreamed(status),
 })
 async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
-watch(
+const pullRefresh = () => feed.refresh({ preserveWindow: true })
+const { onHeaderTap } = useTimelineScrollReturn(() => `tag:${tag.value}`)
+useAutoTimelineReveal(
   () => (!loading.value ? newer.value.map(row => row.id).join(',') : ''),
-  (key) => {
-    if (key) void Promise.resolve(feed.revealNewer({ silent: true })).catch(() => {})
-  },
-  { flush: 'post' },
+  () => feed.revealNewer({ silent: true, preserveWindow: true }),
 )
 
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
@@ -85,7 +86,7 @@ onMounted(() => { feed.refresh(); void loadFollow() })
 
 <template>
   <div class="tag-page">
-    <div ref="timelineHeader" class="page-header page-header--with-back">
+    <div ref="timelineHeader" class="page-header page-header--with-back" @click="onHeaderTap">
       <button class="page-header__back-btn" type="button" :aria-label="$t('timeline.TagTimelinePage.s1')" @click="$router.back()">
         <t-icon name="chevron-left" :size="20" />
       </button>
@@ -99,8 +100,12 @@ onMounted(() => { feed.refresh(); void loadFollow() })
       :statuses="statuses"
       :scope-key="streamTarget"
       :has-previous="hasPrevious"
+      :gap-after-id="gap?.afterId"
+      :gap-loading="!!gap?.isLoading"
+      :pull-refresh="pullRefresh"
       @reload-head="reloadHead"
       @load-previous="feed.loadPrevious"
+      @load-gap="feed.loadGap"
       @pinned-ids="feed.setPinnedIds"
       :loading="loading"
       :has-more="hasMore"

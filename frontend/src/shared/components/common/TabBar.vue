@@ -1,6 +1,7 @@
 <script setup lang="ts" generic="T extends string">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { triggerScrollTopOrReturn } from '@/shared/composables/useScrollReturn'
 
 /**
  * One indicator, not one per tab. It travels on transform, so a second tap
@@ -52,7 +53,11 @@ watch(() => [props.modelValue, props.options.length] as const, () => nextTick(pl
 
 function select(value: T) {
   const opt = props.options.find((o) => o.value === value)
-  if (!opt || opt.value === props.modelValue) return
+  if (!opt) return
+  if (opt.value === props.modelValue) {
+    triggerScrollTopOrReturn()
+    return
+  }
   if (opt.to) router.replace(opt.to).catch(() => {})
   else emit('update:modelValue', value)
 }
@@ -86,6 +91,7 @@ function onKeydown(e: KeyboardEvent) {
         :class="{ 'tab-bar__item--active': opt.value === modelValue }"
         :aria-selected="opt.value === modelValue"
         :tabindex="opt.value === modelValue ? 0 : -1"
+        @click="opt.value === modelValue && triggerScrollTopOrReturn()"
       >
         <span class="tab-bar__text">{{ opt.label }}</span>
       </router-link>
