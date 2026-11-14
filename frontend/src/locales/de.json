@@ -1912,6 +1912,7 @@
     "LoginPage": {
       "s1": "Konto hinzufügen",
       "s2": "In der Community anmelden",
+      "titleWithSite": "Bei {0} anmelden",
       "s3": "Melde dich mit einem weiteren Konto an; das aktuelle bleibt angemeldet.",
       "s4": "Abbrechen",
       "s5": "Registrierung erfolgreich, bitte anmelden.",
