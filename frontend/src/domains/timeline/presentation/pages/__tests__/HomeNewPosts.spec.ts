@@ -129,3 +129,51 @@ it('clears the public timeline loading state when the first page never returns',
   expect(feed.props('error')).toBe('加载超时，点重试')
   vi.useRealTimers()
 })
+
+it('defers streamed timeline insertion while a finger is touching the screen and flushes on touchend', async () => {
+  const get = vi.spyOn(client, 'get')
+    .mockResolvedValueOnce({ data: rows(100, 1) })
+    .mockResolvedValueOnce({ data: rows(101, 2) })
+  wrapper = mount(HomePage, options)
+  await flushPromises()
+  expect(useTimelineStore().homeStatuses.map(s => s.id)).toEqual(['100'])
+
+  const startEvt = new Event('touchstart', { bubbles: true })
+  Object.defineProperty(startEvt, 'touches', { value: [{ clientX: 120, clientY: 200 }] })
+  window.dispatchEvent(startEvt)
+
+  useTimelineStore().applyStreamed('home', { event: 'update', id: '101' })
+  await flushPromises()
+  // While touching, the timeline rows must remain untouched mid-drag.
+  expect(useTimelineStore().homeStatuses.map(s => s.id)).toEqual(['100'])
+  expect(useTimelineStore().homeTimeline.newer.map(s => s.id)).toEqual(['101'])
+
+  const endEvt = new Event('touchend', { bubbles: true })
+  Object.defineProperty(endEvt, 'touches', { value: [] })
+  window.dispatchEvent(endEvt)
+  await flushPromises()
+
+  expect(get).toHaveBeenCalledTimes(2)
+  expect(useTimelineStore().homeStatuses.map(s => s.id)).toEqual(['101', '100'])
+  expect(useTimelineStore().homeTimeline.newer).toEqual([])
+})
+
+it('preserves older loaded pages on HomePage when a streamed post arrives', async () => {
+  vi.spyOn(client, 'get')
+    .mockResolvedValueOnce({ data: rows(100, 20) })
+    .mockResolvedValueOnce({ data: rows(80, 20) })
+    .mockResolvedValueOnce({ data: [{ id: '101', visibility: 'public' } as MastodonStatus, ...rows(100, 19)] })
+  wrapper = mount(HomePage, options)
+  await flushPromises()
+
+  await useTimelineStore().loadMoreHome()
+  expect(useTimelineStore().homeStatuses).toHaveLength(40)
+
+  useTimelineStore().applyStreamed('home', { event: 'update', id: '101' })
+  await flushPromises()
+
+  expect(useTimelineStore().homeStatuses).toHaveLength(41)
+  expect(useTimelineStore().homeStatuses[0]?.id).toBe('101')
+  expect(useTimelineStore().homeStatuses.at(-1)?.id).toBe('61')
+})
+

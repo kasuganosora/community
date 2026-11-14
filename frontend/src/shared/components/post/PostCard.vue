@@ -29,12 +29,15 @@ import FilteredNotice from './FilteredNotice.vue'
 import type { DiscoveryReason } from '@/domains/discovery/infrastructure/discoveryApi'
 
 import { t } from '@/shared/i18n'
+import { usePostCardSwipe } from '@/shared/composables/usePostCardSwipe'
+
 const props = withDefaults(defineProps<{
   status: MastodonStatus
   showReplyContext?: boolean
   recommendation?: boolean
   recommendationReason?: DiscoveryReason
-}>(), { showReplyContext: true })
+  swipeable?: boolean
+}>(), { showReplyContext: true, swipeable: true })
 
 const emit = defineEmits<{
   reblog: [status: MastodonStatus]
@@ -45,6 +48,7 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const authStore = useAuthStore()
+const cardRef = ref<HTMLElement>()
 const editing = ref(false)
 const reporting = ref(false)
 const menuOpen = ref(false)
@@ -53,11 +57,7 @@ const menuOverlayClass = `post-card-menu-${Math.random().toString(36).slice(2, 1
 // TDesign closes on outside click and after a pick; this adds Esc, focus
 // leaving, page scroll and route change, consistent with other popovers.
 useDismiss(menuOpen, () => [menuButton.value, document.querySelector<HTMLElement>(`.${menuOverlayClass}`)])
-useTimelineRowPin(() => editing.value || reporting.value || menuOpen.value, () => {
-  editing.value = false; reporting.value = false; menuOpen.value = false
-  MessagePlugin.info(t('shared.PostCard.s6'))
-})
-const { openQuote } = useUiChrome()
+const { openQuote, openReply } = useUiChrome()
 
 const baseStatus = computed(() => props.status.reblog?.id ? props.status.reblog : props.status)
 // Pick up edits made elsewhere in this session (e.g. on the detail page).
@@ -76,6 +76,27 @@ const filterMarks = computed(() => {
 const isDeleted = computed(() => deletedStatusIds.has(props.status.id) || deletedStatusIds.has(displayStatus.value.id))
 const isOwn = computed(() => !!authStore.currentUser && displayStatus.value.account.id === authStore.currentUser.id)
 const visibility = computed(() => displayStatus.value.visibility !== 'public' ? visibilityOption(displayStatus.value.visibility) : null)
+
+function handleReply() {
+  if (authStore.currentUser && typeof openReply === 'function') {
+    openReply(displayStatus.value)
+    return
+  }
+  navigateToDetail({ reply: '1' })
+}
+
+const { swipeOffset, swipeAction, swiping, consumeClickSuppression } = usePostCardSwipe(cardRef, {
+  enabled: () => props.swipeable && !editing.value && !reporting.value && !menuOpen.value,
+  allowRightActions: () => !!authStore.currentUser,
+  onLike: () => emit('favourite', displayStatus.value),
+  onReply: () => handleReply(),
+  onDetail: () => navigateToDetail(),
+})
+
+useTimelineRowPin(() => editing.value || reporting.value || menuOpen.value || swiping.value || swipeOffset.value !== 0, () => {
+  editing.value = false; reporting.value = false; menuOpen.value = false
+  MessagePlugin.info(t('shared.PostCard.s6'))
+})
 const menuOptions = computed(() => [...(isOwn.value
   ? [
       { content: displayStatus.value.pinned ? t('shared.PostCard.s7') : t('shared.PostCard.s8'), value: 'pin' },
@@ -166,70 +187,113 @@ function onMenuClick(data: { value?: unknown }) {
 <template>
   <article
     v-if="!isDeleted"
+    ref="cardRef"
     class="post-card"
+    :class="{ 'post-card--swiping': swipeOffset !== 0 }"
     tabindex="0"
     :aria-labelledby="`post-author-${displayStatus.id}`"
+    @click.capture="consumeClickSuppression"
     @click="onCardClick"
     @keydown.enter.self="navigateToDetail()"
   >
-    <!-- Reblog header -->
-    <div v-if="isReblog" class="post-card__reblog">
-      <t-icon name="swap" :size="14" />
-      <span><EmojiText :text="status.account.display_name || status.account.username" :emojis="status.account.emojis" /> {{ $t('shared.PostCard.s1') }}</span>
+    <div
+      v-if="swipeOffset !== 0"
+      class="post-card__swipe-bg"
+      :class="{
+        'post-card__swipe-bg--right': swipeOffset > 0,
+        'post-card__swipe-bg--left': swipeOffset < 0,
+      }"
+      aria-hidden="true"
+    >
+      <span
+        class="post-card__swipe-icon"
+        :class="{
+          'post-card__swipe-icon--like': swipeAction === 'like',
+          'post-card__swipe-icon--reply': swipeAction === 'reply',
+          'post-card__swipe-icon--detail': swipeAction === 'detail',
+        }"
+      >
+        <t-icon
+          v-if="swipeOffset > 0 && swipeAction === 'reply'"
+          name="chat"
+          :size="20"
+        />
+        <t-icon
+          v-else-if="swipeOffset > 0"
+          :name="displayStatus.favourited ? 'heart-filled' : 'heart'"
+          :size="20"
+        />
+        <t-icon
+          v-else
+          name="chevron-right"
+          :size="20"
+        />
+      </span>
     </div>
 
-    <ReplyContext v-if="showReplyContext !== false && displayStatus.reply && !filterMarks.length" :status="displayStatus.reply" />
+    <div
+      class="post-card__surface"
+      :style="swipeOffset !== 0 ? { transform: `translate3d(${swipeOffset}px, 0, 0)` } : undefined"
+    >
+      <!-- Reblog header -->
+      <div v-if="isReblog" class="post-card__reblog">
+        <t-icon name="swap" :size="14" />
+        <span><EmojiText :text="status.account.display_name || status.account.username" :emojis="status.account.emojis" /> {{ $t('shared.PostCard.s1') }}</span>
+      </div>
 
-    <div class="post-card__body">
-      <!-- Avatar -->
-      <AccountLink :account="displayStatus.account" class="post-card__avatar" :aria-label="displayStatus.account.display_name || displayStatus.account.username">
-        <UserAvatar :account="displayStatus.account" :size="44" />
-      </AccountLink>
-      <div class="post-card__content">
-        <!-- Header -->
-        <div class="post-card__header">
-          <AccountLink :account="displayStatus.account" class="post-card__name" :id="`post-author-${displayStatus.id}`"><EmojiText :text="displayStatus.account.display_name || displayStatus.account.username" :emojis="displayStatus.account.emojis" /></AccountLink>
-          <AccountLink :account="displayStatus.account" class="post-card__username">@{{ displayAccount(displayStatus.account.acct) }}</AccountLink>
-          <span class="post-card__dot">·</span>
-          <RelativeTime :datetime="displayStatus.created_at" />
-          <span v-if="displayStatus.local_only" class="post-card__edited" :title="$t('shared.PostCard.localOnlyHint')">{{ $t('shared.PostCard.localOnly') }}</span>
-          <span v-if="wasEdited(displayStatus)" class="post-card__edited" :title="$t('shared.PostCard.s3')">{{ $t('shared.PostCard.s4') }}</span>
-          <span v-if="visibility" class="post-card__visibility" :title="visibility.label">
-            <t-icon :name="visibility.icon" :size="14" />
-            <span class="sr-only">{{ visibility.short }}</span>
-          </span>
-          <t-dropdown
-            v-if="authStore.currentUser"
-            trigger="click"
-            :options="menuOptions"
-            :popup-props="{ visible: menuOpen, overlayClassName: menuOverlayClass, onVisibleChange: (visible: boolean) => { menuOpen = visible } }"
-            @click="onMenuClick"
-          >
-            <button ref="menuButton" type="button" class="post-card__menu" :aria-label="$t('shared.PostCard.s5')" @click.stop>
-              <t-icon name="more" :size="16" />
-            </button>
-          </t-dropdown>
-        </div>
+      <ReplyContext v-if="showReplyContext !== false && displayStatus.reply && !filterMarks.length" :status="displayStatus.reply" />
 
-        <FilteredNotice :marks="filterMarks">
-          <div v-if="displayStatus.in_reply_to_id" class="post-card__reply-to">
-            <t-icon name="rollback" :size="14" aria-hidden="true" />
-            <span>{{ $t('shared.ReplyContext.replying') }}</span>
-            <AccountLink v-if="displayStatus.reply && !deletedStatusIds.has(displayStatus.reply.id)" :account="displayStatus.reply.account" class="post-card__reply-account" :title="'@' + displayAccount(displayStatus.reply.account.acct)">
-              <UserAvatar :account="displayStatus.reply.account" :size="16" /><span>@{{ displayAccount(displayStatus.reply.account.acct) }}</span>
-            </AccountLink>
+      <div class="post-card__body">
+        <!-- Avatar -->
+        <AccountLink :account="displayStatus.account" class="post-card__avatar" :aria-label="displayStatus.account.display_name || displayStatus.account.username">
+          <UserAvatar :account="displayStatus.account" :size="44" />
+        </AccountLink>
+        <div class="post-card__content">
+          <!-- Header -->
+          <div class="post-card__header">
+            <AccountLink :account="displayStatus.account" class="post-card__name" :id="`post-author-${displayStatus.id}`"><EmojiText :text="displayStatus.account.display_name || displayStatus.account.username" :emojis="displayStatus.account.emojis" /></AccountLink>
+            <AccountLink :account="displayStatus.account" class="post-card__username">@{{ displayAccount(displayStatus.account.acct) }}</AccountLink>
+            <span class="post-card__dot">·</span>
+            <RelativeTime :datetime="displayStatus.created_at" />
+            <span v-if="displayStatus.local_only" class="post-card__edited" :title="$t('shared.PostCard.localOnlyHint')">{{ $t('shared.PostCard.localOnly') }}</span>
+            <span v-if="wasEdited(displayStatus)" class="post-card__edited" :title="$t('shared.PostCard.s3')">{{ $t('shared.PostCard.s4') }}</span>
+            <span v-if="visibility" class="post-card__visibility" :title="visibility.label">
+              <t-icon :name="visibility.icon" :size="14" />
+              <span class="sr-only">{{ visibility.short }}</span>
+            </span>
+            <t-dropdown
+              v-if="authStore.currentUser"
+              trigger="click"
+              :options="menuOptions"
+              :popup-props="{ visible: menuOpen, overlayClassName: menuOverlayClass, onVisibleChange: (visible: boolean) => { menuOpen = visible } }"
+              @click="onMenuClick"
+            >
+              <button ref="menuButton" type="button" class="post-card__menu" :aria-label="$t('shared.PostCard.s5')" @click.stop>
+                <t-icon name="more" :size="16" />
+              </button>
+            </t-dropdown>
           </div>
-          <PostContent :status="displayStatus" :compact-reply="!!displayStatus.reply && !deletedStatusIds.has(displayStatus.reply.id)" text-class="post-card__text" />
-          <PostReactions :status="displayStatus" />
-          <PostActions
-            :status="displayStatus"
-            @reply="navigateToDetail({ reply: '1' })"
-            @reblog="emit('reblog', displayStatus)"
-            @favourite="emit('favourite', displayStatus)"
-            @bookmark="emit('bookmark', displayStatus)"
-            @quote="openQuote(displayStatus)"
-          />
-        </FilteredNotice>
+
+          <FilteredNotice :marks="filterMarks">
+            <div v-if="displayStatus.in_reply_to_id" class="post-card__reply-to">
+              <t-icon name="rollback" :size="14" aria-hidden="true" />
+              <span>{{ $t('shared.ReplyContext.replying') }}</span>
+              <AccountLink v-if="displayStatus.reply && !deletedStatusIds.has(displayStatus.reply.id)" :account="displayStatus.reply.account" class="post-card__reply-account" :title="'@' + displayAccount(displayStatus.reply.account.acct)">
+                <UserAvatar :account="displayStatus.reply.account" :size="16" /><span>@{{ displayAccount(displayStatus.reply.account.acct) }}</span>
+              </AccountLink>
+            </div>
+            <PostContent :status="displayStatus" :compact-reply="!!displayStatus.reply && !deletedStatusIds.has(displayStatus.reply.id)" text-class="post-card__text" />
+            <PostReactions :status="displayStatus" />
+            <PostActions
+              :status="displayStatus"
+              @reply="handleReply"
+              @reblog="emit('reblog', displayStatus)"
+              @favourite="emit('favourite', displayStatus)"
+              @bookmark="emit('bookmark', displayStatus)"
+              @quote="openQuote(displayStatus)"
+            />
+          </FilteredNotice>
+        </div>
       </div>
     </div>
 
@@ -262,6 +326,64 @@ function onMenuClick(data: { value?: unknown }) {
   transition: background-color var(--duration-release) var(--ease-out);
 }
 
+.post-card--swiping {
+  overflow: hidden;
+}
+
+.post-card--swiping .post-card__surface {
+  position: relative;
+  z-index: 1;
+  margin: calc(-1 * var(--space-3)) calc(-1 * var(--gutter)) calc(-1 * var(--space-1));
+  padding: var(--space-3) var(--gutter) var(--space-1);
+  background: var(--color-bg);
+  will-change: transform;
+}
+
+.post-card__swipe-bg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--gutter);
+  background: var(--color-bg-secondary);
+  pointer-events: none;
+}
+
+.post-card__swipe-bg--right {
+  justify-content: flex-start;
+}
+
+.post-card__swipe-bg--left {
+  justify-content: flex-end;
+}
+
+.post-card__swipe-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-full);
+  color: var(--color-label-tertiary);
+  transform: scale(0.88);
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.post-card__swipe-icon--like {
+  color: var(--color-like);
+  background: var(--color-like-soft);
+  transform: scale(1.06);
+}
+
+.post-card__swipe-icon--reply,
+.post-card__swipe-icon--detail {
+  color: var(--color-accent-text);
+  background: var(--color-accent-soft);
+  transform: scale(1.06);
+}
+
 /* Inset separator aligned with the text column (iOS list style). */
 .post-card::after {
   content: '';
@@ -272,6 +394,7 @@ function onMenuClick(data: { value?: unknown }) {
   height: var(--hairline);
   background: var(--color-separator);
   pointer-events: none;
+  z-index: 2;
 }
 
 @media (hover: hover) and (pointer: fine) {

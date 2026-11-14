@@ -16,6 +16,12 @@ import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 import { USE_MOCK } from '@/shared/utils/env'
 
 import { t } from '@/shared/i18n'
+export interface TimelineGap {
+  afterId: string
+  beforeId: string
+  isLoading: boolean
+}
+
 interface TimelineState {
   statuses: MastodonStatus[]
   isLoading: boolean
@@ -23,6 +29,7 @@ interface TimelineState {
   error: string | null
   newer: { id: string }[]
   hasPrevious: boolean
+  gap: TimelineGap | null
 }
 
 export const useTimelineStore = defineStore('timeline', () => {
@@ -37,6 +44,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     error: null,
     newer: [],
     hasPrevious: false,
+    gap: null,
   })
   
   const publicTimeline = ref<TimelineState>({
@@ -46,12 +54,13 @@ export const useTimelineStore = defineStore('timeline', () => {
     error: null,
     newer: [],
     hasPrevious: false,
+    gap: null,
   })
 
   // Per-timeline request version guard — prevents stale responses from
   // overwriting newer data when fetchTimeline / loadMore race with each other
   const requestVersionMap: Record<ManagedTimelineType, number> = { home: 0, public: 0 }
-  const failedRequest: Record<ManagedTimelineType, 'head' | 'more' | 'previous' | null> = { home: null, public: null }
+  const failedRequest: Record<ManagedTimelineType, 'head' | 'more' | 'previous' | 'gap' | null> = { home: null, public: null }
   const knownHead: Partial<Record<ManagedTimelineType, string[]>> = {}
   const previousCursors: Record<ManagedTimelineType, string[]> = { home: [], public: [] }
   const headCursor: Partial<Record<ManagedTimelineType, string>> = {}
@@ -88,7 +97,7 @@ export const useTimelineStore = defineStore('timeline', () => {
       ++listGeneration[type]
       failedRequest[type] = null
       const timeline = getTimeline(type)
-      knownHead[type] = undefined; previousCursors[type] = []; droppedHistory[type] = false; timeline.hasPrevious = false; pinned[type].clear(); paused[type] = false
+      knownHead[type] = undefined; previousCursors[type] = []; droppedHistory[type] = false; timeline.hasPrevious = false; timeline.gap = null; pinned[type].clear(); paused[type] = false
       loadedHead[type] = false; localHeads[type] = []
       timeline.statuses = []; timeline.newer = []; timeline.isLoading = false; timeline.hasMore = true; timeline.error = null
     }
@@ -131,11 +140,19 @@ export const useTimelineStore = defineStore('timeline', () => {
     return startFlight(type, () => fetchTimelineNow(type)).then(() => undefined)
   }
 
-  async function fetchTimelineNow(type: ManagedTimelineType, current = () => true): Promise<boolean> {
+  function refreshTimelineHeadPreserving(type: ManagedTimelineType) {
+    if (needsInitialLoad(type) || getTimeline(type).hasPrevious) {
+      return fetchTimeline(type)
+    }
+    return startFlight(type, () => fetchTimelineNow(type, () => true, true)).then(() => undefined)
+  }
+
+  async function fetchTimelineNow(type: ManagedTimelineType, current = () => true, preserveWindow = false): Promise<boolean> {
     const timeline = getTimeline(type)
-    if (pinned[type].size) { timeline.error = t('timeline.timelineStore.s1'); return false }
+    if (!preserveWindow && pinned[type].size) { timeline.error = t('timeline.timelineStore.s1'); return false }
     const myVersion = ++requestVersionMap[type]
-    timeline.isLoading = true
+    const showLoading = !preserveWindow || timeline.statuses.length === 0
+    if (showLoading) timeline.isLoading = true
     timeline.error = null
     failedRequest[type] = null
     const read = readGuards[type].begin()
@@ -149,6 +166,7 @@ export const useTimelineStore = defineStore('timeline', () => {
         timeline.statuses = mockStatuses
         loadedHead[type] = true
         timeline.hasMore = false
+        timeline.gap = null
         return true
       }
       
@@ -158,7 +176,9 @@ export const useTimelineStore = defineStore('timeline', () => {
         
       // Discard stale response — a newer request superseded this one
       if (myVersion !== requestVersionMap[type] || !current()) return false
-      commitHead(type, read.filter(data), hintsAtStart)
+      const filtered = read.filter(data)
+      if (preserveWindow) commitPreservedHead(type, filtered, hintsAtStart)
+      else commitHead(type, filtered, hintsAtStart)
       return true
     } catch (e) {
       // Only set error if this is still the latest request
@@ -241,7 +261,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     return loadMore('public')
   }
 
-  function prependStatus(status: MastodonStatus) {
+  function prependStatus(status: MastodonStatus, options?: { reveal?: boolean }) {
     const add = (list: MastodonStatus[], newer: { id: string }[], type: ManagedTimelineType) => {
       const index = newer.findIndex(item => item.id === status.id)
       if (index >= 0) newer.splice(index, 1)
@@ -265,7 +285,9 @@ export const useTimelineStore = defineStore('timeline', () => {
       onPublic = add(publicTimeline.value.statuses, publicTimeline.value.newer, 'public')
       if (onPublic) remember('public')
     }
-    if (onHome || onPublic) pendingReveal.value = { id: status.id, nonce: ++revealNonce }
+    if ((onHome || onPublic) && options?.reveal !== false) {
+      pendingReveal.value = { id: status.id, nonce: ++revealNonce }
+    }
   }
 
   function publishedAt(row: { created_at?: string }): number | null {
@@ -367,7 +389,78 @@ export const useTimelineStore = defineStore('timeline', () => {
     if (getTimeline(type).isLoading) return
     if (failedRequest[type] === 'more') return loadMore(type)
     if (failedRequest[type] === 'previous') return loadPrevious(type)
+    if (failedRequest[type] === 'gap') return loadGap(type)
     return fetchTimeline(type)
+  }
+
+  function loadGap(type: ManagedTimelineType) {
+    const timeline = getTimeline(type)
+    if (flight[type] || timeline.isLoading || !timeline.gap || timeline.gap.isLoading) return
+    return startFlight(type, () => loadGapNow(type)).then(() => undefined)
+  }
+
+  async function loadGapNow(type: ManagedTimelineType) {
+    const timeline = getTimeline(type)
+    const gap = timeline.gap
+    if (!gap || gap.isLoading) return
+    const initialAfter = timeline.statuses.findIndex(row => row.id === gap.afterId)
+    const initialBefore = timeline.statuses.findIndex(row => row.id === gap.beforeId)
+    if (initialAfter < 0 || initialBefore <= initialAfter) {
+      timeline.gap = null
+      return
+    }
+    const myVersion = ++requestVersionMap[type]
+    timeline.gap = { ...gap, isLoading: true }
+    timeline.error = null
+    failedRequest[type] = null
+    const read = readGuards[type].begin()
+    try {
+      const data = type === 'home'
+        ? await timelineApi.getHomeTimeline({ max_id: gap.afterId, limit: TIMELINE_PAGE_SIZE })
+        : await timelineApi.getPublicTimeline({ max_id: gap.afterId, limit: TIMELINE_PAGE_SIZE })
+      if (myVersion !== requestVersionMap[type]) return
+      const page = dedupeMirroredStatuses(read.filter(data))
+      const beforeIdx = timeline.statuses.findIndex(row => row.id === gap.beforeId)
+      if (beforeIdx <= 0) {
+        timeline.gap = null
+        return
+      }
+      const upper = timeline.statuses.slice(0, beforeIdx)
+      const lower = timeline.statuses.slice(beforeIdx)
+      const lowerIds = representedStatusIDs(lower)
+      const overlapsLower = page.some(row => lowerIds.has(row.id) || lower.some(prev => sharesStatusIdentity(prev, row)))
+      const lastFetchedId = page[page.length - 1]?.id
+      const bridged = overlapsLower || page.length < TIMELINE_PAGE_SIZE || !lastFetchedId || lastFetchedId === gap.afterId
+      const combined = dedupeMirroredStatuses(mergeById(dedupeMirroredStatuses(mergeById(upper, page)), lower))
+      const newBeforeIdx = combined.findIndex(row => row.id === gap.beforeId)
+      let maxKeep = Math.max(TIMELINE_PAGE_SIZE * 8, newBeforeIdx >= 0 ? newBeforeIdx + TIMELINE_PAGE_SIZE : 0)
+      for (let i = combined.length - 1; i >= maxKeep; i--) {
+        if (pinned[type].has(combined[i]!.id)) {
+          maxKeep = i + 1
+          break
+        }
+      }
+      const capped = combined.length > maxKeep ? combined.slice(0, maxKeep) : combined
+      if (combined.length > capped.length) timeline.hasMore = true
+      timeline.statuses = capped
+      ++listGeneration[type]
+      if (bridged || newBeforeIdx <= 0) {
+        timeline.gap = null
+      } else {
+        const nextAfterId = capped[newBeforeIdx - 1]!.id
+        timeline.gap = nextAfterId === gap.afterId
+          ? null
+          : { afterId: nextAfterId, beforeId: gap.beforeId, isLoading: false }
+      }
+    } catch (e) {
+      if (myVersion === requestVersionMap[type]) {
+        if (timeline.gap) timeline.gap = { ...timeline.gap, isLoading: false }
+        timeline.error = e instanceof Error ? e.message : t('timeline.timelineStore.s3')
+        failedRequest[type] = 'gap'
+      }
+    } finally {
+      read.close()
+    }
   }
 
   function cancelRevalidation() {
@@ -388,6 +481,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     previousCursors[type] = []
     droppedHistory[type] = false
     timeline.hasPrevious = false
+    timeline.gap = null
     knownHead[type] = data.map(row => row.id)
     timeline.statuses = dedupeMirroredStatuses(mergeById([], data))
     const shown = representedStatusIDs(data)
@@ -402,10 +496,75 @@ export const useTimelineStore = defineStore('timeline', () => {
     failedRequest[type] = null
   }
 
-  function applyPrefetchedHead(type: ManagedTimelineType, data: MastodonStatus[]) {
+  function commitPreservedHead(type: ManagedTimelineType, data: MastodonStatus[], hintsAtStart?: Set<string>) {
+    const timeline = getTimeline(type)
+    if (!loadedHead[type] || !timeline.statuses.length) {
+      commitHead(type, data, hintsAtStart)
+      return
+    }
+    if (timeline.hasPrevious) {
+      knownHead[type] = data.map(row => row.id)
+      const shown = representedStatusIDs(data)
+      streamedNewer = true
+      timeline.newer = hintsAtStart
+        ? timeline.newer.filter(row => !hintsAtStart.has(row.id) && !shown.has(row.id))
+        : []
+      streamedNewer = false
+      prefetchedNewer[type].clear()
+      timeline.error = null
+      failedRequest[type] = null
+      return
+    }
+    const previousStatuses = timeline.statuses
+    const oldFirstId = previousStatuses[0]!.id
+    const prevGap = timeline.gap
+    const existingIds = representedStatusIDs(previousStatuses)
+    const overlaps = data.some(row => existingIds.has(row.id) || previousStatuses.some(prev => sharesStatusIdentity(prev, row)))
+    const connected = !data.length || overlaps || data.length < TIMELINE_PAGE_SIZE
+    const merged = dedupeMirroredStatuses(mergeById(data, previousStatuses))
+    let maxKeep = TIMELINE_PAGE_SIZE * 8
+    for (let i = merged.length - 1; i >= maxKeep; i--) {
+      if (pinned[type].has(merged[i]!.id)) {
+        maxKeep = i + 1
+        break
+      }
+    }
+    const capped = merged.length > maxKeep ? merged.slice(0, maxKeep) : merged
+    if (merged.length > capped.length) timeline.hasMore = true
+
+    ++listGeneration[type]
+    knownHead[type] = data.map(row => row.id)
+    timeline.statuses = capped
+
+    const oldFirstIdx = capped.findIndex(row => row.id === oldFirstId)
+    if (!connected && oldFirstIdx > 0) {
+      timeline.gap = { afterId: capped[oldFirstIdx - 1]!.id, beforeId: oldFirstId, isLoading: false }
+    } else if (prevGap) {
+      const afterIdx = capped.findIndex(row => row.id === prevGap.afterId)
+      const beforeIdx = capped.findIndex(row => row.id === prevGap.beforeId)
+      timeline.gap = afterIdx >= 0 && beforeIdx > afterIdx ? prevGap : null
+    } else {
+      timeline.gap = null
+    }
+
+    const shown = representedStatusIDs(timeline.statuses)
+    streamedNewer = true
+    timeline.newer = hintsAtStart
+      ? timeline.newer.filter(row => !hintsAtStart.has(row.id) && !shown.has(row.id))
+      : timeline.newer.filter(row => !shown.has(row.id))
+    streamedNewer = false
+    prefetchedNewer[type].clear()
+    restoreLocalHeads(type)
+    loadedHead[type] = true
+    timeline.error = null
+    failedRequest[type] = null
+  }
+
+  function applyPrefetchedHead(type: ManagedTimelineType, data: MastodonStatus[], preserveWindow = false) {
     // Drop in-flight reads so they cannot put the pill back over the page we just showed.
     ++requestVersionMap[type]
-    commitHead(type, data)
+    if (preserveWindow) commitPreservedHead(type, data)
+    else commitHead(type, data)
     getTimeline(type).isLoading = false
   }
 
@@ -521,6 +680,15 @@ export const useTimelineStore = defineStore('timeline', () => {
       localHeads[type] = localHeads[type].filter(row => row.id !== id && row.reblog?.id !== id)
       readGuards[type].remove(id)
       prefetchedNewer[type].clear()
+      if (timeline.gap) {
+        const afterIdx = timeline.statuses.findIndex(row => row.id === timeline.gap!.afterId)
+        const beforeIdx = timeline.statuses.findIndex(row => row.id === timeline.gap!.beforeId)
+        const keptUpper = afterIdx >= 0 ? timeline.statuses.slice(0, afterIdx + 1).filter(row => !displayed(row)) : []
+        const keptLower = beforeIdx >= 0 ? timeline.statuses.slice(beforeIdx).filter(row => !displayed(row)) : []
+        timeline.gap = keptUpper.length && keptLower.length
+          ? { ...timeline.gap, afterId: keptUpper.at(-1)!.id, beforeId: keptLower[0]!.id }
+          : null
+      }
       timeline.statuses = timeline.statuses.filter(row => !displayed(row))
       streamedNewer = true
       timeline.newer = timeline.newer.filter(row => row.id !== id)
@@ -540,43 +708,49 @@ export const useTimelineStore = defineStore('timeline', () => {
     streamedNewer = false
   }
 
-  function revealNewer(type: ManagedTimelineType, options?: { silent?: boolean }): Promise<boolean> | boolean {
+  function revealNewer(type: ManagedTimelineType, options?: { silent?: boolean; preserveWindow?: boolean }): Promise<boolean> | boolean {
     const timeline = getTimeline(type)
     if (!timeline.newer.length) return false
+    const preserve = !!options?.preserveWindow
     const epoch = sessionEpoch.value, scope = revealVersion
     const current = () => epoch === sessionEpoch.value && scope === revealVersion
     const pending = flight[type]
     if (pending) {
       return pending.catch(() => {}).then(() => current() ? revealNewer(type, options) : false)
     }
-    if (pinned[type].size) {
+    if (!preserve && pinned[type].size) {
       if (!options?.silent) timeline.error = t('timeline.timelineStore.s1')
       return false
     }
     const token = newerPrefetchKey(timeline.newer)
     const cached = prefetchedNewer[type].ready(token)
     if (cached) {
-      applyPrefetchedHead(type, cached)
+      applyPrefetchedHead(type, cached, preserve)
       return true
     }
     return revealPrefetchOrFetch(type, current, options)
   }
 
-  async function revealPrefetchOrFetch(type: ManagedTimelineType, current: () => boolean, options?: { silent?: boolean }): Promise<boolean> {
+  async function revealPrefetchOrFetch(
+    type: ManagedTimelineType,
+    current: () => boolean,
+    options?: { silent?: boolean; preserveWindow?: boolean },
+  ): Promise<boolean> {
+    const preserve = !!options?.preserveWindow
     const prefetch = prefetchedNewer[type]
     const rows = await prefetch.consume()
     if (!current()) return false
     const timeline = getTimeline(type)
     const token = newerPrefetchKey(timeline.newer)
     if (!timeline.newer.length) return false
-    if (rows && token && prefetch.ready(token) === rows && !pinned[type].size) {
-      applyPrefetchedHead(type, rows)
+    if (rows && token && prefetch.ready(token) === rows && (preserve || !pinned[type].size)) {
+      applyPrefetchedHead(type, rows, preserve)
       return true
     }
     // Another read may have started while waiting for the prefetch. Queue the
     // reveal behind it rather than treating that unrelated read as a success.
     if (flight[type]) return revealNewer(type, options)
-    return startFlight(type, () => fetchTimelineNow(type, current)) as Promise<boolean>
+    return startFlight(type, () => fetchTimelineNow(type, current, preserve)) as Promise<boolean>
   }
 
   function updateStatus(statusId: string, updates: Partial<MastodonStatus>) {
@@ -607,8 +781,10 @@ export const useTimelineStore = defineStore('timeline', () => {
     publicTimeline: computed(() => publicTimeline.value),
     fetchHomeTimeline, 
     fetchPublicTimeline,
+    refreshTimelineHeadPreserving,
     loadMoreHome, 
     loadMorePublic,
+    loadGap,
     retryTimeline,
     checkNewer,
     applyStreamed,

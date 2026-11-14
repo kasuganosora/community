@@ -395,3 +395,85 @@ describe('remote mirrors of local statuses', () => {
     expect(store.homeStatuses.map(status => status.id)).toEqual(['15'])
   })
 })
+
+describe('Tweetbot reading position preservation and gap bridging', () => {
+  beforeEach(() => { setActivePinia(createPinia()); vi.resetAllMocks() })
+
+  it('preserves older loaded pages when revealing streamed posts with preserveWindow', async () => {
+    const page1 = Array.from({ length: 20 }, (_, i) => ({ id: String(100 - i) })) as MastodonStatus[]
+    const page2 = Array.from({ length: 20 }, (_, i) => ({ id: String(80 - i) })) as MastodonStatus[]
+    const freshHead = [{ id: '102' }, { id: '101' }, ...page1.slice(0, 18)] as MastodonStatus[]
+    vi.mocked(timelineApi.getHomeTimeline)
+      .mockResolvedValueOnce(page1)
+      .mockResolvedValueOnce(page2)
+      .mockResolvedValueOnce(freshHead)
+
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+    await store.loadMoreHome()
+    expect(store.homeStatuses).toHaveLength(40)
+
+    store.applyStreamed('home', { event: 'update', id: '102' })
+    expect(await store.revealNewer('home', { silent: true, preserveWindow: true })).toBe(true)
+
+    expect(store.pendingReveal).toBeNull()
+    expect(store.homeStatuses).toHaveLength(42)
+    expect(store.homeStatuses.slice(0, 3).map(s => s.id)).toEqual(['102', '101', '100'])
+    expect(store.homeStatuses.at(-1)?.id).toBe('61')
+    expect(store.homeTimeline.gap).toBeNull()
+  })
+
+  it('records a gap when 20 non-overlapping posts arrive and bridges it incrementally via loadGap', async () => {
+    const initial = Array.from({ length: 20 }, (_, i) => ({ id: String(100 - i) })) as MastodonStatus[]
+    const burstHead = Array.from({ length: 20 }, (_, i) => ({ id: String(150 - i) })) as MastodonStatus[]
+    const bridgePart1 = Array.from({ length: 20 }, (_, i) => ({ id: String(130 - i) })) as MastodonStatus[]
+    const bridgePart2 = Array.from({ length: 12 }, (_, i) => ({ id: String(110 - i) })) as MastodonStatus[]
+
+    vi.mocked(timelineApi.getHomeTimeline)
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValueOnce(burstHead)
+      .mockResolvedValueOnce(bridgePart1)
+      .mockResolvedValueOnce(bridgePart2)
+
+    const store = useTimelineStore()
+    await store.fetchHomeTimeline()
+
+    store.applyStreamed('home', { event: 'update', id: '150' })
+    expect(await store.revealNewer('home', { silent: true, preserveWindow: true })).toBe(true)
+
+    expect(store.homeTimeline.gap).toEqual({
+      afterId: '131',
+      beforeId: '100',
+      isLoading: false,
+    })
+    expect(store.homeStatuses.map(s => s.id)).toEqual([
+      ...burstHead.map(s => s.id),
+      ...initial.map(s => s.id),
+    ])
+
+    // First gap tap bridges 130..111 (still missing 110..101 before 100).
+    await store.loadGap('home')
+    expect(timelineApi.getHomeTimeline).toHaveBeenNthCalledWith(3, { max_id: '131', limit: 20 })
+    expect(store.homeTimeline.gap).toEqual({
+      afterId: '111',
+      beforeId: '100',
+      isLoading: false,
+    })
+
+    // Second gap tap overlaps 100 and closes the gap completely.
+    await store.loadGap('home')
+    expect(timelineApi.getHomeTimeline).toHaveBeenNthCalledWith(4, { max_id: '111', limit: 20 })
+    expect(store.homeTimeline.gap).toBeNull()
+    expect(store.homeStatuses).toHaveLength(70)
+    expect(store.homeStatuses[0]?.id).toBe('150')
+    expect(store.homeStatuses.at(-1)?.id).toBe('81')
+  })
+
+  it('prepends quick replies without setting pendingReveal when reveal: false', () => {
+    const store = useTimelineStore()
+    store.prependStatus({ id: 'reply-1', visibility: 'public' } as MastodonStatus, { reveal: false })
+    expect(store.homeStatuses.map(s => s.id)).toEqual(['reply-1'])
+    expect(store.pendingReveal).toBeNull()
+  })
+})
+

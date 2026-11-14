@@ -12,6 +12,7 @@ import { useRelationships } from '../composables/useRelationships'
 import { useAuthStore } from '@/domains/auth/presentation/stores/authStore'
 import { useStatusActions, applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import { usePaginatedList } from '@/shared/composables/usePaginatedList'
+import { useTimelineScrollReturn } from '@/shared/composables/useScrollReturn'
 import type { CursorPage } from '@/shared/utils/pagination'
 import { TIMELINE_PAGE_SIZE } from '@/shared/utils/constants'
 import TimelineFeed from '@/domains/timeline/presentation/components/TimelineFeed.vue'
@@ -107,7 +108,9 @@ async function fetchStatuses(maxId: string | undefined, limit: number): Promise<
 }
 
 const feed = usePaginatedList(fetchStatuses, TIMELINE_PAGE_SIZE)
-const { items: statuses } = feed
+const { items: statuses, gap } = feed
+const pullRefresh = () => feed.refresh({ preserveWindow: true })
+const { onHeaderTap } = useTimelineScrollReturn(() => `profile:${String(route.params.username ?? '')}:${activeTab.value}`)
 
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
@@ -256,7 +259,7 @@ watch(activeTab, () => {
 <template>
   <div class="profile-page" v-if="account">
     <!-- Header -->
-    <div class="page-header page-header--with-back">
+    <div class="page-header page-header--with-back" @click="onHeaderTap">
       <button
         class="page-header__back-btn"
         type="button"
@@ -396,8 +399,13 @@ watch(activeTab, () => {
       @retry="feed.refresh()"
     />
     <TimelineFeed
+      ref="timelineView"
       v-else
       :statuses="statuses"
+      :gap-after-id="gap?.afterId"
+      :gap-loading="!!gap?.isLoading"
+      :pull-refresh="pullRefresh"
+      @load-gap="feed.loadGap"
       :loading="feed.loading.value"
       :has-more="feed.hasMore.value"
       :error="feed.error.value"

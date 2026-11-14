@@ -202,7 +202,8 @@
       "s24": "{0} « Pas intéressé » et « ne plus recommander l’auteur » n’affectent que la découverte et ne bloquent pas le compte. Vous pouvez les consulter et les annuler dans les paramètres.",
       "s25": "Compris",
       "localOnly": "Local uniquement",
-      "localOnlyHint": "Cette publication n’a pas été envoyée à d’autres serveurs."
+      "localOnlyHint": "Cette publication n’a pas été envoyée à d’autres serveurs.",
+      "openDetail": "Voir la conversation"
     },
     "PostComposer": {
       "uploadComplete": "Envoyé",
@@ -362,7 +363,9 @@
     },
     "ComposeSheet": {
       "s1": "Nouveaux posts",
-      "s2": "Publié"
+      "s2": "Publié",
+      "replyTitle": "Répondre",
+      "replyPosted": "Réponse publiée"
     },
     "AdvertisementCard": {
       "s1": "Publicité"
@@ -3403,7 +3406,10 @@
       "s7": "Échec du chargement",
       "s8": "Rien ici pour le moment",
       "s9": "Suivez d’autres personnes et leurs posts apparaîtront ici.",
-      "s10": "Charger plus"
+      "s10": "Charger plus",
+      "loadGap": "Charger les publications manquantes",
+      "loadingGap": "Chargement…",
+      "refreshing": "Actualisation"
     },
     "ExplorePage": {
       "s1": "Explorer",

@@ -202,7 +202,8 @@
       "s24": "{0} “Not interested” and “stop recommending this author” only affect discovery; they don’t block the account. You can review and undo them in Settings.",
       "s25": "Got it",
       "localOnly": "Local only",
-      "localOnlyHint": "This post has not been sent to other servers."
+      "localOnlyHint": "This post has not been sent to other servers.",
+      "openDetail": "View conversation"
     },
     "PostComposer": {
       "uploadComplete": "Uploaded",
@@ -362,7 +363,9 @@
     },
     "ComposeSheet": {
       "s1": "New posts",
-      "s2": "Posted"
+      "s2": "Posted",
+      "replyTitle": "Reply",
+      "replyPosted": "Reply posted"
     },
     "AdvertisementCard": {
       "s1": "Ad"
@@ -3403,7 +3406,10 @@
       "s7": "Failed to load",
       "s8": "Nothing here yet",
       "s9": "Follow other people and their posts will show up here.",
-      "s10": "Load more"
+      "s10": "Load more",
+      "loadGap": "Load missing posts",
+      "loadingGap": "Loading…",
+      "refreshing": "Refreshing"
     },
     "ExplorePage": {
       "s1": "Explore",

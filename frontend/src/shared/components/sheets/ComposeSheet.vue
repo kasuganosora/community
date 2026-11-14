@@ -3,12 +3,14 @@ import { ref, watch } from 'vue'
 import { MessagePlugin } from '@/shared/ui/feedback'
 import BottomSheet from './BottomSheet.vue'
 import PostComposer from '@/shared/components/post/PostComposer.vue'
+import ReplyContext from '@/shared/components/post/ReplyContext.vue'
 import type { MastodonStatus } from '@/shared/types/mastodon'
 import { useTimelineStore } from '@/domains/timeline/presentation/stores/timelineStore'
+import { incrementReplyCount } from '@/domains/post/presentation/composables/useStatusActions'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
 
 import { t } from '@/shared/i18n'
-const { composeOpen, quoteTarget } = useUiChrome()
+const { composeOpen, quoteTarget, replyTarget } = useUiChrome()
 const timelineStore = useTimelineStore()
 
 // Mount a fresh composer each time the sheet opens, but keep it rendered
@@ -17,20 +19,50 @@ const timelineStore = useTimelineStore()
 const composerMounted = ref(composeOpen.value)
 watch(composeOpen, (open) => { if (open) composerMounted.value = true })
 
+function handleSheetClosed() {
+  composerMounted.value = false
+  if (!composeOpen.value) {
+    quoteTarget.value = null
+    replyTarget.value = null
+  }
+}
+
 // The composer posts by itself (text, CW, poll, media, visibility) and
 // emits the created status.
 function handlePosted(status: MastodonStatus) {
-  timelineStore.prependStatus(status)
+  const wasReply = replyTarget.value
+  if (wasReply) {
+    incrementReplyCount(wasReply)
+    timelineStore.prependStatus(status, { reveal: false })
+  } else {
+    timelineStore.prependStatus(status)
+  }
   composeOpen.value = false
   quoteTarget.value = null
-  MessagePlugin.success(t('shared.ComposeSheet.s2'))
+  replyTarget.value = null
+  MessagePlugin.success(t(wasReply ? 'shared.ComposeSheet.replyPosted' : 'shared.ComposeSheet.s2'))
 }
 </script>
 
 <template>
-  <BottomSheet v-model="composeOpen" :title="$t('shared.ComposeSheet.s1')" size="large" @closed="composerMounted = false">
+  <BottomSheet
+    v-model="composeOpen"
+    :title="replyTarget ? $t('shared.ComposeSheet.replyTitle') : $t('shared.ComposeSheet.s1')"
+    size="large"
+    @closed="handleSheetClosed"
+  >
     <div class="compose-sheet">
-      <PostComposer v-if="composerMounted" :quote-to="quoteTarget" autofocus @posted="handlePosted" />
+      <div v-if="composerMounted && replyTarget" class="compose-sheet__reply-context">
+        <ReplyContext :status="replyTarget" />
+      </div>
+      <PostComposer
+        v-if="composerMounted"
+        :key="replyTarget ? `reply:${replyTarget.id}` : quoteTarget ? `quote:${quoteTarget.id}` : 'compose'"
+        :reply-to="replyTarget"
+        :quote-to="quoteTarget"
+        autofocus
+        @posted="handlePosted"
+      />
     </div>
   </BottomSheet>
 </template>
@@ -38,6 +70,10 @@ function handlePosted(status: MastodonStatus) {
 <style scoped>
 .compose-sheet {
   margin: 0 calc(-1 * var(--space-4));
+}
+
+.compose-sheet__reply-context {
+  padding: var(--space-2) var(--gutter) 0;
 }
 
 .compose-sheet :deep(.composer) {

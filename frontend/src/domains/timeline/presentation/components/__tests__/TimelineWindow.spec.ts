@@ -205,3 +205,88 @@ it('explicitly reveals the new head without restoring an old reading anchor or s
   expect(wrapper.find('[data-card="19"]').exists()).toBe(true)
   expect(document.activeElement).toBe(wrapper.get('[role="feed"]').element)
 })
+
+describe('Tweetbot live top stream, reading lock, and gap bridging', () => {
+  it('streams new posts live at scrollY = 0 even when a header/composer sits above the feed', async () => {
+    const headerOffset = 180
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('timeline-window')) {
+        return { top: headerOffset - scroll, bottom: headerOffset + 1 - scroll, height: 240, width: 600 } as DOMRect
+      }
+      return { top: -scroll, bottom: 1 - scroll, height: 240, width: 600 } as DOMRect
+    })
+
+    const initial = statuses(40, 10)
+    const wrapper = mount(TimelineFeed, {
+      props: { statuses: initial, scopeKey: 'live-top-test', hasMore: false },
+      attachTo: document.body,
+      global: { stubs: { PostCard: Card, 't-loading': true, 't-icon': true } },
+    })
+    wrappers.push(wrapper)
+    await flush()
+    expect(scroll).toBe(0)
+
+    // Prepending 2 new posts while parked at scrollY = 0 keeps scrollY = 0 so the header/composer
+    // and the newly arrived top card stay right in view.
+    await wrapper.setProps({ statuses: [...statuses(2, 8), ...initial] })
+    await flush()
+    expect(scroll).toBe(0)
+    expect(wrapper.find('[data-card="8"]').exists()).toBe(true)
+  })
+
+  it('locks the reading card pixel-for-pixel when scrolled down and new posts prepend above', async () => {
+    const initial = statuses(60, 10)
+    const wrapper = mount(TimelineFeed, {
+      props: { statuses: initial, scopeKey: 'reading-lock-test', hasMore: false },
+      attachTo: document.body,
+      global: { stubs: { PostCard: Card, 't-loading': true, 't-icon': true } },
+    })
+    wrappers.push(wrapper)
+    await flush()
+
+    // Scroll down to card index 10 (id "20") + 36px offset.
+    await scrollTo(10 * 240 + 36)
+    expect(wrapper.find('[data-card="20"]').exists()).toBe(true)
+
+    // Prepend 3 newer posts above the viewport; scroll compensates by +3 * 240 = +720px.
+    await wrapper.setProps({ statuses: [...statuses(3, 7), ...initial] })
+    await flush()
+    expect(scroll).toBe(13 * 240 + 36)
+    expect(wrapper.find('[data-card="20"]').exists()).toBe(true)
+  })
+
+  it('renders the inline gap button and anchors the post below the gap when missing posts bridge upward', async () => {
+    const headSegment = statuses(20, 100) // ids 100..119
+    const tailSegment = statuses(20, 200) // ids 200..219
+    const wrapper = mount(TimelineFeed, {
+      props: {
+        statuses: [...headSegment, ...tailSegment],
+        scopeKey: 'gap-bridge-test',
+        gapAfterId: '119',
+        hasMore: false,
+      },
+      attachTo: document.body,
+      global: { stubs: { PostCard: Card, 't-loading': true, 't-icon': true } },
+    })
+    wrappers.push(wrapper)
+    await flush()
+
+    // Scroll right onto the gap boundary (row 19 = id "119", row 20 = id "200").
+    await scrollTo(20 * 240 + 20)
+    const gapBtn = wrapper.get('[data-testid="timeline-gap-btn"]')
+    await gapBtn.trigger('click')
+    expect(wrapper.emitted('loadGap')).toHaveLength(1)
+
+    // Insert 5 bridged posts (ids 150..154) between 119 and 200; row "200" stays anchored!
+    const bridged = statuses(5, 150)
+    await wrapper.setProps({
+      statuses: [...headSegment, ...bridged, ...tailSegment],
+      gapAfterId: null,
+    })
+    await flush()
+    expect(scroll).toBe(25 * 240 + 20)
+    expect(wrapper.find('[data-testid="timeline-gap-btn"]').exists()).toBe(false)
+    expect(wrapper.find('[data-card="200"]').exists()).toBe(true)
+  })
+})
+

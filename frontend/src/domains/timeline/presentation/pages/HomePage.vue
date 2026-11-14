@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { useTimelineReveal } from '@/shared/composables/useTimelineReveal'
+import { useAutoTimelineReveal } from '@/shared/composables/useTouchTracking'
+import { useTimelineScrollReturn } from '@/shared/composables/useScrollReturn'
 import { computed, onMounted, onBeforeUnmount, watch, ref, nextTick } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
@@ -97,18 +99,24 @@ function onTabChange(value: TabType) {
   activeTab.value = value
   void openTimeline()
 }
-const { scrollToHead } = useTimelineReveal(
+const { scrollToHead, timelineView } = useTimelineReveal(
   () => timelineStore.revealNewer(chronologicalType.value), () => activeTab.value, () => error.value,
 )
-watch(
+const { onHeaderTap } = useTimelineScrollReturn(() => `home:${activeTab.value}`, timelineView)
+useAutoTimelineReveal(
   () => (!isDiscovery.value && !chronologicalTimeline.value.isLoading
     ? chronologicalTimeline.value.newer.map(row => row.id).join(',')
     : ''),
-  (key) => {
-    if (key) void Promise.resolve(timelineStore.revealNewer(chronologicalType.value, { silent: true })).catch(() => {})
-  },
-  { flush: 'post' },
+  () => timelineStore.revealNewer(chronologicalType.value, { silent: true, preserveWindow: true }),
 )
+async function pullRefresh() {
+  if (isDiscovery.value) {
+    discovery.clear()
+    await openTimeline()
+    return
+  }
+  await timelineStore.refreshTimelineHeadPreserving(chronologicalType.value)
+}
 async function reloadHead() {
   if (isDiscovery.value) { discovery.clear(); await openTimeline() }
   else await fetchChronological()
@@ -162,7 +170,7 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
 
 <template>
   <div class="home-page">
-    <div ref="timelineHeader" class="home-header">
+    <div ref="timelineHeader" class="home-header" @click="onHeaderTap">
       <div class="home-title-row">
         <h1 class="page-header__title">{{ $t('timeline.HomePage.s1') }}</h1>
       </div>
@@ -177,12 +185,16 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
       ref="timelineView"
       :statuses="statuses" :scope-key="isDiscovery ? `discovery:${sessionEpoch}:${discovery.generation.value}` : chronologicalType"
       :has-previous="!isDiscovery && chronologicalTimeline.hasPrevious"
+      :gap-after-id="!isDiscovery ? chronologicalTimeline.gap?.afterId : null"
+      :gap-loading="!isDiscovery && !!chronologicalTimeline.gap?.isLoading"
+      :pull-refresh="pullRefresh"
       :loading="loading" :has-more="hasMore" :error="error"
       :auto-load="!isDiscovery || !discovery.autoPaused.value"
       :recommendation="isDiscovery" :recommendation-reasons="isDiscovery ? discovery.reasons.value : undefined"
       :empty-text="isDiscovery ? $t('timeline.HomePage.s5') : activeTab === 'global' ? $t('timeline.HomePage.s6') : undefined"
       @pinned-ids="ids => { if (!isDiscovery) timelineStore.setPinnedIds(chronologicalType, ids) }"
       @reload-head="reloadHead" @load-previous="timelineStore.loadPrevious(chronologicalType)"
+      @load-gap="!isDiscovery && timelineStore.loadGap(chronologicalType)"
       @load-more="loadMore" @retry="retry" @recommendation-feedback="feedback"
       @reblog="toggleReblog" @favourite="toggleFavourite" @bookmark="toggleBookmark"
     />

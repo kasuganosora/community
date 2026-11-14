@@ -138,6 +138,15 @@ function broadcast(own: StatusUpdater, id: string, updates: Partial<MastodonStat
   if (cached) Object.assign(cached, updates)
 }
 
+export function incrementReplyCount(status: MastodonStatus): void {
+  const target = status.reblog?.id ? status.reblog : status
+  const updates: Partial<MastodonStatus> = { replies_count: (target.replies_count ?? 0) + 1 }
+  Object.assign(target, updates)
+  for (const u of updaters) u(target.id, updates)
+  const cached = editedStatuses.get(target.id)
+  if (cached) Object.assign(cached, updates)
+}
+
 function toastError(e: unknown, key: string) {
   console.error('Status action failed:', e)
   try { MessagePlugin.error(t(key)) } catch { /* toast is best effort */ }

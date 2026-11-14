@@ -9,6 +9,7 @@ import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import { t } from '@/shared/i18n'
 import { useNotificationUnread } from '@/shared/composables/useNotificationUnread'
 import { useNavUnread } from '@/shared/composables/useNavUnread'
+import { triggerScrollTopOrReturn } from '@/shared/composables/useScrollReturn'
 const { unread: unreadNotifications, label: unreadLabel } = useNotificationUnread()
 const { announcements: unreadAnnouncements, conversations: unreadConversations } = useNavUnread()
 /** Announcements and messages show a plain dot; notifications keep their count badge. */
@@ -39,8 +40,8 @@ const active = computed(() => {
 
 function go(to: string) {
   if (route.path === to) {
-    // Re-tapping the current tab scrolls to top, like a native tab bar.
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    // Re-tapping the current tab scrolls to top, or returns to last read if already at top.
+    triggerScrollTopOrReturn()
     return
   }
   router.push(to).catch(() => {})
