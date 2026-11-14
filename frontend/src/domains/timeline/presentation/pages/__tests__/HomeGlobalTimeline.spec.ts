@@ -201,12 +201,12 @@ it('keeps following posts when a tab return re-reads a publication-ordered home 
 
   await select('global')
   await select('following')
+  await flushPromises()
   const shown = feed().props('statuses').map((post: MastodonStatus) => post.id)
-  expect(shown).toEqual(['240737', '240700'])
+  expect(shown).toEqual(['240800', '240737', '240700'])
   expect(feed().props('loading')).toBe(false)
   expect(feed().props('error')).toBeNull()
-  expect(wrapper.get('[data-testid="new-posts-pill"]').text()).toContain('查看新帖')
-  expect(shown).not.toContain('240800')
+  expect(wrapper.find('[data-testid="new-posts-pill"]').exists()).toBe(false)
 })
 
 it('shows a composed status at the top of the open timeline', async () => {

@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import NewPostsPill from '@/shared/components/common/NewPostsPill.vue'
-import { useTimelineReveal } from '@/shared/composables/useTimelineReveal'
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { timelineApi } from '../../infrastructure/timelineApi'
@@ -59,8 +57,14 @@ useFeedStream(streamTarget, async (reason) => reason === 'poll' ? feed.catchUpHe
   onStatus: (status) => feed.applyStreamed(status),
 })
 async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
-const { reveal: revealNewerPosts } = useTimelineReveal(
-  feed.revealNewer, () => activeTab.value, () => error.value,
+watch(
+  () => (activeTab.value !== 'groups' && !visitorBlocked.value && !loading.value
+    ? newer.value.map(row => row.id).join(',')
+    : ''),
+  (key) => {
+    if (key) void Promise.resolve(feed.revealNewer({ silent: true })).catch(() => {})
+  },
+  { flush: 'post' },
 )
 
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
@@ -125,7 +129,6 @@ function retryFeed() {
   <div class="explore-page">
     <div ref="timelineHeader" class="page-header">
       <h1 class="page-header__title">{{ $t('timeline.ExplorePage.s1') }}</h1>
-      <NewPostsPill :key="`${sessionEpoch}:${activeTab}`" :show="activeTab !== 'groups' && !visitorBlocked && newer.length > 0" :reveal="revealNewerPosts" />
     </div>
     <!-- The right rail (with its search field) is hidden on narrow screens,
          so Explore carries its own search entry there. -->

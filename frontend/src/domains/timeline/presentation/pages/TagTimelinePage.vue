@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import NewPostsPill from '@/shared/components/common/NewPostsPill.vue'
-import { useTimelineReveal } from '@/shared/composables/useTimelineReveal'
 import { computed, ref, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
@@ -68,8 +66,12 @@ useFeedStream(streamTarget, async (reason) => reason === 'poll' ? feed.catchUpHe
   onStatus: (status) => feed.applyStreamed(status),
 })
 async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
-const { reveal: revealNewerPosts } = useTimelineReveal(
-  feed.revealNewer, () => streamTarget.value, () => error.value,
+watch(
+  () => (!loading.value ? newer.value.map(row => row.id).join(',') : ''),
+  (key) => {
+    if (key) void Promise.resolve(feed.revealNewer({ silent: true })).catch(() => {})
+  },
+  { flush: 'post' },
 )
 
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
@@ -88,7 +90,6 @@ onMounted(() => { feed.refresh(); void loadFollow() })
         <t-icon name="chevron-left" :size="20" />
       </button>
       <h1 class="page-header__title">#{{ displayTag }}</h1>
-      <NewPostsPill :key="`${sessionEpoch}:${streamTarget}`" :show="newer.length > 0" :reveal="revealNewerPosts" />
       <button v-if="authStore.currentUser" type="button" class="btn btn--secondary btn--sm tag-follow" :disabled="followBusy" @click="toggleFollow">
         {{ following ? $t('timeline.TagTimelinePage.s2') : $t('timeline.TagTimelinePage.s3') }}
       </button>

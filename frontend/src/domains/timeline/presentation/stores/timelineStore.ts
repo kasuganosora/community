@@ -540,26 +540,29 @@ export const useTimelineStore = defineStore('timeline', () => {
     streamedNewer = false
   }
 
-  function revealNewer(type: ManagedTimelineType): Promise<boolean> | boolean {
+  function revealNewer(type: ManagedTimelineType, options?: { silent?: boolean }): Promise<boolean> | boolean {
     const timeline = getTimeline(type)
     if (!timeline.newer.length) return false
     const epoch = sessionEpoch.value, scope = revealVersion
     const current = () => epoch === sessionEpoch.value && scope === revealVersion
     const pending = flight[type]
     if (pending) {
-      return pending.catch(() => {}).then(() => current() ? revealNewer(type) : false)
+      return pending.catch(() => {}).then(() => current() ? revealNewer(type, options) : false)
     }
-    if (pinned[type].size) { timeline.error = t('timeline.timelineStore.s1'); return false }
+    if (pinned[type].size) {
+      if (!options?.silent) timeline.error = t('timeline.timelineStore.s1')
+      return false
+    }
     const token = newerPrefetchKey(timeline.newer)
     const cached = prefetchedNewer[type].ready(token)
     if (cached) {
       applyPrefetchedHead(type, cached)
       return true
     }
-    return revealPrefetchOrFetch(type, current)
+    return revealPrefetchOrFetch(type, current, options)
   }
 
-  async function revealPrefetchOrFetch(type: ManagedTimelineType, current: () => boolean): Promise<boolean> {
+  async function revealPrefetchOrFetch(type: ManagedTimelineType, current: () => boolean, options?: { silent?: boolean }): Promise<boolean> {
     const prefetch = prefetchedNewer[type]
     const rows = await prefetch.consume()
     if (!current()) return false
@@ -572,7 +575,7 @@ export const useTimelineStore = defineStore('timeline', () => {
     }
     // Another read may have started while waiting for the prefetch. Queue the
     // reveal behind it rather than treating that unrelated read as a success.
-    if (flight[type]) return revealNewer(type)
+    if (flight[type]) return revealNewer(type, options)
     return startFlight(type, () => fetchTimelineNow(type, current)) as Promise<boolean>
   }
 
