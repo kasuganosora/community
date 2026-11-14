@@ -72,10 +72,10 @@ describe('list timeline scope isolation', () => {
     expect(w.findAll('button').find(b=>b.text()==='保存')!.attributes('disabled')).toBeDefined()
     current.resolve(fixture('b'));await flushPromises();w.unmount()
   })
-  it('keeps the current feed mounted when a new-content hint appears', async () => {
+  it('pushes new posts directly into the feed when a new-content hint appears', async () => {
     const w=mount(ListTimelinePage,{global});await flushPromises()
     vi.mocked(listApi.getTimeline).mockResolvedValueOnce([{id:'20'},{id:'10'}] as MastodonStatus[]).mockResolvedValueOnce([{id:'10'}] as MastodonStatus[])
     await refresh();await flushPromises()
-    expect(w.text()).toContain('查看新帖');expect(w.find('[data-testid="new-posts-pill"]').exists()).toBe(true);expect(w.get('[data-feed]').text()).toBe('10');w.unmount()
+    expect(w.find('[data-testid="new-posts-pill"]').exists()).toBe(false);expect(w.get('[data-feed]').text()).toBe('20,10');w.unmount()
   })
 })

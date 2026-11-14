@@ -20,7 +20,7 @@ export interface PaginatedList<T> {
   catchUpHead: () => Promise<boolean>
   /** Apply a streamed status id without fetching the timeline. */
   applyStreamed: (status: StreamedStatusRef & { event: 'update' | 'delete' | 'status.update' }) => void
-  revealNewer: () => Promise<boolean> | boolean
+  revealNewer: (options?: { silent?: boolean }) => Promise<boolean> | boolean
   setPinnedIds: (ids: string[]) => void
   loading: Ref<boolean>
   error: Ref<string | null>
@@ -312,22 +312,25 @@ export function usePaginatedList<T extends { id: string }>(
     newer.value = [...newer.value.slice(-(pageSize - 1)), { id }].slice(-pageSize)
     streamedNewer = false
   }
-  function revealNewer(): Promise<boolean> | boolean {
+  function revealNewer(options?: { silent?: boolean }): Promise<boolean> | boolean {
     if (!newer.value.length) return false
     if (flight) {
       const scope = scopeVersion
-      return flight.catch(() => {}).then(() => scope === scopeVersion ? revealNewer() : false)
+      return flight.catch(() => {}).then(() => scope === scopeVersion ? revealNewer(options) : false)
     }
-    if (pinned.size) { error.value = t('shared.usePaginatedList.s1'); return false }
+    if (pinned.size) {
+      if (!options?.silent) error.value = t('shared.usePaginatedList.s1')
+      return false
+    }
     const cached = prefetch?.ready(prefetchToken())
     if (cached) {
       commitFreshPage(cached)
       return true
     }
-    return revealPrefetchOrFetch()
+    return revealPrefetchOrFetch(options)
   }
 
-  async function revealPrefetchOrFetch(): Promise<boolean> {
+  async function revealPrefetchOrFetch(options?: { silent?: boolean }): Promise<boolean> {
     const scope = scopeVersion
     const rows = await prefetch?.consume()
     if (scope !== scopeVersion || !newer.value.length) return false
@@ -336,7 +339,7 @@ export function usePaginatedList<T extends { id: string }>(
       commitFreshPage(rows)
       return true
     }
-    if (flight) return revealNewer()
+    if (flight) return revealNewer(options)
     return startFlight(() => run(false))
   }
 

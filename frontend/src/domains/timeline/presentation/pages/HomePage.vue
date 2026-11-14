@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import NewPostsPill from '@/shared/components/common/NewPostsPill.vue'
 import { useTimelineReveal } from '@/shared/composables/useTimelineReveal'
 import { computed, onMounted, onBeforeUnmount, watch, ref, nextTick } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
@@ -98,8 +97,17 @@ function onTabChange(value: TabType) {
   activeTab.value = value
   void openTimeline()
 }
-const { reveal: revealNewerPosts, scrollToHead } = useTimelineReveal(
+const { scrollToHead } = useTimelineReveal(
   () => timelineStore.revealNewer(chronologicalType.value), () => activeTab.value, () => error.value,
+)
+watch(
+  () => (!isDiscovery.value && !chronologicalTimeline.value.isLoading
+    ? chronologicalTimeline.value.newer.map(row => row.id).join(',')
+    : ''),
+  (key) => {
+    if (key) void Promise.resolve(timelineStore.revealNewer(chronologicalType.value, { silent: true })).catch(() => {})
+  },
+  { flush: 'post' },
 )
 async function reloadHead() {
   if (isDiscovery.value) { discovery.clear(); await openTimeline() }
@@ -165,7 +173,6 @@ onBeforeUnmount(() => { ++opening; timelineStore.cancelRevalidation(); document.
       {{ $t('timeline.HomePage.s3') }}
       <button type="button" @click="onTabChange('global')">{{ $t('timeline.HomePage.s4') }}</button>
     </div>
-    <NewPostsPill :key="`${sessionEpoch}:${activeTab}`" layout="row" :show="!isDiscovery && chronologicalTimeline.newer.length > 0" :reveal="revealNewerPosts" />
     <TimelineFeed
       ref="timelineView"
       :statuses="statuses" :scope-key="isDiscovery ? `discovery:${sessionEpoch}:${discovery.generation.value}` : chronologicalType"

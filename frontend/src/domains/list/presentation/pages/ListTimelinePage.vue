@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import NewPostsPill from '@/shared/components/common/NewPostsPill.vue'
-import { useTimelineReveal } from '@/shared/composables/useTimelineReveal'
 import { ref, computed, watch, onMounted, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { MessagePlugin } from '@/shared/ui/feedback'
@@ -37,8 +35,12 @@ useFeedStream(streamTarget, async (reason) => reason === 'poll' ? feed.catchUpHe
   onStatus: (status) => feed.applyStreamed(status),
 })
 async function reloadHead() { await feed.refresh(); if (!error.value) window.scrollTo(0, 0) }
-const { reveal: revealNewerPosts } = useTimelineReveal(
-  feed.revealNewer, () => streamTarget.value, () => error.value,
+watch(
+  () => (!loading.value ? newer.value.map(row => row.id).join(',') : ''),
+  (key) => {
+    if (key) void Promise.resolve(feed.revealNewer({ silent: true })).catch(() => {})
+  },
+  { flush: 'post' },
 )
 const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions(
   (id, updates) => applyStatusUpdate(statuses.value, id, updates),
@@ -267,7 +269,6 @@ onMounted(load)
         <t-icon name="chevron-left" :size="20" />
       </button>
       <h1 class="page-header__title list-timeline-page__title">{{ list?.title ?? $t('list.ListTimelinePage.s2') }}</h1>
-      <NewPostsPill :key="`${sessionEpoch}:${streamTarget}`" :show="newer.length > 0" :reveal="revealNewerPosts" />
       <button v-if="list" type="button" class="btn btn--secondary btn--sm" @click="openManage">{{ $t('list.ListTimelinePage.s3') }}</button>
     </div>
 
