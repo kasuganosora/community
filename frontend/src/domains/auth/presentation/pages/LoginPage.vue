@@ -10,11 +10,13 @@ import { instanceApi } from '@/domains/instance/infrastructure/instanceApi'
 import { captchaApi } from '../../infrastructure/captchaApi'
 import CaptchaField from '../components/CaptchaField.vue'
 import BrandMark from '@/shared/components/common/BrandMark.vue'
+import { useBranding } from '@/shared/composables/useBranding'
 
 import { t } from '@/shared/i18n'
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const { instanceTitle } = useBranding()
 
 interface LoginForm {
   username: string
@@ -30,6 +32,12 @@ const justRegistered = route.query.registered === '1'
 const addingAccount = route.query.add === '1' && authStore.isAuthenticated
 const pendingApproval = route.query.pending === '1'
 const emailVerify = route.query.verify === '1'
+const apiSiteTitle = ref('')
+const siteTitle = computed(() => apiSiteTitle.value || instanceTitle.value)
+const loginHeading = computed(() => {
+  if (addingAccount) return t('auth.LoginPage.s1')
+  return siteTitle.value ? t('auth.LoginPage.titleWithSite', [siteTitle.value]) : t('auth.LoginPage.s2')
+})
 const registrationOpen = ref<boolean | null>(null)
 const registrationMessage = ref('')
 const captcha = reactive({ required: false, provider: '', siteKey: '' })
@@ -44,6 +52,7 @@ onMounted(async () => {
     captchaApi.getConfig(),
   ])
   if (instanceResult.status === 'fulfilled') {
+    apiSiteTitle.value = instanceResult.value.title?.trim() || ''
     registrationOpen.value = instanceResult.value.registrations?.enabled !== false
     registrationMessage.value = instanceResult.value.registrations?.message?.trim() || ''
   } else {
@@ -197,7 +206,7 @@ async function handleLogin() {
         <BrandMark :size="40" />
       </div>
 
-      <h1 class="login-title">{{ addingAccount ? $t('auth.LoginPage.s1') : $t('auth.LoginPage.s2') }}</h1>
+      <h1 class="login-title">{{ loginHeading }}</h1>
       <p v-if="addingAccount" class="login-add-note">{{ $t('auth.LoginPage.s3') }}<button type="button" class="login-add-cancel" @click="router.back()">{{ $t('auth.LoginPage.s4') }}</button></p>
 
       <t-alert v-if="justRegistered && !authStore.error" theme="success" :message="$t('auth.LoginPage.s5')" style="margin-bottom: var(--space-4)" />

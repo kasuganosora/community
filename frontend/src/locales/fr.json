@@ -1912,6 +1912,7 @@
     "LoginPage": {
       "s1": "Ajouter un compte",
       "s2": "Se connecter à la communauté",
+      "titleWithSite": "Se connecter à {0}",
       "s3": "Connectez-vous à un autre compte de ce serveur ; le compte actuel reste connecté.",
       "s4": "Annuler",
       "s5": "Inscription réussie, connectez-vous.",
