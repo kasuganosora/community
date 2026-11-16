@@ -75,6 +75,11 @@ func AuthMiddleware() gin.HandlerFunc {
 
 			return
 		}
+		if tokenData.AuthType != models.AuthTokenTypeWeb && tokenData.AuthType != models.AuthTokenTypeOauth {
+			returnUnauthorizedAndRemoveCookie(c)
+
+			return
+		}
 
 		// 判断token是否过期
 		if tokenDataExpired(tokenData, time.Now()) {
@@ -87,6 +92,11 @@ func AuthMiddleware() gin.HandlerFunc {
 		// 优先查 Redis 缓存，减少数据库压力；缓存未命中则查库并写入缓存
 		token, err := getTokenWithCacheContext(c.Request.Context(), authToken)
 		if err != nil {
+			returnUnauthorizedAndRemoveCookie(c)
+
+			return
+		}
+		if token.Token != "" && token.Type != models.AuthTokenTypeWeb && token.Type != models.AuthTokenTypeOauth {
 			returnUnauthorizedAndRemoveCookie(c)
 
 			return
@@ -156,6 +166,10 @@ func AuthMiddleware() gin.HandlerFunc {
 		// A suspended local account may still open or submit its own appeal.
 		if user.IsBan || user.Status != models.UserStatusNormal || account.IsBan {
 			if !suspendedAppealAllowed(c.Request, user, account) {
+				if user.Status == models.UserStatusNormal && (user.IsBan || account.IsBan) {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+					return
+				}
 				returnUnauthorizedAndRemoveCookie(c)
 				return
 			}
@@ -432,7 +446,7 @@ const tokenLastUsedInterval = time.Hour
 // tokenInactive applies the optional inactivity rule to API tokens: idle
 // time is measured from the later of created_at and last_used_at.
 func tokenInactive(token *models.AuthToken, now time.Time) bool {
-	if token.Type == models.AuthTokenTypeWeb || !systemsettings.APITokenInactivityExpiry() {
+	if token.Type == models.AuthTokenTypeWeb || token.Type == models.AuthTokenTypePersistent || !systemsettings.APITokenInactivityExpiry() {
 		return false
 	}
 	var since time.Time

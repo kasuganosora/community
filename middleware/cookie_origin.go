@@ -37,6 +37,12 @@ func requestIsSecure(c *gin.Context) bool {
 // site is riding the victim's cookie (CSRF / cross-site WebSocket
 // hijacking). Requests without Origin (same-origin GETs, navigations,
 // native clients) are allowed; bearer-token requests never reach this check.
+// CookieOriginAllowed reports whether a request that reads or mutates the
+// browser session cookie comes from a permitted same-site/configured Origin.
+func CookieOriginAllowed(r *http.Request) bool {
+	return cookieOriginAllowed(r)
+}
+
 func cookieOriginAllowed(r *http.Request) bool {
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {

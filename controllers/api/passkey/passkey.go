@@ -127,14 +127,18 @@ func LoginFinish(c *gin.Context) {
 		return
 	}
 
-	token, err := account.IssueWebSession(c, concrete.user)
+	token, persistentToken, err := account.IssueWebSessionPair(c, concrete.user, "")
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "login success", "token": token})
+	c.JSON(http.StatusOK, gin.H{
+		"message":          "login success",
+		"token":            token,
+		"persistent_token": persistentToken,
+	})
 }
 
 // RegisterBegin starts passkey registration for the signed-in user.

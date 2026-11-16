@@ -52,14 +52,20 @@ router.beforeEach(async (to) => {
   }
 
   // An already signed-in user opening an OAuth / MiAuth link must land on the
-  // server consent page, not be bounced to the home timeline.
+  // server consent page with a valid app-token cookie, not redirect-loop when
+  // the cookie expired while localStorage still holds a persistent credential.
   if (to.meta.guestOnly && token && !(to.name === 'login' && to.query.add === '1')) {
     const back = safeInternalPath(to.query.redirect)
     if (back && isServerAuthReturn(back)) {
-      window.location.assign(back)
-      return false
+      const auth = useAuthStore()
+      if (auth.currentUser || await auth.fetchCurrentUser()) {
+        window.location.assign(back)
+        return false
+      }
+      // Persistent credential was rejected — stay on /login so user can sign in.
+    } else {
+      return { name: 'home' }
     }
-    return { name: 'home' }
   }
 
   // Redirect unauthenticated users to landing page, preserving redirect target

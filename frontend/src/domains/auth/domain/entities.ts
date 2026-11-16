@@ -17,6 +17,7 @@ export interface RegisterCredentials {
 export interface LoginResponse {
   message: string
   token: string
+  persistent_token?: string
 }
 
 /** Password accepted, but the account needs a TOTP code, backup code, or security PIN. */

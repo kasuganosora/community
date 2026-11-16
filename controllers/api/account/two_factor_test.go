@@ -27,7 +27,12 @@ type tfEnv struct {
 
 func newTwoFactorEnv(t *testing.T) *tfEnv {
 	t.Helper()
-	conn, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true, Logger: logger.Discard})
+	return newTwoFactorEnvDSN(t, ":memory:")
+}
+
+func newTwoFactorEnvDSN(t *testing.T, dsn string) *tfEnv {
+	t.Helper()
+	conn, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true, Logger: logger.Discard})
 	require.NoError(t, err)
 	sql, _ := conn.DB()
 	sql.SetMaxOpenConns(1)

@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
-const api = vi.hoisted(() => ({ logout: vi.fn(async (_t?: string) => {}), verifyCredentials: vi.fn() }))
+const api = vi.hoisted(() => ({
+  login: vi.fn(),
+  logout: vi.fn(async (_t?: string, _active?: string | null) => {}),
+  verifyCredentials: vi.fn(),
+}))
 vi.mock('../../../infrastructure/authApi', () => ({ authApi: api }))
 vi.mock('@/shared/composables/useMediaMode', () => ({ useMediaMode: () => ({ loadMode: vi.fn() }) }))
 
@@ -121,5 +125,39 @@ describe('auth store multi-account', () => {
     expect(s.currentUser).toBeNull()
     expect(s.token).toBeNull()
     expect(localStorage.getItem('auth_token')).toBeNull()
+  })
+
+  it('stores only encrypted persistent_token in localStorage on login instead of raw session token', async () => {
+    localStorage.clear()
+    setActivePinia(createPinia())
+    const s = useAuthStore()
+    api.login.mockResolvedValueOnce({
+      message: 'login success',
+      token: 'raw-cookie-session-token',
+      persistent_token: 'pl1.encrypted-credential',
+    })
+    api.verifyCredentials.mockResolvedValueOnce(alice)
+
+    await s.login({ username: 'alice', password: 'pw' })
+    expect(localStorage.getItem('auth_token')).toBe('pl1.encrypted-credential')
+    expect(getAccount('1')?.token).toBe('pl1.encrypted-credential')
+  })
+
+  it('adopts same-account rotated persistent credential from another tab without reloading, and reloads on account switch', async () => {
+    const s = await signedInAsAlice()
+    loc.reload.mockClear()
+
+    // Simulate Tab 1 rotating Alice's persistent credential in localStorage
+    upsertAccount(alice, 'pl1.alice-rotated', 1)
+    localStorage.setItem('auth_token', 'pl1.alice-rotated')
+    window.dispatchEvent(new StorageEvent('storage', { key: 'auth_token', oldValue: 'ta', newValue: 'pl1.alice-rotated' }))
+
+    expect(loc.reload).not.toHaveBeenCalled()
+    expect(s.token).toBe('pl1.alice-rotated')
+
+    // Simulate Tab 1 switching active account to Bob -> Tab 2 must reload
+    localStorage.setItem('auth_token', 'tb')
+    window.dispatchEvent(new StorageEvent('storage', { key: 'auth_token', oldValue: 'pl1.alice-rotated', newValue: 'tb' }))
+    expect(loc.reload).toHaveBeenCalledOnce()
   })
 })

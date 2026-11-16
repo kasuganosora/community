@@ -8,6 +8,7 @@ import (
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
+	"gorm.io/gorm"
 	"net/http"
 	"strconv"
 	"time"
@@ -112,7 +113,7 @@ func Login(c *gin.Context) {
 }
 
 func finishLogin(c *gin.Context, user *models.User) {
-	rawTokenStr, err := IssueWebSession(c, user)
+	rawTokenStr, persistentToken, err := IssueWebSessionPair(c, user, "")
 	if err != nil {
 		log.ErrorV(err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
@@ -121,30 +122,83 @@ func finishLogin(c *gin.Context, user *models.User) {
 	}
 
 	log.Debug("User id %d logged in successfully", user.Id)
-	c.JSON(http.StatusOK, gin.H{"message": "login success", "token": rawTokenStr}) //nolint:goconst
+	c.JSON(http.StatusOK, gin.H{
+		"message":          "login success", //nolint:goconst
+		"token":            rawTokenStr,
+		"persistent_token": persistentToken,
+	})
+}
+
+// SessionExpireSeconds returns the configured web session cookie lifetime in seconds.
+func SessionExpireSeconds() int {
+	sessionExpire, err := strconv.Atoi(config.C.SessionExpire)
+	if err != nil || sessionExpire <= 0 {
+		return 1382400 // 默认 16 天
+	}
+
+	return sessionExpire
 }
 
 // IssueWebSession creates the same web session cookie and bearer token as password login.
 func IssueWebSession(c *gin.Context, user *models.User) (string, error) {
-	sessionExpire, err := strconv.Atoi(config.C.SessionExpire)
-	if err != nil || sessionExpire <= 0 {
-		sessionExpire = 1382400 // 默认 16 天
-	}
+	rawTokenStr, _, err := IssueWebSessionPair(c, user, "")
 
-	permissions, err := models.GetUserPermissions(db.GetDB(), user.Id)
+	return rawTokenStr, err
+}
+
+// IssueWebSessionPair creates a paired web session cookie token and non-expiring
+// encrypted persistent credential for a device. Any existing app-token cookie on
+// the request has only its single web session row revoked so multi-account
+// persistent credentials for other signed-in accounts stay valid.
+func IssueWebSessionPair(c *gin.Context, user *models.User, deviceID string) (string, string, error) {
+	sessionExpire := SessionExpireSeconds()
+	conn := db.GetDB().WithContext(c.Request.Context())
+
+	permissions, err := models.GetUserPermissions(conn, user.Id)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
-	token, rawTokenStr := models.NewAuthToken(user.Id, models.AuthTokenTypeWeb, 0, permissions, nil, sessionExpire, config.C.EncryptedKey)
-	if err = db.GetDB().Create(token).Error; err != nil {
-		return "", err
+	sessionRow, rawTokenStr := models.NewAuthToken(user.Id, models.AuthTokenTypeWeb, 0, permissions, nil, sessionExpire, config.C.EncryptedKey)
+	if rawTokenStr == "" {
+		return "", "", models.ErrInvalidTokenGeneration
 	}
-	if err = models.RecordSignIn(db.GetDB(), user.Id, c.ClientIP(), time.Now()); err != nil {
-		return "", err
+
+	persistentRow, persistentToken, err := models.NewPersistentToken(user.Id, deviceID, sessionRow.Token, config.C.EncryptedKey)
+	if err != nil {
+		return "", "", err
+	}
+
+	sessionRow.PairHash = persistentRow.Token
+	sessionRow.ExternalClient = persistentRow.ExternalClient
+
+	prevCookie, _ := c.Cookie(middleware.AppTokenCookie)
+
+	err = conn.Transaction(func(tx *gorm.DB) error {
+		if prevCookie != "" {
+			if err := models.RevokeSingleTokenByTokenStr(tx, prevCookie); err != nil {
+				return err
+			}
+		}
+		if err := tx.Create(sessionRow).Error; err != nil {
+			return err
+		}
+
+		return tx.Create(persistentRow).Error
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	if prevCookie != "" {
+		middleware.InvalidateTokenCache(prevCookie)
+	}
+
+	if err = models.RecordSignIn(conn, user.Id, c.ClientIP(), time.Now()); err != nil {
+		return "", "", err
 	}
 
 	middleware.SetAppTokenCookie(c, rawTokenStr, sessionExpire)
 
-	return rawTokenStr, nil
+	return rawTokenStr, persistentToken, nil
 }

@@ -13,7 +13,7 @@ afterEach(() => {
 })
 
 describe('suspended appeal session', () => {
-  it('keeps the bearer when the appeal route still answers', async () => {
+  it('keeps the session when the appeal route still answers via cookie', async () => {
     tokenService.set('tok')
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('[]', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
@@ -21,7 +21,8 @@ describe('suspended appeal session', () => {
     expect(isAppealSession()).toBe(true)
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/v1/appeals')
-    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('Authorization')).toBe('Bearer tok')
+    expect(fetchMock.mock.calls[0]?.[1]?.credentials).toBe('include')
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('Authorization')).toBeNull()
     expect(await retainSuspendedAppealSession('/api/v1/timelines/home', 'tok')).toBe(true)
     expect(fetchMock).toHaveBeenCalledOnce()
   })

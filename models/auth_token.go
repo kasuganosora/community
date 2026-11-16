@@ -16,6 +16,7 @@ import (
 const (
 	AuthTokenTypeWeb = iota
 	AuthTokenTypeOauth
+	AuthTokenTypePersistent
 )
 
 type AuthToken struct {
@@ -233,5 +234,29 @@ func GetTokenByTokenStr(tokenStr string) (token *AuthToken, err error) {
 	return
 }
 
+// RevokeSingleTokenByTokenStr marks only the stored row for tokenStr revoked,
+// leaving any paired token (PairHash) untouched. Used when replacing an active
+// browser cookie session during multi-account switching.
+func RevokeSingleTokenByTokenStr(conn *gorm.DB, tokenStr string) error {
+	if tokenStr == "" {
+		return nil
+	}
+
+	sum := sha256.Sum256([]byte(tokenStr))
+	hash := hex.EncodeToString(sum[:])
+
+	if err := conn.Model(&AuthToken{}).Where("token = ? AND revoke IS NULL", hash).Update("revoke", time.Now()).Error; err != nil {
+		return errors.Wrap(err, "mark single token revoked")
+	}
+
+	return nil
+}
+
 // RevokeReasonInactive marks a token expired by the inactivity rule.
 const RevokeReasonInactive = "inactive"
+
+// RevokeReasonRotated marks a persistent login credential consumed by rotation.
+const RevokeReasonRotated = "rotated"
+
+// RevokeReasonReplay marks a device credential family revoked after replay detection.
+const RevokeReasonReplay = "replay"

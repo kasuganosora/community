@@ -25,11 +25,12 @@ beforeEach(() => {
 afterEach(() => { streamTransport.sseUntil = 0; streamTransport.wsFailures = 0; mounted.splice(0).forEach(w => w.unmount()); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 describe('feed invalidation stream', () => {
-  it('uses header auth and does not revalidate a healthy home stream on a hint burst', async () => {
+  it('uses cookie auth without exposing localStorage credentials and does not revalidate a healthy home stream on a hint burst', async () => {
     const { callback } = setup()
     await flushPromises(); await vi.advanceTimersByTimeAsync(250)
     expect(fetcher.mock.calls[0]![0]).not.toContain('test-secret')
-    expect(fetcher.mock.calls[0]![1].headers.Authorization).toBe('Bearer test-secret')
+    expect(fetcher.mock.calls[0]![1].credentials).toBe('include')
+    expect(fetcher.mock.calls[0]![1].headers.Authorization).toBeUndefined()
     expect(callback).toHaveBeenCalledTimes(1)
     callback.mockClear()
     for (let i = 0; i < 10; i++) push.enqueue(encode(`event: feed.changed\ndata: {"epoch":"a","revision":"${i}"}\n\n`))
