@@ -180,6 +180,8 @@ func SetRouter(app gin.IRouter) {
 	v1ApiGroup.GET("/accounts/verify_email", account.VerifyEmail)
 	v1ApiGroup.POST("/accounts/login", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/accounts/login", 30), account.Login)
 	v1ApiGroup.POST("/accounts/login/two_factor", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/accounts/login/two_factor", 30), account.LoginTwoFactor)
+	v1ApiGroup.POST("/accounts/session/refresh", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/accounts/session/refresh", 60), account.RefreshPersistentSession)
+	v1ApiGroup.POST("/accounts/persistent/revoke", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v1/accounts/persistent/revoke", 60), account.RevokePersistentSession)
 	v1ApiGroup.POST("/accounts/reset_password", account.RecoverPasswordVerifyEmail)
 	v1ApiGroup.POST("/accounts/reset_password/verify_token", account.RecoverPassword)
 
@@ -614,6 +616,8 @@ func SetRouter(app gin.IRouter) {
 	v2ApiGroup.GET("/accounts/verify_email", account.VerifyEmail)
 	v2ApiGroup.POST("/accounts/login", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v2/accounts/login", 30), account.Login)
 	v2ApiGroup.POST("/accounts/login/two_factor", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v2/accounts/login/two_factor", 30), account.LoginTwoFactor)
+	v2ApiGroup.POST("/accounts/session/refresh", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v2/accounts/session/refresh", 60), account.RefreshPersistentSession)
+	v2ApiGroup.POST("/accounts/persistent/revoke", middleware.APIRateLimitMiddleware(middleware.GetRedisClient(), "/api/v2/accounts/persistent/revoke", 60), account.RevokePersistentSession)
 	v2ApiGroup.POST("/accounts/reset_password", account.RecoverPasswordVerifyEmail)
 	v2ApiGroup.POST("/accounts/reset_password/verify_token", account.RecoverPassword)
 	v2ApiGroup.GET("/streaming/health", streaming.Health)

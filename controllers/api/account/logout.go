@@ -1,7 +1,10 @@
 package account
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
@@ -33,14 +36,28 @@ func Logout(c *gin.Context) {
 		return
 	}
 
+	conn := db.GetDB().WithContext(c.Request.Context())
 	middleware.InvalidateTokenCache(tokenStr)
 
-	pairHash, err := models.RevokeTokenByTokenStr(db.GetDB(), tokenStr)
+	sum := sha256.Sum256([]byte(tokenStr))
+	tokenHash := hex.EncodeToString(sum[:])
+	var currentRow models.AuthToken
+	_ = conn.Select("user_id", "external_client").Where("token = ?", tokenHash).First(&currentRow).Error
+
+	pairHash, err := models.RevokeTokenByTokenStr(conn, tokenStr)
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, "[Logout] revoke token error"))
 		c.JSON(500, gin.H{"error": "Internal Server Error"})
 
 		return
+	}
+
+	if strings.HasPrefix(currentRow.ExternalClient, models.PersistentDevicePrefix) {
+		if deviceHashes, derr := revokeDeviceCredentialFamily(conn, currentRow.UserId, currentRow.ExternalClient, "", time.Now()); derr == nil {
+			for _, h := range deviceHashes {
+				middleware.InvalidateTokenCacheHash(h)
+			}
+		}
 	}
 
 	middleware.InvalidateTokenCacheHash(pairHash)

@@ -56,10 +56,41 @@ export const authApi = {
     return data
   },
 
-  /** Revoke the active token, or `token` when given (another signed-in account). */
-  async logout(token?: string): Promise<void> {
+  async refreshPersistentSession(persistentToken: string): Promise<LoginResponse> {
+    const { data } = await client.post<LoginResponse>('/api/v1/accounts/session/refresh', {
+      persistent_token: persistentToken,
+    })
+    return data
+  },
+
+  async revokePersistentSession(persistentToken: string, clearCookie: boolean): Promise<void> {
+    await client.post('/api/v1/accounts/persistent/revoke', {
+      persistent_token: persistentToken,
+      clear_cookie: clearCookie,
+    })
+  },
+
+  /**
+   * Revoke the active session (and its paired persistent credential), or revoke
+   * another signed-in account's persistent credential without clearing the active cookie.
+   */
+  async logout(token?: string, activePersistentToken?: string | null): Promise<void> {
     try {
-      await client.get('/api/v1/accounts/logout', token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
+      if (token) {
+        await client.post('/api/v1/accounts/persistent/revoke', {
+          persistent_token: token,
+          clear_cookie: false,
+        })
+        return
+      }
+      if (activePersistentToken && activePersistentToken.startsWith('pl1.')) {
+        await client.post('/api/v1/accounts/persistent/revoke', {
+          persistent_token: activePersistentToken,
+          clear_cookie: true,
+        })
+        return
+      }
+      await client.get('/api/v1/accounts/logout')
     } catch {
       // Ignore error — we clear the token locally regardless
     }

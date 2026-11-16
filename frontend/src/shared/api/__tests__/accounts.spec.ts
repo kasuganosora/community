@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { ACCOUNTS_KEY, findByToken, getAccount, listAccounts, markNeedsRelogin, nextUsableAccount, readAccounts, removeAccount, upsertAccount } from '../accounts'
+import { ACCOUNTS_KEY, findByToken, getAccount, listAccounts, markNeedsRelogin, nextUsableAccount, readAccounts, removeAccount, rotateAccountToken, upsertAccount } from '../accounts'
 
 const alice = { id: '1', username: 'alice', display_name: 'Alice', avatar: 'a.png' }
 const bob = { id: '2', username: 'bob', display_name: 'Bob', avatar: 'b.png' }
@@ -54,5 +54,13 @@ describe('account registry', () => {
     expect(readAccounts()).toEqual({})
     localStorage.setItem(ACCOUNTS_KEY, JSON.stringify({ x: { id: 'y', username: 'u', token: 't' }, 3: { id: '3', username: 'c', token: 't3', addedAt: 1 } }))
     expect(Object.keys(readAccounts())).toEqual(['3'])
+  })
+
+  it('rotates only the matching account persistent credential and preserves metadata', () => {
+    upsertAccount(alice, 'pl1.a1', 100)
+    upsertAccount(bob, 'pl1.b1', 200)
+    expect(rotateAccountToken('pl1.a1', 'pl1.a2')?.id).toBe('1')
+    expect(getAccount('1')).toMatchObject({ token: 'pl1.a2', addedAt: 100, needsRelogin: false })
+    expect(getAccount('2')).toMatchObject({ token: 'pl1.b1', addedAt: 200, needsRelogin: false })
   })
 })

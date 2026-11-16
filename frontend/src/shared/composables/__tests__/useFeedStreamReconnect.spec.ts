@@ -44,11 +44,12 @@ describe('feed stream reconnect', () => {
     expect(backoffDelay(0, () => 0)).toBe(250)
   })
 
-  it('prefers WebSocket with the token in the subprotocol, not the URL', async () => {
+  it('prefers WebSocket using cookie auth without exposing localStorage credentials in URL or subprotocols', async () => {
     setup(); await flushPromises()
     expect(last().url).toMatch(/^ws:\/\/[^/]+\/api\/v1\/streaming\/feed\?stream=notification&unread=1$/)
     expect(last().url).not.toContain('a+b')
-    expect(last().protocols).toEqual(['community.v1', 'community.bearer.YStiL2M9'])
+    expect(last().protocols).toEqual(['community.v1'])
+    expect(feedSocketProtocols('a+b/c=')).toEqual(['community.v1', 'community.bearer.YStiL2M9'])
     expect(feedSocketProtocols(null)).toEqual(['community.v1'])
     expect(fetcher).not.toHaveBeenCalled()
   })

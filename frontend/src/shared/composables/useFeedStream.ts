@@ -1,4 +1,5 @@
 import { onBeforeUnmount, onMounted, watch, type Ref } from 'vue'
+import * as clientApi from '@/shared/api/client'
 import { API_BASE_URL, tokenService } from '@/shared/api/client'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 
@@ -261,7 +262,9 @@ export function useFeedStream(target: Ref<string>, revalidate: (reason?: FeedSyn
     if (kind === 'ws') {
       let socket: WebSocket
       try {
-        socket = new WebSocket(feedSocketUrl(target.value), feedSocketProtocols(tokenService.get()))
+        // Browser WebSockets send the HttpOnly `app-token` cookie automatically;
+        // never expose the encrypted persistent credential in Sec-WebSocket-Protocol.
+        socket = new WebSocket(feedSocketUrl(target.value), feedSocketProtocols(null))
       } catch { close = () => {}; stop = close; queueMicrotask(finish); return }
       close = () => { try { socket.close() } catch { /* already closed */ } finish() }
       socket.onmessage = (event) => {
@@ -282,11 +285,12 @@ export function useFeedStream(target: Ref<string>, revalidate: (reason?: FeedSyn
       void (async () => {
         try {
           const headers: Record<string, string> = { Accept: 'text/event-stream' }
-          const token = tokenService.get()
-          if (token) headers.Authorization = `Bearer ${token}`
           const response = await fetch(`${API_BASE_URL}/api/v1/streaming/feed?${target.value}`, {
-            headers, signal: controller.signal, cache: 'no-store', redirect: 'error',
+            headers, credentials: 'include', signal: controller.signal, cache: 'no-store', redirect: 'error',
           })
+          if (response.status === 401 && tokenService.get() && typeof clientApi.refreshSessionWithPersistentToken === 'function') {
+            await clientApi.refreshSessionWithPersistentToken()
+          }
           if (!response.ok || !response.body || !response.headers.get('content-type')?.includes('text/event-stream')) throw new Error('feed stream unavailable')
           const reader = response.body.getReader()
           const decoder = new TextDecoder()
