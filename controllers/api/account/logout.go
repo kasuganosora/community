@@ -12,6 +12,7 @@ import (
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 	"github.com/pkg/errors"
+	"gorm.io/gorm"
 )
 
 // Logout handles GET/POST /api/v1/accounts/logout. It revokes the token the
@@ -42,7 +43,11 @@ func Logout(c *gin.Context) {
 	sum := sha256.Sum256([]byte(tokenStr))
 	tokenHash := hex.EncodeToString(sum[:])
 	var currentRow models.AuthToken
-	_ = conn.Select("user_id", "external_client").Where("token = ?", tokenHash).First(&currentRow).Error
+	if err := conn.Select("user_id", "external_client").Where("token = ?", tokenHash).First(&currentRow).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.ErrorV(errors.Wrap(err, "[Logout] load token family error"))
+		c.JSON(500, gin.H{"error": "Internal Server Error"})
+		return
+	}
 
 	pairHash, err := models.RevokeTokenByTokenStr(conn, tokenStr)
 	if err != nil {
@@ -53,10 +58,14 @@ func Logout(c *gin.Context) {
 	}
 
 	if strings.HasPrefix(currentRow.ExternalClient, models.PersistentDevicePrefix) {
-		if deviceHashes, derr := revokeDeviceCredentialFamily(conn, currentRow.UserId, currentRow.ExternalClient, "", time.Now()); derr == nil {
-			for _, h := range deviceHashes {
-				middleware.InvalidateTokenCacheHash(h)
-			}
+		deviceHashes, derr := revokeDeviceCredentialFamily(conn, currentRow.UserId, currentRow.ExternalClient, "", time.Now())
+		if derr != nil {
+			log.ErrorV(errors.Wrap(derr, "[Logout] revoke device family error"))
+			c.JSON(500, gin.H{"error": "Internal Server Error"})
+			return
+		}
+		for _, h := range deviceHashes {
+			middleware.InvalidateTokenCacheHash(h)
 		}
 	}
 

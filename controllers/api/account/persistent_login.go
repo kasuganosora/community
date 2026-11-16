@@ -165,6 +165,9 @@ func RefreshPersistentSession(c *gin.Context) {
 	prevCookie, _ := c.Cookie(middleware.AppTokenCookie)
 
 	err = conn.Transaction(func(tx *gorm.DB) error {
+		if err := lockPersistentCredentialFamilies(tx, stored.UserId); err != nil {
+			return err
+		}
 		res := tx.Model(&models.AuthToken{}).
 			Where("token = ? AND type = ? AND revoke IS NULL", stored.Token, models.AuthTokenTypePersistent).
 			Updates(map[string]any{
@@ -290,26 +293,39 @@ func revokeDeviceCredentialFamily(conn *gorm.DB, userID uint64, deviceClient str
 	}
 
 	var hashes []string
-	if err := conn.Model(&models.AuthToken{}).
-		Where("user_id = ? AND external_client = ? AND revoke IS NULL", userID, deviceClient).
-		Pluck("token", &hashes).Error; err != nil {
-		return nil, err
-	}
-	if len(hashes) == 0 {
-		return nil, nil
-	}
+	err := conn.Transaction(func(tx *gorm.DB) error {
+		if err := lockPersistentCredentialFamilies(tx, userID); err != nil {
+			return err
+		}
+		if err := tx.Model(&models.AuthToken{}).
+			Where("user_id = ? AND external_client = ? AND revoke IS NULL", userID, deviceClient).
+			Pluck("token", &hashes).Error; err != nil {
+			return err
+		}
+		if len(hashes) == 0 {
+			return nil
+		}
 
-	updates := map[string]any{"revoke": now}
-	if reason != "" {
-		updates["revoke_reason"] = reason
-	}
-	if err := conn.Model(&models.AuthToken{}).
-		Where("token IN ? AND revoke IS NULL", hashes).
-		Updates(updates).Error; err != nil {
-		return hashes, err
-	}
+		updates := map[string]any{"revoke": now}
+		if reason != "" {
+			updates["revoke_reason"] = reason
+		}
+		return tx.Model(&models.AuthToken{}).
+			Where("token IN ? AND revoke IS NULL", hashes).
+			Updates(updates).Error
+	})
+	return hashes, err
+}
 
-	return hashes, nil
+// lockPersistentCredentialFamilies serializes rotation and family revocation
+// across application processes. Both must acquire this lock before touching
+// auth_tokens and hold it until commit. A no-op UPDATE takes a write lock on
+// PostgreSQL/MySQL as well as SQLite (where SELECT FOR UPDATE is unsupported).
+// Using the existing user row avoids a schema migration and deliberately
+// serializes different devices of one user without revoking those devices.
+func lockPersistentCredentialFamilies(tx *gorm.DB, userID uint64) error {
+	return tx.Unscoped().Model(&models.User{}).Where("id = ?", userID).
+		UpdateColumn("id", gorm.Expr("id")).Error
 }
 
 func clearCookieIfMatchingHash(c *gin.Context, hashes []string) {
