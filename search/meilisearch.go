@@ -179,6 +179,12 @@ type MeilisearchClient struct {
 	// queue batches incremental index writes (see index_queue.go).
 	queueOnce sync.Once
 	queue     atomic.Pointer[IndexQueue]
+
+	// Rate-limited connection warning state (protected by warnMu).
+	warnMu         sync.Mutex
+	lastWarnAt     time.Time
+	lastWarnReason string
+	suppressed     int
 }
 
 var (
@@ -233,9 +239,38 @@ func getMeilisearchHost() string {
 	return "http://127.0.0.1:7700" //nolint:goconst
 }
 
+var (
+	meiliFallbackMu     sync.Mutex
+	meiliFallbackLogged bool
+)
+
+func resetMeiliFallbackNoticeForTest() {
+	meiliFallbackMu.Lock()
+	meiliFallbackLogged = false
+	meiliFallbackMu.Unlock()
+}
+
+// getMeilisearchAPIKey returns the API key configured for the application.
+// MEILISEARCH_API_KEY is canonical; MEILI_MASTER_KEY (the Meilisearch server
+// process variable) is accepted as a compatibility fallback when canonical is
+// unset or blank, without ever logging the secret value.
 func getMeilisearchAPIKey() string {
 	if apiKey, ok := config.C.Other["MEILISEARCH_API_KEY"]; ok {
-		return strings.TrimSpace(apiKey)
+		if trimmed := strings.TrimSpace(apiKey); trimmed != "" {
+			return trimmed
+		}
+	}
+	if fallback, ok := config.C.Other["MEILI_MASTER_KEY"]; ok {
+		if trimmed := strings.TrimSpace(fallback); trimmed != "" {
+			meiliFallbackMu.Lock()
+			alreadyLogged := meiliFallbackLogged
+			meiliFallbackLogged = true
+			meiliFallbackMu.Unlock()
+			if !alreadyLogged {
+				log.Warn("Meilisearch API key read from compatibility fallback MEILI_MASTER_KEY; set canonical MEILISEARCH_API_KEY for the application")
+			}
+			return trimmed
+		}
 	}
 
 	return ""
@@ -328,23 +363,74 @@ func (m *MeilisearchClient) ensureClient() {
 
 // tryConnect 在不可用和可用之间切换。已经连着时不重复建索引。
 func (m *MeilisearchClient) tryConnect() {
+	m.tryConnectAt(time.Now())
+}
+
+func (m *MeilisearchClient) scrubKey(msg string) string {
+	if m == nil || m.apiKey == "" || msg == "" {
+		return msg
+	}
+	return strings.ReplaceAll(msg, m.apiKey, "[REDACTED]")
+}
+
+func meiliAuthStatusCode(err error) (int, bool) {
+	var meiliErr *meilisearch.Error
+	if errors.As(err, &meiliErr) && (meiliErr.StatusCode == http.StatusUnauthorized || meiliErr.StatusCode == http.StatusForbidden) {
+		return meiliErr.StatusCode, true
+	}
+	return 0, false
+}
+
+func (m *MeilisearchClient) warnConnectRateLimited(reason string, now time.Time) {
+	reason = m.scrubKey(reason)
+	m.warnMu.Lock()
+	defer m.warnMu.Unlock()
+	if reason != m.lastWarnReason || now.Sub(m.lastWarnAt) >= 10*time.Minute {
+		if m.suppressed > 0 {
+			log.Warn("%s (%d similar failures suppressed since %s)", reason, m.suppressed, m.lastWarnAt.UTC().Format(time.RFC3339))
+		} else {
+			log.Warn("%s", reason)
+		}
+		m.lastWarnAt, m.lastWarnReason, m.suppressed = now, reason, 0
+		return
+	}
+	m.suppressed++
+}
+
+func (m *MeilisearchClient) clearConnectWarn() {
+	m.warnMu.Lock()
+	m.lastWarnReason, m.suppressed = "", 0
+	m.warnMu.Unlock()
+}
+
+func (m *MeilisearchClient) tryConnectAt(now time.Time) {
 	m.ensureClient()
 	ctx, cancel := context.WithTimeout(context.Background(), initCheckTimeout)
 	_, err := m.client.VersionWithContext(ctx)
 	cancel()
 	if err != nil {
+		if status, isAuth := meiliAuthStatusCode(err); isAuth {
+			if m.apiKey == "" {
+				m.warnConnectRateLimited(fmt.Sprintf("Meilisearch returned HTTP %d: server requires authentication but MEILISEARCH_API_KEY is not set; using database search", status), now)
+			} else {
+				m.warnConnectRateLimited(fmt.Sprintf("Meilisearch returned HTTP %d: authentication rejected (check MEILISEARCH_API_KEY); using database search", status), now)
+			}
+			m.setEnabled(false)
+			return
+		}
 		if m.IsEnabled() {
-			log.Warn("Meilisearch unavailable, using database search: %v", err)
+			log.Warn("Meilisearch unavailable, using database search: %s", m.scrubKey(err.Error()))
 			m.setEnabled(false)
 		}
 		return
 	}
+	m.clearConnectWarn()
 	// 从断开恢复时重新应用设置。只在「已经启用」的轮询里跳过，避免每 15 秒重建设置。
 	if m.IsEnabled() {
 		return
 	}
 	if err = m.initIndexes(); err != nil {
-		log.Warn("Meilisearch index setup failed, will retry: %v", err)
+		log.Warn("Meilisearch index setup failed, will retry: %s", m.scrubKey(err.Error()))
 		return
 	}
 	m.indexed = true
@@ -370,7 +456,7 @@ func (m *MeilisearchClient) NoteFailure() {
 	if err == nil {
 		return
 	}
-	log.Warn("Meilisearch search failed, using database search: %v", err)
+	log.Warn("Meilisearch search failed, using database search: %s", m.scrubKey(err.Error()))
 	m.setEnabled(false)
 }
 

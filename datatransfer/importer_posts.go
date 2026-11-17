@@ -148,8 +148,11 @@ func (i *importer) importPost(p Post) error {
 			target.Properties[quotePendingProperty] = i.namespace
 			target.Properties[quoteOwnSourceProp] = p.ID
 		}
-		if err = tx.Create(&target).Error; err != nil {
+		if err = tx.Omit("Content").Create(&target).Error; err != nil {
 			return 0, err
+		}
+		if target.Id == 0 {
+			return 0, errors.New("imported status has zero id")
 		}
 		if p.QuoteID != "" {
 			i.quotes = append(i.quotes, pendingQuote{status: target.Id, source: p.ID, quote: p.QuoteID})
@@ -167,9 +170,12 @@ func (i *importer) importPost(p Post) error {
 				text = htmlsafe.RenderPlainText(text, htmlsafe.RenderOptions{})
 			}
 		}
-		content := models.StatusContent{StatusId: target.Id, Content: text, SpoilerText: p.SpoilerText}
-		if err = tx.Create(&content).Error; err != nil {
-			return 0, err
+		pureReblog := target.ReblogId != nil && *target.ReblogId > 0 && p.QuoteID == "" && text == "" && p.SpoilerText == ""
+		if !pureReblog {
+			content := models.StatusContent{StatusId: target.Id, Content: text, SpoilerText: p.SpoilerText}
+			if err = tx.Create(&content).Error; err != nil {
+				return 0, err
+			}
 		}
 		participants := map[uint64]bool{author: true}
 		var recipients []uint64

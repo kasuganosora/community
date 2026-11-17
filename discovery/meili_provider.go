@@ -29,9 +29,18 @@ import (
 	"gorm.io/gorm"
 )
 
-type meiliHTTPError struct{ Status int }
+type meiliHTTPError struct {
+	Status     int
+	MissingKey bool
+}
 
 func (e meiliHTTPError) Error() string {
+	if e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden {
+		if e.MissingKey {
+			return fmt.Sprintf("recommendation search returned HTTP %d: server requires authentication; set MEILISEARCH_API_KEY for the application", e.Status)
+		}
+		return fmt.Sprintf("recommendation search returned HTTP %d: authentication rejected; check MEILISEARCH_API_KEY", e.Status)
+	}
 	return fmt.Sprintf("recommendation search returned HTTP %d", e.Status)
 }
 func meiliNotFound(err error) bool {
@@ -360,7 +369,7 @@ func (p *MeiliProvider) http(ctx context.Context, method, path string, body any,
 		return err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return meiliHTTPError{Status: response.StatusCode}
+		return meiliHTTPError{Status: response.StatusCode, MissingKey: p.connection.APIKey == ""}
 	}
 	if out != nil {
 		return json.Unmarshal(data, out)
@@ -987,14 +996,21 @@ func (p *MeiliProvider) logRebuild(err error) {
 	p.logRebuildAt(err, time.Now())
 }
 
+func (p *MeiliProvider) scrubSecret(msg string) string {
+	if p == nil || p.connection.APIKey == "" || msg == "" {
+		return msg
+	}
+	return strings.ReplaceAll(msg, p.connection.APIKey, "[REDACTED]")
+}
+
 func (p *MeiliProvider) logRebuildAt(err error, now time.Time) {
 	if err != nil {
-		msg := err.Error()
+		msg := p.scrubSecret(err.Error())
 		if msg != p.lastWarnReason || now.Sub(p.lastWarnAt) >= 10*time.Minute {
 			if p.suppressed > 0 {
-				log.Warn("Discovery Meili index rebuild failed: %v (%d similar failures suppressed since %s)", err, p.suppressed, p.lastWarnAt.UTC().Format(time.RFC3339))
+				log.Warn("Discovery Meili index rebuild failed: %s (%d similar failures suppressed since %s)", msg, p.suppressed, p.lastWarnAt.UTC().Format(time.RFC3339))
 			} else {
-				log.Warn("Discovery Meili index rebuild failed: %v", err)
+				log.Warn("Discovery Meili index rebuild failed: %s", msg)
 			}
 			p.lastWarnAt, p.lastWarnReason, p.suppressed = now, msg, 0
 		} else {

@@ -30,8 +30,14 @@ func Get(c *gin.Context) {
 
 		return
 	}
+	parsedID, validID := parseMediaAttachmentID(mediaId)
+	if !validID {
+		c.JSON(404, gin.H{"error": "Not found"})
 
-	query := db.GetDB().Where("id = ? AND account_id = ?", mediaId, acc.Id)
+		return
+	}
+
+	query := db.GetDB().Where("id = ? AND account_id = ?", parsedID, acc.Id)
 
 	var media models.MediaAttachment
 	if err := query.First(&media).Error; err != nil {
@@ -78,8 +84,13 @@ func GetProcessing(c *gin.Context) {
 		c.JSON(401, gin.H{"error": "The access token is invalid"})
 		return
 	}
+	parsedID, validID := parseMediaAttachmentID(c.Param("id"))
+	if !validID {
+		c.JSON(404, gin.H{"error": "Not found"})
+		return
+	}
 	var row models.MediaAttachment
-	if err := db.GetDB().Where("id = ? AND account_id = ?", c.Param("id"), acc.Id).First(&row).Error; err != nil {
+	if err := db.GetDB().Where("id = ? AND account_id = ?", parsedID, acc.Id).First(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(404, gin.H{"error": "Not found"})
 			return
@@ -99,9 +110,15 @@ func Update(c *gin.Context) {
 	// 获取当前用户
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	mediaId := c.Param("id")
+	parsedID, validID := parseMediaAttachmentID(mediaId)
+	if !validID {
+		c.JSON(404, gin.H{"error": "Not found"})
+
+		return
+	}
 
 	var media models.MediaAttachment
-	if err := db.GetDB().Where("id = ? AND account_id = ?", mediaId, account.Id).First(&media).Error; err != nil {
+	if err := db.GetDB().Where("id = ? AND account_id = ?", parsedID, account.Id).First(&media).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(404, gin.H{"error": "Not found"})
 
@@ -195,9 +212,15 @@ func Delete(c *gin.Context) {
 	// 获取当前用户
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	mediaId := c.Param("id")
+	parsedID, validID := parseMediaAttachmentID(mediaId)
+	if !validID {
+		c.JSON(404, gin.H{"error": "Not found"})
+
+		return
+	}
 
 	var media models.MediaAttachment
-	err := db.GetDB().Where("id = ? AND account_id = ?", mediaId, account.Id).First(&media).Error
+	err := db.GetDB().Where("id = ? AND account_id = ?", parsedID, account.Id).First(&media).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(404, gin.H{"error": "Not found"})

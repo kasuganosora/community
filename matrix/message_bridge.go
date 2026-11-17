@@ -158,11 +158,16 @@ func (m *MessageBridge) createLocalStatus(convID uint64, accountID uint64, conte
 	tx := db.GetDB().Begin()
 
 	// 创建 Status
-	err = tx.Create(status).Error
+	err = tx.Omit("Content").Create(status).Error
 	if err != nil {
 		tx.Rollback()
 
 		return nil, err
+	}
+	if status.Id == 0 {
+		tx.Rollback()
+
+		return nil, errors.New("created bridge status has zero id")
 	}
 
 	// 创建 StatusContent

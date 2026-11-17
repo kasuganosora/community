@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/defaultavatar"
 	"github.com/kasuganosora/community/log"
+	"github.com/kasuganosora/community/mediaproxy"
 )
 
 // Failure classes of GET /proxy/media/:token. They appear in the warn log
@@ -214,6 +216,24 @@ func answerFailure(c *gin.Context, host, kind string, started time.Time, f failu
 	}
 	c.Header("X-Media-Proxy-Error", header)
 	c.Header("Cache-Control", "no-store")
+	if kind == mediaproxy.KindAvatar && (f.status == http.StatusBadGateway || f.status == http.StatusGatewayTimeout) {
+		seed := c.GetString("mediaproxy_seed")
+		if !defaultavatar.ValidSeed(seed) {
+			seed = defaultavatar.Seed(host, "mediaproxy")
+		}
+		if data, err := defaultavatar.PNG(seed); err == nil {
+			setCommonHeaders(c, "image/png")
+			c.Header("X-Media-Proxy-Fallback", "placeholder")
+			c.Header("Content-Length", strconv.Itoa(len(data)))
+			if c.Request != nil && c.Request.Method == http.MethodHead {
+				c.Status(http.StatusOK)
+			} else {
+				c.Data(http.StatusOK, "image/png", data)
+			}
+			logFailure(host, kind, started, f, cached)
+			return
+		}
+	}
 	if f.status == http.StatusServiceUnavailable || f.status == http.StatusTooManyRequests {
 		if c.Writer.Header().Get("Retry-After") == "" {
 			c.Header("Retry-After", "5")

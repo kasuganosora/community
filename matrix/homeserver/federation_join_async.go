@@ -287,10 +287,14 @@ func (r *RoomService) persistFederationJoinStaged(ctx context.Context, pj *prepa
 				return err
 			}
 			e := pduToMatrixEvent(p)
-			r.updateRoomState(tx, pj.roomID, e)
+			if err := r.updateRoomState(tx, pj.roomID, e); err != nil {
+				return err
+			}
 			if e.EventType == EventTypeRoomMember {
 				m, _ := e.Content["membership"].(string)
-				r.updateRoomMember(tx, pj.roomID, *e.StateKey, MembershipState(m), e.EventID)
+				if err := r.updateRoomMember(tx, pj.roomID, *e.StateKey, MembershipState(m), e.EventID); err != nil {
+					return err
+				}
 			}
 		}
 		if err := persistVerifiedPDUAtState(tx, r.HS, pj.join, true, pj.state, !pj.membersOmitted); err != nil {

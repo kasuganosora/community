@@ -194,7 +194,11 @@ func (e *EventService) sendRoomEvent(roomID, sender, eventType string, txnID *st
 
 	// 如果是状态事件，更新状态
 	if stateKey != nil {
-		e.HS.Room.updateRoomState(tx, roomID, event)
+		if err = e.HS.Room.updateRoomState(tx, roomID, event); err != nil {
+			tx.Rollback()
+
+			return nil, ErrInternal
+		}
 	}
 
 	// 更新房间最后事件

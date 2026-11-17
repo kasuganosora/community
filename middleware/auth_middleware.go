@@ -25,6 +25,18 @@ import (
 // RawAuthTokenKey is the gin context key holding the authenticated raw token.
 const RawAuthTokenKey = "auth_token_raw"
 
+func abortOnClientCancel(c *gin.Context, err error) bool {
+	if err == nil || !errors.Is(err, context.Canceled) {
+		return false
+	}
+	if c == nil || c.Request == nil || !errors.Is(c.Request.Context().Err(), context.Canceled) {
+		return false
+	}
+	log.Debug("[AuthMiddleware] client disconnected during authentication: %s %s", c.Request.Method, c.Request.URL.Path)
+	c.AbortWithStatus(StatusClientClosedRequest)
+	return true
+}
+
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 尝试从 middleware header 中获取 token
@@ -92,6 +104,9 @@ func AuthMiddleware() gin.HandlerFunc {
 		// 优先查 Redis 缓存，减少数据库压力；缓存未命中则查库并写入缓存
 		token, err := getTokenWithCacheContext(c.Request.Context(), authToken)
 		if err != nil {
+			if abortOnClientCancel(c, err) {
+				return
+			}
 			returnUnauthorizedAndRemoveCookie(c)
 
 			return
@@ -135,6 +150,9 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		err = db.GetDB().WithContext(c.Request.Context()).Where("id = ?", tokenData.UserId).First(user).Error
 		if err != nil {
+			if abortOnClientCancel(c, err) {
+				return
+			}
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				returnUnauthorizedAndRemoveCookie(c)
 
@@ -143,12 +161,16 @@ func AuthMiddleware() gin.HandlerFunc {
 
 			err = errors.Wrap(err, fmt.Sprintf("[AuthMiddleware] get user error, user id: %d", tokenData.UserId))
 			_ = c.Error(err)
+			c.Abort()
 
 			return
 		}
 
 		account, err := user.GetAccountBase(db.GetDB().WithContext(c.Request.Context()))
 		if err != nil {
+			if abortOnClientCancel(c, err) {
+				return
+			}
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				returnUnauthorizedAndRemoveCookie(c)
 
@@ -157,6 +179,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 			err = errors.Wrap(err, fmt.Sprintf("[AuthMiddleware] get account error, user id: %d", tokenData.UserId))
 			_ = c.Error(err)
+			c.Abort()
 
 			return
 		}
@@ -179,6 +202,9 @@ func AuthMiddleware() gin.HandlerFunc {
 
 			err = db.GetDB().WithContext(c.Request.Context()).Where("id = ?", tokenData.ApplicationId).First(application).Error
 			if err != nil {
+				if abortOnClientCancel(c, err) {
+					return
+				}
 				if errors.Is(err, gorm.ErrRecordNotFound) {
 					returnUnauthorizedAndRemoveCookie(c)
 
@@ -187,6 +213,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 				err = errors.Wrap(err, fmt.Sprintf("[AuthMiddleware] get application error, application id: %d", tokenData.ApplicationId))
 				_ = c.Error(err)
+				c.Abort()
 
 				return
 			}

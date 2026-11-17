@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers/apierrors"
 	"github.com/kasuganosora/community/feed"
@@ -9,6 +10,15 @@ import (
 	"gorm.io/gorm"
 	"strconv"
 )
+
+const statusClientClosedRequest = 499
+
+func abortIfClientCanceled(c *gin.Context, err error) {
+	if err != nil && errors.Is(err, context.Canceled) && c != nil && c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled) {
+		c.AbortWithStatus(statusClientClosedRequest)
+		AbortPanic()
+	}
+}
 
 type model interface {
 	TableName() string
@@ -33,6 +43,7 @@ func GetIdFromContext[T model](t *T, c *gin.Context, db *gorm.DB, appendQuery ..
 
 	err = query.First(t).Error
 	if err != nil {
+		abortIfClientCanceled(c, err)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			AbortRecordNotFound(c)
 		}
@@ -65,6 +76,7 @@ func MustGetAccount(c *gin.Context) *models.Account {
 
 func AbortIfError(c *gin.Context, err error) {
 	if err != nil {
+		abortIfClientCanceled(c, err)
 		if errors.Is(err, feed.ErrFeedUnavailable) {
 			c.Header("Retry-After", "2")
 			c.AbortWithStatusJSON(503, gin.H{"error": "timeline temporarily unavailable"})
@@ -104,6 +116,7 @@ func AbortIfNotFoundAndOtherError(c *gin.Context, err error, notFoundMessage str
 	if err == nil {
 		return
 	}
+	abortIfClientCanceled(c, err)
 
 	var httpError *apierrors.HttpError
 	if errors.As(err, &httpError) {

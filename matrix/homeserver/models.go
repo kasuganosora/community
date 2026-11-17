@@ -2,7 +2,9 @@ package homeserver
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/kasuganosora/community/db/database"
@@ -226,8 +228,53 @@ type MatrixRoom struct {
 	DeletedAt gorm.DeletedAt `gorm:"index"          json:"-"`
 }
 
+const (
+	MaxMatrixRoomNameRunes      = 255
+	MaxMatrixRoomTopicRunes     = 512
+	MaxMatrixRoomAvatarURLRunes = 512
+)
+
+// sanitizeMatrixRoomSummaryText prepares untrusted Matrix state strings for
+// persistence in denormalized varchar summary columns on matrix_rooms_hs.
+// Canonical Matrix event/state payloads remain unmodified in TEXT columns.
+func sanitizeMatrixRoomSummaryText(raw string, maxRunes int) string {
+	clean := strings.ToValidUTF8(raw, "\uFFFD")
+	if strings.ContainsRune(clean, '\x00') {
+		clean = strings.ReplaceAll(clean, "\x00", "")
+	}
+	if maxRunes <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(clean) <= maxRunes {
+		return clean
+	}
+	runes := 0
+	for idx := range clean {
+		if runes == maxRunes {
+			return clean[:idx]
+		}
+		runes++
+	}
+	return clean
+}
+
+func sanitizeMatrixRoomSummaryPtr(p *string, maxRunes int) *string {
+	if p == nil {
+		return nil
+	}
+	s := sanitizeMatrixRoomSummaryText(*p, maxRunes)
+	return &s
+}
+
 func (MatrixRoom) TableName() string {
 	return "matrix_rooms_hs"
+}
+
+func (m *MatrixRoom) BeforeSave(_ *gorm.DB) error {
+	m.Name = sanitizeMatrixRoomSummaryPtr(m.Name, MaxMatrixRoomNameRunes)
+	m.Topic = sanitizeMatrixRoomSummaryPtr(m.Topic, MaxMatrixRoomTopicRunes)
+	m.AvatarURL = sanitizeMatrixRoomSummaryPtr(m.AvatarURL, MaxMatrixRoomAvatarURLRunes)
+	return nil
 }
 
 // ===== MatrixRoomState 状态键值对 =====

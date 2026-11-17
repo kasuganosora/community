@@ -307,8 +307,26 @@ func (s *Status) BeforeCreate(tx *gorm.DB) (err error) {
 	if err := ensureAccountWritable(tx, s.AccountId); err != nil {
 		return err
 	}
+	if (s.ReblogId == nil || *s.ReblogId == 0) && !statusContentOmitted(tx) && s.Content.ContentFormat == "" && (tx == nil || tx.Migrator().HasTable(&StatusContent{})) {
+		// Ensure non-reblog statuses with empty text/spoiler (e.g. media-only or
+		// poll-only posts) still persist a status_contents row keyed by statuses.id,
+		// instead of appearing as a zero-valued struct skipped by GORM HasOne.
+		s.Content.ContentFormat = "plain"
+	}
 	s.FillLanguage()
 	return nil
+}
+
+func statusContentOmitted(tx *gorm.DB) bool {
+	if tx == nil || tx.Statement == nil {
+		return false
+	}
+	for _, omit := range tx.Statement.Omits {
+		if omit == "Content" || omit == clause.Associations {
+			return true
+		}
+	}
+	return false
 }
 
 // FillLanguage normalizes Language and guesses it when empty.
@@ -1216,12 +1234,16 @@ func (ss *Statuses) Filter(filter func(s *Status) bool) (ret Statuses) {
 	return
 }
 
+// ErrStatusContentZeroID is returned when attempting to insert or save a
+// status_contents row without an explicit parent status_id.
+var ErrStatusContentZeroID = errors.New("status_contents: status_id must be non-zero")
+
 type StatusContent struct {
 	ContentFormat string         `gorm:"type:varchar(16);not null;default:plain" json:"content_format"`
-	StatusId      uint64         `gorm:"primary_key;autoIncrement" json:"status_id"`
-	Content       string         `gorm:"type:text;not null"         json:"content"`
-	SpoilerText   string         `gorm:"type:text;"                 json:"spoiler_text"`
-	Card          map[string]any `gorm:"type:json;serializer:json"  json:"card"`
+	StatusId      uint64         `gorm:"primaryKey;autoIncrement:false"          json:"status_id"`
+	Content       string         `gorm:"type:text;not null"                      json:"content"`
+	SpoilerText   string         `gorm:"type:text;"                              json:"spoiler_text"`
+	Card          map[string]any `gorm:"type:json;serializer:json"               json:"card"`
 }
 
 // EditableText returns safe plain source for the plain-text compose API.
@@ -1237,12 +1259,43 @@ func (sc *StatusContent) TableName() string {
 }
 
 func (sc *StatusContent) BeforeCreate(tx *gorm.DB) (err error) {
+	if sc.StatusId == 0 {
+		return ErrStatusContentZeroID
+	}
+	if sc.ContentFormat == "" {
+		sc.ContentFormat = "plain"
+	}
+	updatingOnConflict := false
+	if tx != nil && tx.Statement != nil {
+		if c, ok := tx.Statement.Clauses["ON CONFLICT"]; ok {
+			if oc, valid := c.Expression.(clause.OnConflict); valid && (oc.UpdateAll || len(oc.DoUpdates) > 0) {
+				updatingOnConflict = true
+			}
+		} else {
+			tx.Statement.AddClause(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "status_id"}},
+				DoNothing: true,
+			})
+		}
+	}
+	if !updatingOnConflict && tx != nil {
+		var existing int64
+		if checkErr := tx.Session(&gorm.Session{NewDB: true}).Model(&StatusContent{}).Where("status_id = ?", sc.StatusId).Limit(1).Count(&existing).Error; checkErr != nil {
+			return checkErr
+		}
+		if existing > 0 {
+			return nil
+		}
+	}
 	err = sc.bindAnyThingsByStatusContent(tx, false)
 
 	return
 }
 
 func (sc *StatusContent) BeforeUpdate(tx *gorm.DB) (err error) {
+	if sc.StatusId == 0 {
+		return ErrStatusContentZeroID
+	}
 	err = sc.bindAnyThingsByStatusContent(tx, true)
 
 	return

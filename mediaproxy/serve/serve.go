@@ -55,7 +55,8 @@ var hostWaitBound = 12 * time.Second
 
 // Overridable in tests.
 var (
-	fetchTimeout  = 15 * time.Second // whole download of a cached avatar
+	fetchTimeout       = 15 * time.Second // whole download of a cached image/emoji
+	avatarFetchTimeout = 5 * time.Second  // tighter bound for remote avatar fetches
 	headerTimeout = 10 * time.Second // relay: connect + TLS + response headers
 	stallTimeout  = 15 * time.Second // relay: no upstream bytes for this long
 
@@ -292,6 +293,7 @@ func Serve(c *gin.Context) {
 	}
 	host := strings.ToLower(u.Hostname())
 	key := failureKey(rawURL)
+	c.Set("mediaproxy_seed", key)
 	// A stored avatar/emoji is answered before any failure memo, rate
 	// limit or origin pause: those only guard fetches from the origin.
 	stale := false
@@ -481,7 +483,11 @@ func relay(c *gin.Context, key, rawURL, host, kind string, claims mediaproxy.Cla
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
 	var timedOut atomic.Bool
-	timer := time.AfterFunc(headerTimeout, func() { timedOut.Store(true); cancel() })
+	relayHeaderBound := headerTimeout
+	if kind == mediaproxy.KindAvatar && avatarFetchTimeout < relayHeaderBound {
+		relayHeaderBound = avatarFetchTimeout
+	}
+	timer := time.AfterFunc(relayHeaderBound, func() { timedOut.Store(true); cancel() })
 	fail := func(f failure) {
 		markFailed(key, f)
 		answerFailure(c, host, kind, started, f, nil)
@@ -727,7 +733,11 @@ func serveCached(c *gin.Context, key, rawURL, host, kind string, claims mediapro
 				if _, cooling := hostCooling(host); cooling {
 					return nil, errCooling // paused while we queued
 				}
-				return fetchImage(ctx, rawURL)
+				timeout := fetchTimeout
+				if kind == mediaproxy.KindAvatar && avatarFetchTimeout < timeout {
+					timeout = avatarFetchTimeout
+				}
+				return fetchImageWithTimeout(ctx, rawURL, timeout)
 			}()
 			var up upstreamStatusError
 			if errors.As(err, &up) && up.code == http.StatusTooManyRequests {
@@ -772,7 +782,11 @@ func serveCached(c *gin.Context, key, rawURL, host, kind string, claims mediapro
 // fetchImage downloads a raster image source in full, bounded by
 // MEDIA_PROXY_MAX_BYTES and the avatar cache's own limit.
 func fetchImage(ctx context.Context, rawURL string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	return fetchImageWithTimeout(ctx, rawURL, fetchTimeout)
+}
+
+func fetchImageWithTimeout(ctx context.Context, rawURL string, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {

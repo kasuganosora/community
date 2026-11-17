@@ -2,6 +2,7 @@
 package errors
 
 import (
+	"context"
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
@@ -154,6 +155,20 @@ func NewNotFoundError(resource string) *AppError {
 	return ErrNotFound.WithDetail(resource + " not found")
 }
 
+// StatusClientClosedRequest is nginx's 499 status for requests canceled by a
+// disconnected client before a response was sent.
+const StatusClientClosedRequest = 499
+
+func isClientCanceled(c *gin.Context, err error) bool {
+	if err == nil || !stderrors.Is(err, context.Canceled) {
+		return false
+	}
+	if c == nil || c.Request == nil {
+		return false
+	}
+	return stderrors.Is(c.Request.Context().Err(), context.Canceled)
+}
+
 // ErrorHandler 统一错误处理中间件.
 func ErrorHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -165,6 +180,18 @@ func ErrorHandler() gin.HandlerFunc {
 
 		// 获取最后一个错误
 		err := c.Errors.Last().Err
+
+		if isClientCanceled(c, err) {
+			log.WithFields(map[string]any{
+				"path":   c.Request.URL.Path,
+				"method": c.Request.Method,
+			}).Debug("Client disconnected before request completed: " + secretredact.Scrub(c, err.Error()))
+			if !c.Writer.Written() {
+				c.Status(StatusClientClosedRequest)
+			}
+			c.Abort()
+			return
+		}
 
 		// Handlers commonly record the error with c.Error() *and* write
 		// their own response. Writing a second JSON body here produced

@@ -70,6 +70,14 @@ environment:
 
 - `MEILI_ENV=production` requires a master key of at least 16 bytes
   (`MEILISEARCH_API_KEY`) and disables the development web UI.
+- **Application vs. engine key variable**: the Community application must be
+  given `MEILISEARCH_API_KEY` (Master Key or Admin API Key). `MEILI_MASTER_KEY`
+  is the Meilisearch server process variable; setting `MEILI_MASTER_KEY` only
+  on the Meilisearch process while leaving `MEILISEARCH_API_KEY` unset on the
+  application causes HTTP 401 on search and discovery index rebuilds. If
+  `MEILI_MASTER_KEY` is present in the application environment without
+  `MEILISEARCH_API_KEY`, the application accepts it as a compatibility fallback
+  and logs a warning, but `MEILISEARCH_API_KEY` remains canonical.
 - `MEILI_LOG_LEVEL=WARN` stops the per-request INFO log lines, which are
   extra writes on the same disk.
 

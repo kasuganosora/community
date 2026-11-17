@@ -245,10 +245,14 @@ func persistVerifiedPDUAtStateHinted(tx *gorm.DB, hs *HomeServer, p gmsl.PDU, ap
 	}
 
 	if applyState && event.StateKey != nil {
-		hs.Room.updateRoomState(tx, event.RoomID, event)
+		if err := hs.Room.updateRoomState(tx, event.RoomID, event); err != nil {
+			return err
+		}
 		if event.EventType == EventTypeRoomMember {
 			membership, _ := event.Content["membership"].(string)
-			hs.Room.updateRoomMember(tx, event.RoomID, *event.StateKey, MembershipState(membership), event.EventID)
+			if err := hs.Room.updateRoomMember(tx, event.RoomID, *event.StateKey, MembershipState(membership), event.EventID); err != nil {
+				return err
+			}
 			if err := hs.syncBridgeMembershipDeparture(tx, event); err != nil {
 				return err
 			}

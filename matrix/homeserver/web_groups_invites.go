@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	gmsl "github.com/matrix-org/gomatrixserverlib"
 	"gorm.io/gorm"
@@ -33,24 +34,32 @@ func persistWebInvitePreview(tx *gorm.DB, p gmsl.PDU, preview []json.RawMessage)
 		if len(raw) > 65536 || json.Unmarshal(raw, &event) != nil || event.StateKey != "" {
 			continue
 		}
-		text := func(key string, limit int) *string {
+		summaryText := func(key string, limit int) *string {
 			value, ok := event.Content[key].(string)
-			if !ok || len(value) > limit {
+			if !ok {
+				return nil
+			}
+			clean := sanitizeMatrixRoomSummaryText(value, limit)
+			return &clean
+		}
+		exactText := func(key string, limit int) *string {
+			value, ok := event.Content[key].(string)
+			if !ok || !utf8.ValidString(value) || strings.ContainsRune(value, '\x00') || utf8.RuneCountInString(value) > limit {
 				return nil
 			}
 			return &value
 		}
 		switch event.Type {
 		case "m.room.name":
-			room.Name = text("name", 255)
+			room.Name = summaryText("name", MaxMatrixRoomNameRunes)
 		case "m.room.topic":
-			room.Topic = text("topic", 512)
+			room.Topic = summaryText("topic", MaxMatrixRoomTopicRunes)
 		case "m.room.avatar":
-			if value := text("url", 512); value != nil && strings.HasPrefix(*value, "mxc://") {
+			if value := exactText("url", MaxMatrixRoomAvatarURLRunes); value != nil && strings.HasPrefix(*value, "mxc://") {
 				room.AvatarURL = value
 			}
 		case "m.room.create":
-			if value := text("type", 32); value != nil && *value == "m.space" {
+			if value := exactText("type", 32); value != nil && *value == "m.space" {
 				room.RoomType = value
 			}
 		case "m.room.encryption":

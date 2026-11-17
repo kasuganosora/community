@@ -111,6 +111,9 @@ type statusRow struct {
 // Process builds the card of one status. It never returns an error for an
 // unpreviewable link; the Outcome says what happened. Errors are DB errors.
 func (s *Service) Process(ctx context.Context, statusID uint64) (Outcome, error) {
+	if statusID == 0 {
+		return Skipped, errors.New("linkcard: status_id must be non-zero")
+	}
 	if s == nil || s.DB == nil {
 		return Skipped, errors.New("linkcard: database unavailable")
 	}
@@ -252,6 +255,9 @@ func (s *Service) store(conn *gorm.DB, card *models.StatusCard) error {
 // status serializer already reads it. UpdateColumn skips the content
 // hooks (tag/mention re-binding).
 func (s *Service) cacheOnContent(conn *gorm.DB, statusID uint64, card *models.StatusCard) error {
+	if statusID == 0 {
+		return errors.New("linkcard: status_id must be non-zero")
+	}
 	// The column has a JSON serializer; hand it the map itself.
 	return conn.Session(&gorm.Session{SkipHooks: true}).Model(&models.StatusContent{}).Where("status_id = ?", statusID).
 		Select("card").Updates(&models.StatusContent{Card: card.APIMap()}).Error
