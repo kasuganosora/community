@@ -12,12 +12,17 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/email"
 	"github.com/kasuganosora/community/i18nz"
+	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
+
+// errRecoveryTokenRejected means the recovery token was missing, mismatched,
+// or expired. It must not change the password or revoke credentials.
+var errRecoveryTokenRejected = errors.New("recovery token rejected")
 
 type RecoverPasswordVerifyEmailRequest struct {
 	Username string `binding:"required" json:"username"`
@@ -188,9 +193,17 @@ func RecoverPassword(c *gin.Context) {
 		return
 	}
 
-	// 设置新密码
-	user.UserSecret.PasswordScheme = ""
-	user.UserSecret.Password, err = models.EncryptPassword(req.Password, user.UserSecret.Salt)
+	if user.UserSecret == nil {
+		err = errors.New("RecoverPassword: user secret missing")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		_ = c.Error(err)
+
+		return
+	}
+
+	// Hash before taking the user-row lock. Bcrypt must not run while refresh
+	// and recovery are serialized on that lock.
+	newPassword, err := models.EncryptPassword(req.Password, user.UserSecret.Salt)
 	if err != nil {
 		err = errors.Wrap(err, "RecoverPassword")
 
@@ -200,24 +213,94 @@ func RecoverPassword(c *gin.Context) {
 		return
 	}
 
-	err = db.GetDB().Save(user.UserSecret).Error
-	if err != nil {
-		err = errors.Wrap(err, "RecoverPassword")
+	var revoked []string
+	err = db.GetDB().WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		hashes, err := commitPasswordRecovery(tx, user.Id, req.Token, newPassword, time.Now())
+		if err != nil {
+			return err
+		}
+		revoked = hashes
 
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, errRecoveryTokenRejected) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "token error"})
+
+			return
+		}
+
+		err = errors.Wrap(err, "RecoverPassword")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		_ = c.Error(err)
 
 		return
 	}
 
-	// 删除token
-	err = models.SaveUserMeta(db.GetDB(), user.Id, "recover_password_verify_email_token", nil)
-	if err != nil {
-		err = errors.Wrap(err, "RecoverPassword")
-		_ = c.Error(err)
-
-		return
+	for _, hash := range revoked {
+		middleware.InvalidateTokenCacheHash(hash)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
+}
+
+// commitPasswordRecovery changes the password and revokes previously issued
+// web login sessions and persistent credentials, or changes none of them.
+// The user-row lock is the same one refresh and device revocation hold until
+// commit, so a concurrent refresh cannot insert a credential this recovery
+// misses. OAuth tokens are not login sessions and stay valid. Revoke reason
+// stays empty so a recovered credential is not treated as a rotation replay.
+func commitPasswordRecovery(tx *gorm.DB, userID uint64, rawToken string, passwordHash string, now time.Time) ([]string, error) {
+	if err := lockPersistentCredentialFamilies(tx, userID); err != nil {
+		return nil, err
+	}
+
+	current := &RecoverPasswordVerifyEmailToken{}
+	if err := models.GetUserMeta(tx, userID, "recover_password_verify_email_token", current); err != nil {
+		if strings.Contains(err.Error(), "user meta not found") {
+			return nil, errRecoveryTokenRejected
+		}
+
+		return nil, err
+	}
+	if subtle.ConstantTimeCompare([]byte(current.Token), []byte(rawToken)) != 1 || current.ExpireAt < now.Unix() {
+		return nil, errRecoveryTokenRejected
+	}
+
+	// Snapshot only after the lock. []uint8 would bind as a single blob.
+	var hashes []string
+	loginTypes := []int{int(models.AuthTokenTypeWeb), int(models.AuthTokenTypePersistent)}
+	if err := tx.Model(&models.AuthToken{}).
+		Where("user_id = ? AND revoke IS NULL AND type IN ?", userID, loginTypes).
+		Pluck("token", &hashes).Error; err != nil {
+		return nil, err
+	}
+	if len(hashes) > 0 {
+		if err := tx.Model(&models.AuthToken{}).
+			Where("token IN ? AND revoke IS NULL", hashes).
+			Update("revoke", now).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	// Save cannot target this row: the gorm tag "primary_key, column:user_id"
+	// is not parsed as a primary key, so Save returns "WHERE conditions required".
+	// The explicit user_id update matches change-password.
+	res := tx.Model(&models.UserSecretData{}).Where("user_id = ?", userID).
+		Updates(map[string]any{
+			"password":        passwordHash,
+			"password_scheme": "",
+		})
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected != 1 {
+		return nil, errors.New("password update did not apply")
+	}
+
+	if err := models.SaveUserMeta(tx, userID, "recover_password_verify_email_token", nil); err != nil {
+		return nil, err
+	}
+
+	return hashes, nil
 }
