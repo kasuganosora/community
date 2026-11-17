@@ -727,6 +727,17 @@ func handleUpdateActivity(ctx context.Context, c *gin.Context, activity map[stri
 				now = editTime(object, now)
 			}
 			// Save the complete content value so association hooks see the new text.
+			// Always bind StatusId to the parent status.Id: if the remote status was
+			// previously stored without a status_contents row (e.g. a media-only post),
+			// Preload("Content") leaves StatusId at 0, which must never fall through to
+			// an independent sequence.
+			if status.Id == 0 {
+				return errors.New("cannot update content of status with zero id")
+			}
+			status.Content.StatusId = status.Id
+			if status.Content.ContentFormat == "" {
+				status.Content.ContentFormat = "plain"
+			}
 			status.Content.Content = content
 			status.Content.SpoilerText = summary
 			writeCtx := withObjectHashtags(models.WithStructuredEmojiIDs(models.WithStructuredMentions(ctx), emojis.GetIds()), object["tag"])
@@ -2017,8 +2028,11 @@ func importFetchedStatus(ctx context.Context, statusURI string, statusData map[s
 
 	// Create status in transaction (safe against panics — Transaction auto-rolls-back)
 	err = activityDB(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&status).Error; err != nil {
+		if err := tx.Omit("Content").Create(&status).Error; err != nil {
 			return fmt.Errorf("failed to create status: %w", err)
+		}
+		if status.Id == 0 {
+			return errors.New("created status has zero id")
 		}
 
 		// Create status content

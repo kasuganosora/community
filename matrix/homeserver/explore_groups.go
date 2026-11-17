@@ -613,6 +613,5 @@ func HandleExploreGroupAvatar(c *gin.Context) {
 		exploreFailure(c, 404, "EXPLORE_GROUP_NOT_FOUND", "Group not found")
 		return
 	}
-	c.Header("Cache-Control", "public, max-age=3600")
-	serveWebGroupMXC(c, hs, *room.AvatarURL, "group-avatar", true)
+	serveWebGroupAvatarMXC(c, hs, *room.AvatarURL, room.RoomID, true)
 }

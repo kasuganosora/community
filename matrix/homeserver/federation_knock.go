@@ -235,28 +235,29 @@ func (r *RoomService) persistKnockPreview(ctx context.Context, server string, p 
 				if s.StateKey != "" {
 					continue
 				}
-				str := func(key string) *string {
+				strTrunc := func(key string, limit int) *string {
 					v, ok := s.Content[key].(string)
-					if !ok || len(v) > 1024 {
+					if !ok {
 						return nil
 					}
-					return &v
+					clean := sanitizeMatrixRoomSummaryText(v, limit)
+					return &clean
 				}
 				switch s.Type {
 				case EventTypeRoomName:
-					room.Name = str("name")
+					room.Name = strTrunc("name", MaxMatrixRoomNameRunes)
 				case EventTypeRoomTopic:
-					room.Topic = str("topic")
+					room.Topic = strTrunc("topic", MaxMatrixRoomTopicRunes)
 				case EventTypeRoomAvatar:
-					room.AvatarURL = str("url")
+					room.AvatarURL = strTrunc("url", MaxMatrixRoomAvatarURLRunes)
 				case EventTypeRoomJoinRules:
-					if v := str("join_rule"); v != nil {
+					if v := strTrunc("join_rule", 32); v != nil {
 						room.JoinRule = *v
 					}
 				case EventTypeRoomEncryption:
 					room.IsEncrypted = true
 				case EventTypeRoomCreate:
-					room.RoomType = str("type")
+					room.RoomType = strTrunc("type", 32)
 				}
 			}
 			if fresh {

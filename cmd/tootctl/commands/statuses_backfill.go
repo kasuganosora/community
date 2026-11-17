@@ -90,7 +90,49 @@ func statusesBackfillCommands() []*cli.Command {
 			},
 			Action: markBackfilled,
 		},
+		{
+			Name:  "check-contents",
+			Usage: "Check for non-reblog statuses missing status_contents rows and inspect sequence lag",
+			Description: "Reports live non-reblog statuses missing a status_contents row (local vs remote) separately from\n" +
+				"reblogs (which legitimately have no content row), and checks whether a legacy PostgreSQL sequence on\n" +
+				"status_contents lags behind MAX(status_id). Pass --repair-missing to insert empty plain-text rows keyed\n" +
+				"explicitly by parent statuses.id; sequence catch-up (setval) remains a separate manual operator step.",
+			Flags: []cli.Flag{
+				&cli.BoolFlag{Name: "repair-missing", Usage: "insert missing status_contents rows using each parent status id"},
+			},
+			Action: checkStatusContents,
+		},
 	}
+}
+
+func checkStatusContents(c *cli.Context) error {
+	ctx := context.Background()
+	conn := db.GetDB()
+	report, err := models.InspectStatusContents(ctx, conn)
+	if err != nil {
+		return err
+	}
+	w := c.App.Writer
+	fmt.Fprintf(w, "Non-reblog statuses missing status_contents: %d (local=%d, remote=%d)\n",
+		report.MissingNonReblogTotal, report.MissingLocal, report.MissingRemote)
+	fmt.Fprintf(w, "Reblog statuses without status_contents (expected): %d\n", report.ReblogsWithoutContent)
+	fmt.Fprintf(w, "Max statuses.id=%d, max status_contents.status_id=%d\n", report.MaxStatusID, report.MaxContentStatusID)
+	if report.SequenceName != "" {
+		fmt.Fprintf(w, "PostgreSQL sequence %s last_value=%d lagging=%t\n",
+			report.SequenceName, report.SequenceLastValue, report.SequenceLagging)
+		if report.SequenceLagging {
+			fmt.Fprintln(w, "Note: application writers always set explicit parent status_id; optional post-deploy operator follow-up may align the legacy sequence with setval.")
+		}
+	}
+	if !c.Bool("repair-missing") || report.MissingNonReblogTotal == 0 {
+		return nil
+	}
+	repaired, err := models.BackfillMissingStatusContents(ctx, conn, false)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "Backfilled %d missing non-reblog status_contents row(s) with explicit parent status_id\n", repaired)
+	return nil
 }
 
 func repairReplyParents(c *cli.Context) error {

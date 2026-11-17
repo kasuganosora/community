@@ -693,10 +693,14 @@ func (r *RoomService) persistFederationJoinContext(ctx context.Context, pj *prep
 				return err
 			}
 			e := pduToMatrixEvent(p)
-			r.updateRoomState(tx, pj.roomID, e)
+			if err := r.updateRoomState(tx, pj.roomID, e); err != nil {
+				return err
+			}
 			if e.EventType == EventTypeRoomMember {
 				m, _ := e.Content["membership"].(string)
-				r.updateRoomMember(tx, pj.roomID, *e.StateKey, MembershipState(m), e.EventID)
+				if err := r.updateRoomMember(tx, pj.roomID, *e.StateKey, MembershipState(m), e.EventID); err != nil {
+					return err
+				}
 			}
 		}
 		return persistVerifiedPDUAtState(tx, r.HS, pj.join, true, pj.state, true)

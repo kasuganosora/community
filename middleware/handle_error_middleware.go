@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/config"
@@ -14,6 +16,14 @@ func HandleErrorsMiddleware() gin.HandlerFunc {
 
 		lastError := c.Errors.Last()
 		if lastError == nil {
+			return
+		}
+
+		if errors.Is(lastError.Err, context.Canceled) && c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled) {
+			log.Debug("Client disconnected: %s", secretredact.Scrub(c, lastError.Err.Error()))
+			if !c.Writer.Written() {
+				c.AbortWithStatus(StatusClientClosedRequest)
+			}
 			return
 		}
 

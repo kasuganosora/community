@@ -30,11 +30,25 @@ import (
 // uploads/ or S3). When S3_PUBLIC_URL is configured, inline-safe media is
 // answered with a redirect to the public object URL (CDN / public bucket);
 // otherwise the bytes are streamed by the app. Range requests are supported.
+func parseMediaAttachmentID(raw string) (uint64, bool) {
+	id, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || id == 0 {
+		return 0, false
+	}
+	return id, true
+}
+
 func Serve(c *gin.Context) {
+	mediaID, ok := parseMediaAttachmentID(c.Param("id"))
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+
+		return
+	}
 	requested := strings.TrimPrefix(c.Param("file"), "/")
 
 	var media models.MediaAttachment
-	if err := db.GetDB().Where("id = ?", c.Param("id")).First(&media).Error; err != nil {
+	if err := db.GetDB().Where("id = ?", mediaID).First(&media).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
 
 		return

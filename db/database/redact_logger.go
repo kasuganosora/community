@@ -110,6 +110,9 @@ func (l *redactingLogger) Error(ctx context.Context, msg string, args ...any) {
 }
 
 func (l *redactingLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	if err != nil && errors.Is(err, context.Canceled) && ctx != nil && errors.Is(ctx.Err(), context.Canceled) {
+		return
+	}
 	if err != nil && errors.Is(err, gorm.ErrRecordNotFound) {
 		sql, _ := fc()
 		if strings.Contains(sql, "matrix_user_sessions") {

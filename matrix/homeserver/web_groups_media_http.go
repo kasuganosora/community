@@ -3,6 +3,7 @@ package homeserver
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -13,9 +14,12 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/defaultavatar"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
 	"gorm.io/gorm"
@@ -188,7 +192,7 @@ func handleWebGroupAvatar(c *gin.Context) {
 		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "The group avatar does not exist or you may not access it")
 		return
 	}
-	serveWebGroupMXC(c, hs, *room.AvatarURL, "avatar", true)
+	serveWebGroupAvatarMXC(c, hs, *room.AvatarURL, room.RoomID, false)
 }
 
 func handleWebGroupMemberAvatar(c *gin.Context) {
@@ -242,10 +246,164 @@ func handleWebGroupMemberAvatar(c *gin.Context) {
 		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "Member avatar not found")
 		return
 	}
-	serveWebGroupMXC(c, hs, avatar, "avatar", true)
+	serveWebGroupAvatarMXC(c, hs, avatar, string(decoded), false)
 }
 
-var webGroupDownloadSlots = make(chan struct{}, 16)
+var (
+	webGroupDownloadSlots = make(chan struct{}, 16)
+	remoteAvatarTimeout   = 5 * time.Second
+
+	remoteAvatarFailMu   sync.Mutex
+	remoteAvatarFailures = map[string]time.Time{}
+	remoteAvatarLogLast  = map[string]time.Time{}
+)
+
+func remoteAvatarRecentlyFailed(mxc string) bool {
+	remoteAvatarFailMu.Lock()
+	defer remoteAvatarFailMu.Unlock()
+	until, ok := remoteAvatarFailures[mxc]
+	if !ok {
+		return false
+	}
+	if time.Now().After(until) {
+		delete(remoteAvatarFailures, mxc)
+		return false
+	}
+	return true
+}
+
+func markRemoteAvatarFailed(mxc, server string, err error) {
+	now := time.Now()
+	remoteAvatarFailMu.Lock()
+	if len(remoteAvatarFailures) >= 4096 {
+		for k, exp := range remoteAvatarFailures {
+			if now.After(exp) {
+				delete(remoteAvatarFailures, k)
+			}
+		}
+		if len(remoteAvatarFailures) >= 4096 {
+			clear(remoteAvatarFailures)
+		}
+	}
+	remoteAvatarFailures[mxc] = now.Add(30 * time.Second)
+	shouldLog := false
+	if last, ok := remoteAvatarLogLast[server]; !ok || now.Sub(last) >= time.Minute {
+		if len(remoteAvatarLogLast) >= 2048 {
+			clear(remoteAvatarLogLast)
+		}
+		remoteAvatarLogLast[server] = now
+		shouldLog = true
+	}
+	remoteAvatarFailMu.Unlock()
+	if shouldLog {
+		log.Warn("remote matrix avatar from %s degraded to placeholder: %v", server, err)
+	}
+}
+
+func serveWebGroupAvatarPlaceholder(c *gin.Context, seedIdentity string, publicCache bool) {
+	if seedIdentity == "" {
+		seedIdentity = "avatar"
+	}
+	data, err := defaultavatar.PNG(defaultavatar.Seed(seedIdentity, "matrix"))
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Security-Policy", "sandbox; default-src 'none'")
+	c.Header("Cross-Origin-Resource-Policy", "same-origin")
+	c.Header("X-Avatar-Fallback", "placeholder")
+	if publicCache {
+		c.Header("Cache-Control", "public, max-age=60")
+	} else {
+		c.Header("Cache-Control", "private, max-age=60")
+		c.Header("Vary", "Authorization")
+	}
+	c.Data(http.StatusOK, "image/png", data)
+}
+
+func serveWebGroupAvatarMXC(c *gin.Context, hs *HomeServer, mxc, seedIdentity string, publicCache bool) {
+	server, id, err := webGroupMXC(mxc)
+	if err != nil {
+		webGroupFailure(c, 404, "MEDIA_NOT_FOUND", "Invalid attachment address")
+		return
+	}
+	if server == hs.Config.ServerName {
+		if publicCache {
+			c.Header("Cache-Control", "public, max-age=3600")
+		}
+		serveWebGroupMXC(c, hs, mxc, "avatar", true)
+		return
+	}
+	if remoteAvatarRecentlyFailed(mxc) {
+		serveWebGroupAvatarPlaceholder(c, seedIdentity, publicCache)
+		return
+	}
+	select {
+	case webGroupDownloadSlots <- struct{}{}:
+		defer func() { <-webGroupDownloadSlots }()
+	default:
+		serveWebGroupAvatarPlaceholder(c, seedIdentity, publicCache)
+		return
+	}
+	ctx, cancelTimeout := context.WithTimeout(c.Request.Context(), remoteAvatarTimeout)
+	defer cancelTimeout()
+
+	params := url.Values{"width": {"320"}, "height": {"240"}, "method": {"scale"}}
+	remote, cancelRemote, fetchErr := hs.remoteMedia().Open(ctx, server, id, "thumbnail", params)
+	if fetchErr != nil {
+		markRemoteAvatarFailed(mxc, server, fetchErr)
+		serveWebGroupAvatarPlaceholder(c, seedIdentity, publicCache)
+		return
+	}
+	defer cancelRemote()
+	defer remote.Close()
+
+	if remote.Length > matrixMediaLimit {
+		markRemoteAvatarFailed(mxc, server, errRemoteMediaTooLarge)
+		serveWebGroupAvatarPlaceholder(c, seedIdentity, publicCache)
+		return
+	}
+	br := bufio.NewReaderSize(io.LimitReader(remote.Body, matrixMediaLimit), 64<<10)
+	prefix, peekErr := br.Peek(512)
+	if len(prefix) == 0 && peekErr != nil {
+		markRemoteAvatarFailed(mxc, server, peekErr)
+		serveWebGroupAvatarPlaceholder(c, seedIdentity, publicCache)
+		return
+	}
+	typ := http.DetectContentType(prefix)
+	if !webGroupRasterType(typ) {
+		markRemoteAvatarFailed(mxc, server, errors.New("remote avatar is not a supported raster image"))
+		serveWebGroupAvatarPlaceholder(c, seedIdentity, publicCache)
+		return
+	}
+	imageHeader, _ := br.Peek(64 << 10)
+	cfg, _, decodeErr := image.DecodeConfig(bytes.NewReader(imageHeader))
+	if decodeErr != nil || cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > webGroupImageMaxPixels {
+		markRemoteAvatarFailed(mxc, server, errors.New("remote avatar failed raster bounds validation"))
+		serveWebGroupAvatarPlaceholder(c, seedIdentity, publicCache)
+		return
+	}
+
+	c.Header("Content-Type", typ)
+	c.Header("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": "avatar"}))
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Security-Policy", "sandbox; default-src 'none'")
+	c.Header("Cross-Origin-Resource-Policy", "same-origin")
+	if publicCache {
+		c.Header("Cache-Control", "public, max-age=3600")
+	} else {
+		c.Header("Cache-Control", "private, no-store")
+		c.Header("Vary", "Authorization")
+	}
+	if remote.Length >= 0 {
+		c.Header("Content-Length", strconv.FormatInt(remote.Length, 10))
+	}
+	c.Status(http.StatusOK)
+	if _, copyErr := io.Copy(c.Writer, br); copyErr != nil {
+		log.Warn("remote matrix avatar stream interrupted: %v", copyErr)
+	}
+}
 
 func serveWebGroupMXC(c *gin.Context, hs *HomeServer, mxc, name string, thumbnail bool) {
 	server, id, err := webGroupMXC(mxc)

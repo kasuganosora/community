@@ -129,11 +129,11 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 	}
 
 	if req.Name != nil {
-		room.Name = req.Name
+		room.Name = sanitizeMatrixRoomSummaryPtr(req.Name, MaxMatrixRoomNameRunes)
 	}
 
 	if req.Topic != nil {
-		room.Topic = req.Topic
+		room.Topic = sanitizeMatrixRoomSummaryPtr(req.Topic, MaxMatrixRoomTopicRunes)
 	}
 
 	err := tx.Create(room).Error
@@ -400,7 +400,11 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			return nil, ErrInternal
 		}
 
-		r.updateRoomState(tx, roomID, nameEvent)
+		if err := r.updateRoomState(tx, roomID, nameEvent); err != nil {
+			tx.Rollback()
+
+			return nil, ErrInternal
+		}
 	}
 
 	if req.Topic != nil {
@@ -432,7 +436,11 @@ func (r *RoomService) CreateRoom(creatorID string, req *CreateRoomRequest) (*Cre
 			return nil, ErrInternal
 		}
 
-		r.updateRoomState(tx, roomID, topicEvent)
+		if err := r.updateRoomState(tx, roomID, topicEvent); err != nil {
+			tx.Rollback()
+
+			return nil, ErrInternal
+		}
 	}
 
 	// 7. Set canonical alias state event if alias requested
@@ -1340,33 +1348,37 @@ func (r *RoomService) updateRoomState(tx *gorm.DB, roomID string, event *MatrixE
 		return err
 	}
 
-	// 同步 MatrixRoom 的去正规化字段
+	if stateKey != "" {
+		return nil
+	}
+
+	// Sync denormalized summary fields on MatrixRoom (bounded to each varchar column).
 	updates := map[string]any{}
 
 	switch event.EventType {
 	case EventTypeRoomJoinRules:
 		if v, ok := event.Content["join_rule"].(string); ok {
-			updates["join_rule"] = v
+			updates["join_rule"] = sanitizeMatrixRoomSummaryText(v, 32)
 		}
 	case EventTypeRoomHistoryVisibility:
 		if v, ok := event.Content["history_visibility"].(string); ok {
-			updates["history_visibility"] = v
+			updates["history_visibility"] = sanitizeMatrixRoomSummaryText(v, 32)
 		}
 	case EventTypeRoomGuestAccess:
 		if v, ok := event.Content["guest_access"].(string); ok {
-			updates["guest_access"] = v
+			updates["guest_access"] = sanitizeMatrixRoomSummaryText(v, 32)
 		}
 	case EventTypeRoomName:
 		if v, ok := event.Content["name"].(string); ok {
-			updates["name"] = v
+			updates["name"] = sanitizeMatrixRoomSummaryText(v, MaxMatrixRoomNameRunes)
 		}
 	case EventTypeRoomTopic:
 		if v, ok := event.Content["topic"].(string); ok {
-			updates["topic"] = v
+			updates["topic"] = sanitizeMatrixRoomSummaryText(v, MaxMatrixRoomTopicRunes)
 		}
 	case EventTypeRoomAvatar:
 		if v, ok := event.Content["url"].(string); ok {
-			updates["avatar_url"] = v
+			updates["avatar_url"] = sanitizeMatrixRoomSummaryText(v, MaxMatrixRoomAvatarURLRunes)
 		}
 	case EventTypeRoomEncryption:
 		updates["is_encrypted"] = true
