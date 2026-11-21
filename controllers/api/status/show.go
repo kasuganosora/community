@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
+	historysvc "github.com/kasuganosora/community/history"
 	"github.com/kasuganosora/community/models"
 )
 
@@ -24,6 +25,14 @@ func Show(c *gin.Context) {
 	}
 
 	abortUnlessVisible(c, db.GetDB(), status, account)
+
+	if account != nil && c.Query("background") != "1" {
+		targetID := status.Id
+		if status.ReblogId != nil && *status.ReblogId > 0 {
+			targetID = *status.ReblogId
+		}
+		historysvc.RecordAsync(account.Id, targetID)
+	}
 
 	returnFullSingleStatus(c, status, account)
 }

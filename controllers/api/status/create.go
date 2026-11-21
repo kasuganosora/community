@@ -233,6 +233,17 @@ func Create(c *gin.Context) {
 		}
 		createDB = createDB.WithContext(models.WithStructuredRecipientIDs(c.Request.Context(), recipients))
 	}
+
+	var antiSpamReplyID uint64
+	if status.InReplyToId != nil {
+		antiSpamReplyID = *status.InReplyToId
+	}
+	if spamErr := moderation.CheckStatusAntiSpam(c.Request.Context(), currentAccount.Id, antiSpamReplyID, req.Status); spamErr != nil {
+		c.Header("Retry-After", "60")
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": spamErr.Error(), "code": "ANTISPAM_RATE_LIMITED"})
+		return
+	}
+
 	review := newacctmod.PrepareCreate(createDB, status, currentAccount)
 	err = models.CreateStatusCommitted(createDB, status, review)
 	if err != nil {

@@ -2021,6 +2021,38 @@
       "s4": "Charger plus",
       "s5": "Aucun favori pour le moment",
       "s6": "Touchez le bouton favori d’un post pour le retrouver ici."
+    },
+    "Folders": {
+      "addToFolderMenu": "Ajouter au dossier",
+      "addToFolderTitle": "Enregistrer dans un dossier",
+      "allBookmarks": "Tous les marque-pages",
+      "newFolder": "Nouveau dossier",
+      "editFolder": "Modifier le dossier",
+      "edit": "Modifier",
+      "save": "Enregistrer",
+      "titleLabel": "Nom du dossier",
+      "descLabel": "Description (optionnelle)",
+      "descPlaceholder": "Décrire ce dossier…",
+      "newFolderPlaceholder": "Nom du dossier",
+      "createAndAdd": "Créer et ajouter",
+      "public": "Public",
+      "private": "Privé",
+      "publicToggleHint": "Rendre public (visible via le lien)",
+      "copyShareLink": "Copier le lien",
+      "linkCopied": "Lien du dossier public copié",
+      "sharedTitle": "Dossier de marque-pages partagé",
+      "notFoundOrPrivate": "Ce dossier n'existe pas ou est privé.",
+      "noFoldersYet": "Aucun dossier pour le moment.",
+      "emptyFolder": "Ce dossier est vide",
+      "emptyFolderHint": "Utilisez « Ajouter au dossier » depuis le menu d'un message.",
+      "removeFromFolder": "Retirer du dossier",
+      "created": "Dossier créé",
+      "updated": "Dossier mis à jour",
+      "deleted": "Dossier supprimé",
+      "deleteConfirmTitle": "Supprimer le dossier",
+      "deleteConfirmBody": "Supprimer le dossier « {0} » ? Les messages ne seront pas supprimés.",
+      "loadFailed": "Échec du chargement des dossiers",
+      "actionFailed": "Échec de l'opération"
     }
   },
   "data": {
@@ -2861,6 +2893,17 @@
       "s21": "Épinglé",
       "s22": "Désépinglé",
       "s23": "Échec de l’épinglage"
+    },
+    "ReplyGovernance": {
+      "sortTime": "Chronologique",
+      "sortHot": "Populaire",
+      "authorOnly": "Auteur uniquement",
+      "pinnedBadge": "Épinglé par l'auteur",
+      "pinReply": "Épingler la réponse",
+      "unpinReply": "Désépingler",
+      "pinned": "Réponse épinglée",
+      "unpinned": "Réponse désépinglée",
+      "pinFailed": "Échec de l'épinglage"
     }
   },
   "settings": {
@@ -3988,6 +4031,28 @@
     "mediaDisk": "Le stockage temporaire est plein. Réessayez plus tard.",
     "mediaFailed": "Le traitement a échoué. Le fichier d’origine n’a pas été publié.",
     "mediaCancelled": "Le traitement a été annulé.",
-    "mediaNotReady": "La pièce jointe n’est pas encore prête."
+    "mediaNotReady": "La pièce jointe n’est pas encore prête.",
+    "spamDuplicate": "Contenu en double publié trop fréquemment, veuillez ralentir",
+    "serverOverloaded": "Serveur temporairement surchargé, veuillez réessayer"
+  },
+  "history": {
+    "HistoryPage": {
+      "title": "Historique",
+      "pause": "Mettre en pause",
+      "resume": "Reprendre",
+      "pausedBanner": "L'historique est en pause. Les nouvelles vues ne sont pas enregistrées.",
+      "pausedToast": "Historique mis en pause",
+      "resumedToast": "Historique repris",
+      "clearAll": "Tout effacer",
+      "clearConfirmTitle": "Effacer l'historique",
+      "clearConfirmBody": "Effacer tout l'historique de navigation ? Action irréversible.",
+      "cleared": "Historique effacé",
+      "viewedAt": "Consulté le {0}",
+      "removeOne": "Supprimer l'entrée",
+      "emptyTitle": "Aucun historique",
+      "emptyDesc": "Les messages consultés apparaissent ici sur tous vos appareils.",
+      "loadFailed": "Échec du chargement de l'historique",
+      "actionFailed": "Échec de l'opération"
+    }
   }
 }

@@ -1,4 +1,4 @@
-const SECTIONS = ['explore', 'announcements', 'notifications', 'messages', 'groups', 'bookmarks', 'lists', 'settings'] as const
+const SECTIONS = ['explore', 'announcements', 'notifications', 'messages', 'groups', 'bookmarks', 'history', 'lists', 'settings'] as const
 export type NavSection = 'home' | 'profile' | (typeof SECTIONS)[number] | ''
 
 /**
@@ -9,6 +9,7 @@ export type NavSection = 'home' | 'profile' | (typeof SECTIONS)[number] | ''
 export function activeNavSection(path: string, username?: string | null): NavSection {
   if (path === '/' || path === '') return 'home'
   if (path === '/messages/groups' || path.startsWith('/messages/groups/')) return 'groups'
+  if (path.startsWith('/bookmark_folders')) return 'bookmarks'
   if (path.startsWith('/search') || path.startsWith('/tags/')) return 'explore'
   for (const s of SECTIONS) {
     if (path === `/${s}` || path.startsWith(`/${s}/`)) return s

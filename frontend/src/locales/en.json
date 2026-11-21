@@ -2021,6 +2021,38 @@
       "s4": "Load more",
       "s5": "No bookmarks yet",
       "s6": "Tap the bookmark button on a post and you’ll find it here later."
+    },
+    "Folders": {
+      "addToFolderMenu": "Add to folder",
+      "addToFolderTitle": "Save to bookmark folders",
+      "allBookmarks": "All bookmarks",
+      "newFolder": "New folder",
+      "editFolder": "Edit folder",
+      "edit": "Edit",
+      "save": "Save",
+      "titleLabel": "Folder name",
+      "descLabel": "Description (optional)",
+      "descPlaceholder": "Describe what this folder collects…",
+      "newFolderPlaceholder": "Enter folder name",
+      "createAndAdd": "Create & add",
+      "public": "Public",
+      "private": "Private",
+      "publicToggleHint": "Make public (anyone with the link can view)",
+      "copyShareLink": "Copy link",
+      "linkCopied": "Public folder link copied",
+      "sharedTitle": "Shared Bookmark Folder",
+      "notFoundOrPrivate": "This bookmark folder does not exist or is private.",
+      "noFoldersYet": "No folders yet. Create one below.",
+      "emptyFolder": "This folder is empty",
+      "emptyFolderHint": "Use \"Add to folder\" in any post menu to organize posts here.",
+      "removeFromFolder": "Remove from folder",
+      "created": "Folder created",
+      "updated": "Folder updated",
+      "deleted": "Folder deleted",
+      "deleteConfirmTitle": "Delete folder",
+      "deleteConfirmBody": "Delete folder \"{0}\"? The posts themselves will not be deleted.",
+      "loadFailed": "Failed to load bookmark folders",
+      "actionFailed": "Action failed, please try again"
     }
   },
   "data": {
@@ -2861,6 +2893,17 @@
       "s21": "Pinned",
       "s22": "Unpinned",
       "s23": "Pin failed"
+    },
+    "ReplyGovernance": {
+      "sortTime": "Chronological",
+      "sortHot": "Top",
+      "authorOnly": "Author only",
+      "pinnedBadge": "Pinned by author",
+      "pinReply": "Pin reply",
+      "unpinReply": "Unpin reply",
+      "pinned": "Reply pinned",
+      "unpinned": "Reply unpinned",
+      "pinFailed": "Failed to update pinned reply"
     }
   },
   "settings": {
@@ -3988,6 +4031,28 @@
     "mediaDisk": "Temporary storage is full. Try again later.",
     "mediaFailed": "Processing failed. The original file was not published.",
     "mediaCancelled": "Processing was cancelled.",
-    "mediaNotReady": "The attachment is not ready yet."
+    "mediaNotReady": "The attachment is not ready yet.",
+    "spamDuplicate": "Duplicate content posted too frequently, please slow down",
+    "serverOverloaded": "Server is temporarily overloaded, please retry shortly"
+  },
+  "history": {
+    "HistoryPage": {
+      "title": "History",
+      "pause": "Pause history",
+      "resume": "Resume history",
+      "pausedBanner": "Browsing history is paused. Newly viewed posts will not be recorded.",
+      "pausedToast": "Browsing history paused",
+      "resumedToast": "Browsing history resumed",
+      "clearAll": "Clear all",
+      "clearConfirmTitle": "Clear browsing history",
+      "clearConfirmBody": "Clear all browsing history? This cannot be undone.",
+      "cleared": "Browsing history cleared",
+      "viewedAt": "Viewed {0}",
+      "removeOne": "Remove entry",
+      "emptyTitle": "No browsing history yet",
+      "emptyDesc": "Posts you open appear here and stay synced across your devices.",
+      "loadFailed": "Failed to load browsing history",
+      "actionFailed": "Action failed, please try again"
+    }
   }
 }

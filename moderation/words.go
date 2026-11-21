@@ -16,6 +16,7 @@ import (
 // Matching is case-sensitive, like Misskey's String.includes. Invalid
 // regular expressions never match.
 type WordMatcher struct {
+	trie    *DFATrie
 	entries []wordEntry
 }
 
@@ -28,9 +29,11 @@ type wordEntry struct {
 var regexpEntry = regexp.MustCompile(`^/(.+)/(.*)$`)
 
 // CompileWords builds a matcher. Empty entries are ignored (Misskey's
-// update-meta drops them with filter(Boolean)).
+// update-meta drops them with filter(Boolean)). Single-token plain words are
+// indexed into an O(N) Aho-Corasick DFATrie for fast matching.
 func CompileWords(lines []string) *WordMatcher {
 	m := &WordMatcher{}
+	var singleWords []GradedRule
 	for _, line := range lines {
 		if line == "" {
 			continue
@@ -39,7 +42,15 @@ func CompileWords(lines []string) *WordMatcher {
 			m.entries = append(m.entries, compileRegexpEntry(sub[1], sub[2]))
 			continue
 		}
-		m.entries = append(m.entries, wordEntry{words: strings.Split(line, " ")})
+		parts := strings.Split(line, " ")
+		if len(parts) == 1 {
+			singleWords = append(singleWords, GradedRule{Word: parts[0], Level: FilterLevelBlock})
+			continue
+		}
+		m.entries = append(m.entries, wordEntry{words: parts})
+	}
+	if len(singleWords) > 0 {
+		m.trie = NewDFATrie(singleWords)
 	}
 	return m
 }
@@ -71,12 +82,17 @@ func compileRegexpEntry(pattern, flags string) wordEntry {
 }
 
 // Empty reports whether the matcher has no entries.
-func (m *WordMatcher) Empty() bool { return m == nil || len(m.entries) == 0 }
+func (m *WordMatcher) Empty() bool {
+	return m == nil || (m.trie.Empty() && len(m.entries) == 0)
+}
 
 // Match reports whether text is matched by any entry.
 func (m *WordMatcher) Match(text string) bool {
 	if m.Empty() || text == "" {
 		return false
+	}
+	if !m.trie.Empty() && m.trie.Match(text) {
+		return true
 	}
 	for _, e := range m.entries {
 		switch {

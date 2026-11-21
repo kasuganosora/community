@@ -23,6 +23,9 @@ describe('translateApiError', () => {
     expect(translateApiError('limit must be between 1 and 50')).toContain('50')
     expect(translateApiError('at most 3 decorations may be selected')).toBe(t('apiError.decorationLimit', ['3']))
     expect(translateApiError('API rate limit exceeded for /api/v1/statuses')).toBe(t('apiError.rateLimited'))
+    expect(translateApiError('duplicate content posted too frequently, please slow down')).toBe(t('apiError.spamDuplicate'))
+    expect(translateApiError('posting too frequently, please slow down')).toBe(t('apiError.rateLimited'))
+    expect(translateApiError('server temporarily overloaded, please retry shortly')).toBe(t('apiError.serverOverloaded'))
   })
   it('translates the detail of a validation failure', () => {
     expect(translateApiError('Validation failed: password is too short (minimum is 8 characters)')).toBe(t('apiError.passwordTooShort'))

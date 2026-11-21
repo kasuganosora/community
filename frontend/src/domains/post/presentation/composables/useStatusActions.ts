@@ -109,7 +109,7 @@ export function refreshStreamedStatus(id: string, update?: StatusUpdater): Promi
     while (state.dirty && active()) {
       state.dirty = false
       try {
-        const status = await postApi.getStatus(id)
+        const status = await postApi.getStatus(id, { background: true })
         if (!active()) return
         if (state.dirty) continue
         // An edit fetch must not undo a like/boost/bookmark still being sent.

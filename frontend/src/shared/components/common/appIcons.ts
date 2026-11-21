@@ -18,7 +18,10 @@ import { SecuredIcon, PaletteIcon, CloudIcon, CodeIcon, ChartIcon, FileIcon, Fil
 
 import { StopCircleIcon } from 'tdesign-icons-vue-next'
 
-import { QuoteIcon, DashboardIcon, UsergroupIcon, FlagIcon, HappyIcon, InternetIcon, ServerIcon, DataIcon, MenuIcon, ArrowRightUpIcon, ArrowRightIcon } from 'tdesign-icons-vue-next'
+import {
+  QuoteIcon, DashboardIcon, UsergroupIcon, FlagIcon, HappyIcon, InternetIcon, ServerIcon, DataIcon, MenuIcon, ArrowRightUpIcon, ArrowRightIcon,
+  TimeFilledIcon, PinFilledIcon, TrendingUpIcon, CheckCircleFilledIcon, CircleIcon, FolderAddIcon, FolderIcon, PlayCircleIcon, PauseCircleIcon,
+} from 'tdesign-icons-vue-next'
 
 /** Icons bundled locally (no runtime download). Add names here as needed. */
 export const ICONS: Record<string, Component> = {
@@ -58,10 +61,12 @@ export const ICONS: Record<string, Component> = {
   'chat': ChatIcon,
   'check': CheckIcon,
   'check-circle': CheckCircleIcon,
+  'check-circle-filled': CheckCircleFilledIcon,
   'chevron-down': ChevronDownIcon,
   'chevron-left': ChevronLeftIcon,
   'chevron-right': ChevronRightIcon,
   'chevron-up': ChevronUpIcon,
+  'circle': CircleIcon,
   'arrow-up': ArrowUpIcon,
   'close': CloseIcon,
   'delete': DeleteIcon,
@@ -69,6 +74,8 @@ export const ICONS: Record<string, Component> = {
   'earth': EarthIcon,
   'edit': EditIcon,
   'error-circle': ErrorCircleIcon,
+  'folder': FolderIcon,
+  'folder-add': FolderAddIcon,
   'heart': HeartIcon,
   'heart-filled': HeartFilledIcon,
   'home': HomeIcon,
@@ -89,6 +96,9 @@ export const ICONS: Record<string, Component> = {
   'notification-filled': NotificationFilledIcon,
   'loudspeaker': LoudspeakerIcon,
   'loudspeaker-filled': LoudspeakerFilledIcon,
+  'pause-circle': PauseCircleIcon,
+  'pin-filled': PinFilledIcon,
+  'play-circle': PlayCircleIcon,
   'refresh': RefreshIcon,
   'search': SearchIcon,
   'setting': SettingIcon,
@@ -97,6 +107,8 @@ export const ICONS: Record<string, Component> = {
   'smile': SmileIcon,
   'swap': SwapIcon,
   'time': TimeIcon,
+  'time-filled': TimeFilledIcon,
+  'trending-up': TrendingUpIcon,
   'user': UserIcon,
   'user-add': UserAddIcon,
   'user-circle': UserCircleIcon,

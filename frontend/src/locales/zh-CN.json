@@ -2021,6 +2021,38 @@
       "s4": "加载更多",
       "s5": "还没有收藏",
       "s6": "点击帖子上的收藏按钮，之后可以在这里找到它们。"
+    },
+    "Folders": {
+      "addToFolderMenu": "收入收藏夹",
+      "addToFolderTitle": "选择收藏夹",
+      "allBookmarks": "全部收藏",
+      "newFolder": "新建收藏夹",
+      "editFolder": "编辑收藏夹",
+      "edit": "编辑",
+      "save": "保存",
+      "titleLabel": "收藏夹名称",
+      "descLabel": "简介（可选）",
+      "descPlaceholder": "写一段收藏夹说明…",
+      "newFolderPlaceholder": "输入收藏夹名称",
+      "createAndAdd": "新建并收藏",
+      "public": "公开",
+      "private": "私密",
+      "publicToggleHint": "设为公开（允许他人通过链接浏览）",
+      "copyShareLink": "复制链接",
+      "linkCopied": "公开收藏夹链接已复制",
+      "sharedTitle": "公开收藏夹",
+      "notFoundOrPrivate": "该收藏夹不存在或未公开。",
+      "noFoldersYet": "还没有创建收藏夹，可以在下方新建一个。",
+      "emptyFolder": "收藏夹里还没有内容",
+      "emptyFolderHint": "点击任意帖子右上角菜单的「收入收藏夹」即可添加。",
+      "removeFromFolder": "移出收藏夹",
+      "created": "收藏夹已创建",
+      "updated": "收藏夹已更新",
+      "deleted": "收藏夹已删除",
+      "deleteConfirmTitle": "删除收藏夹",
+      "deleteConfirmBody": "确定要删除收藏夹「{0}」吗？帖子本身不会被删除。",
+      "loadFailed": "加载收藏夹失败",
+      "actionFailed": "操作失败，请稍后重试"
     }
   },
   "data": {
@@ -2861,6 +2893,17 @@
       "s21": "已置顶",
       "s22": "已取消置顶",
       "s23": "置顶失败"
+    },
+    "ReplyGovernance": {
+      "sortTime": "按时间",
+      "sortHot": "按热度",
+      "authorOnly": "只看作者",
+      "pinnedBadge": "作者置顶",
+      "pinReply": "置顶回复",
+      "unpinReply": "取消置顶",
+      "pinned": "已置顶该回复",
+      "unpinned": "已取消置顶回复",
+      "pinFailed": "置顶操作失败"
     }
   },
   "settings": {
@@ -3988,6 +4031,28 @@
     "mediaDisk": "临时存储已满，请稍后再试。",
     "mediaFailed": "处理失败，未发布原始文件。",
     "mediaCancelled": "处理已取消。",
-    "mediaNotReady": "附件尚未就绪。"
+    "mediaNotReady": "附件尚未就绪。",
+    "spamDuplicate": "重复内容发送过于频繁，请稍后再试",
+    "serverOverloaded": "服务器当前负载较高，请稍后重试"
+  },
+  "history": {
+    "HistoryPage": {
+      "title": "浏览历史",
+      "pause": "暂停记录",
+      "resume": "恢复记录",
+      "pausedBanner": "已暂停记录浏览历史，新浏览的帖子不会再被记录。",
+      "pausedToast": "已暂停记录浏览历史",
+      "resumedToast": "已恢复记录浏览历史",
+      "clearAll": "清空历史",
+      "clearConfirmTitle": "清空浏览历史",
+      "clearConfirmBody": "确定要清空全部浏览历史吗？此操作无法撤销。",
+      "cleared": "浏览历史已清空",
+      "viewedAt": "浏览于 {0}",
+      "removeOne": "删除该条记录",
+      "emptyTitle": "暂无浏览历史",
+      "emptyDesc": "你查看过的帖子详情会自动保存在这里，支持跨设备同步。",
+      "loadFailed": "加载浏览历史失败",
+      "actionFailed": "操作失败，请稍后重试"
+    }
   }
 }

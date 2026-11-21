@@ -29,13 +29,40 @@ export const postApi = {
     return data
   },
 
-  async getStatus(id: string): Promise<MastodonStatus> {
-    const { data } = await client.get<MastodonStatus>(`/api/v1/statuses/${encodeURIComponent(id)}`)
+  async getStatus(id: string, opts?: { background?: boolean }): Promise<MastodonStatus> {
+    const { data } = await client.get<MastodonStatus>(
+      `/api/v1/statuses/${encodeURIComponent(id)}`,
+      opts?.background ? { params: { background: '1' } } : undefined,
+    )
     return data
   },
 
-  async getContext(id: string): Promise<MastodonContext> {
-    const { data } = await client.get<MastodonContext>(`/api/v1/statuses/${encodeURIComponent(id)}/context`)
+  async getContext(
+    id: string,
+    params?: { sort?: 'chronological' | 'hot'; author_only?: boolean },
+  ): Promise<MastodonContext> {
+    const query: Record<string, string> = {}
+    if (params?.sort === 'hot') query.sort = 'hot'
+    if (params?.author_only) query.author_only = 'true'
+    const { data } = await client.get<MastodonContext>(
+      `/api/v1/statuses/${encodeURIComponent(id)}/context`,
+      Object.keys(query).length ? { params: query } : undefined,
+    )
+    return data
+  },
+
+  async pinReply(statusId: string, replyId: string): Promise<{ status_id: string; pinned_reply_id: string }> {
+    const { data } = await client.post<{ status_id: string; pinned_reply_id: string }>(
+      `/api/v1/statuses/${encodeURIComponent(statusId)}/pin_reply`,
+      { reply_id: replyId },
+    )
+    return data
+  },
+
+  async unpinReply(statusId: string): Promise<{ status_id: string; pinned_reply_id: null }> {
+    const { data } = await client.delete<{ status_id: string; pinned_reply_id: null }>(
+      `/api/v1/statuses/${encodeURIComponent(statusId)}/pin_reply`,
+    )
     return data
   },
 

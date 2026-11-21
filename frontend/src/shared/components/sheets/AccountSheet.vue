@@ -52,6 +52,11 @@ async function logout() {
           <span class="group__label">{{ $t('shared.AccountSheet.s4') }}</span>
           <t-icon name="chevron-right" :size="16" class="group__chevron" />
         </button>
+        <button type="button" class="group__row" @click="go('/history')">
+          <span class="group__icon" style="--tint: #af52de"><t-icon name="time" :size="18" /></span>
+          <span class="group__label">{{ $t('history.HistoryPage.title') }}</span>
+          <t-icon name="chevron-right" :size="16" class="group__chevron" />
+        </button>
         <button type="button" class="group__row" @click="go('/lists')">
           <span class="group__icon" style="--tint: #34c759"><t-icon name="view-list" :size="18" /></span>
           <span class="group__label">{{ $t('shared.AccountSheet.s5') }}</span>

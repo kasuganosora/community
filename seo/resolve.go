@@ -115,7 +115,7 @@ func classify(p string) (routeKind, routeArg) {
 		return routeNotFound, routeArg{}
 	}
 	switch parts[0] {
-	case "admin", "settings", "login", "register", "notifications", "messages", "bookmarks", "lists", "search", "appeal", "groups":
+	case "admin", "settings", "login", "register", "notifications", "messages", "bookmarks", "bookmark_folders", "history", "lists", "search", "appeal", "groups":
 		return routePrivate, routeArg{}
 	case "notes":
 		// ActivityPub owns /notes/:id. If the shell is still asked for one,

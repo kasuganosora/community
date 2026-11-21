@@ -2021,6 +2021,38 @@
       "s4": "さらに読み込む",
       "s5": "ブックマークはまだありません",
       "s6": "投稿のブックマークボタンをタップすると、あとでここから見つけられます。"
+    },
+    "Folders": {
+      "addToFolderMenu": "フォルダに追加",
+      "addToFolderTitle": "ブックマークフォルダを選択",
+      "allBookmarks": "すべてのブックマーク",
+      "newFolder": "新しいフォルダ",
+      "editFolder": "フォルダを編集",
+      "edit": "編集",
+      "save": "保存",
+      "titleLabel": "フォルダ名",
+      "descLabel": "説明（任意）",
+      "descPlaceholder": "フォルダの説明を入力…",
+      "newFolderPlaceholder": "フォルダ名を入力",
+      "createAndAdd": "作成して追加",
+      "public": "公開",
+      "private": "非公開",
+      "publicToggleHint": "公開にする（リンクを知っている人が閲覧可能）",
+      "copyShareLink": "リンクをコピー",
+      "linkCopied": "公開フォルダのリンクをコピーしました",
+      "sharedTitle": "公開ブックマークフォルダ",
+      "notFoundOrPrivate": "このフォルダは存在しないか非公開です。",
+      "noFoldersYet": "まだフォルダがありません。下から作成できます。",
+      "emptyFolder": "フォルダは空です",
+      "emptyFolderHint": "投稿メニューの「フォルダに追加」から整理できます。",
+      "removeFromFolder": "フォルダから削除",
+      "created": "フォルダを作成しました",
+      "updated": "フォルダを更新しました",
+      "deleted": "フォルダを削除しました",
+      "deleteConfirmTitle": "フォルダを削除",
+      "deleteConfirmBody": "フォルダ「{0}」を削除しますか？投稿自体は削除されません。",
+      "loadFailed": "フォルダの読み込みに失敗しました",
+      "actionFailed": "操作に失敗しました"
     }
   },
   "data": {
@@ -2861,6 +2893,17 @@
       "s21": "固定しました",
       "s22": "固定を解除しました",
       "s23": "固定に失敗しました"
+    },
+    "ReplyGovernance": {
+      "sortTime": "時系列",
+      "sortHot": "人気順",
+      "authorOnly": "投稿者のみ",
+      "pinnedBadge": "投稿者が固定",
+      "pinReply": "返信を固定",
+      "unpinReply": "固定を解除",
+      "pinned": "返信を固定しました",
+      "unpinned": "返信の固定を解除しました",
+      "pinFailed": "固定の更新に失敗しました"
     }
   },
   "settings": {
@@ -3988,6 +4031,28 @@
     "mediaDisk": "一時ストレージがいっぱいです。しばらくしてから再試行してください。",
     "mediaFailed": "処理に失敗したため、元のファイルは公開されませんでした。",
     "mediaCancelled": "処理はキャンセルされました。",
-    "mediaNotReady": "添付ファイルはまだ準備できていません。"
+    "mediaNotReady": "添付ファイルはまだ準備できていません。",
+    "spamDuplicate": "同じ内容の投稿が多すぎます。しばらく待ってから再試行してください",
+    "serverOverloaded": "サーバーが混雑しています。しばらくしてから再試行してください"
+  },
+  "history": {
+    "HistoryPage": {
+      "title": "閲覧履歴",
+      "pause": "履歴を一時停止",
+      "resume": "履歴を再開",
+      "pausedBanner": "閲覧履歴の記録は一時停止中です。",
+      "pausedToast": "閲覧履歴を一時停止しました",
+      "resumedToast": "閲覧履歴を再開しました",
+      "clearAll": "すべて削除",
+      "clearConfirmTitle": "閲覧履歴をクリア",
+      "clearConfirmBody": "すべての閲覧履歴を削除しますか？この操作は取り消せません。",
+      "cleared": "閲覧履歴をクリアしました",
+      "viewedAt": "閲覧日時: {0}",
+      "removeOne": "履歴から削除",
+      "emptyTitle": "閲覧履歴はまだありません",
+      "emptyDesc": "開いた投稿はここに保存され、デバイス間で同期されます。",
+      "loadFailed": "閲覧履歴の読み込みに失敗しました",
+      "actionFailed": "操作に失敗しました"
+    }
   }
 }

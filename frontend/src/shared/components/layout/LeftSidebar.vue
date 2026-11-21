@@ -51,6 +51,7 @@ const navItems = computed(() => [
   { value: 'messages', label: t('shared.LeftSidebar.s12'), icon: 'mail', iconActive: 'mail-filled', route: '/messages' },
   { value: 'groups', label: t('shared.LeftSidebar.s13'), icon: 'usergroup', iconActive: 'usergroup', route: '/groups' },
   { value: 'bookmarks', label: t('shared.LeftSidebar.s14'), icon: 'bookmark', iconActive: 'bookmark-filled', route: '/bookmarks' },
+  { value: 'history', label: t('history.HistoryPage.title'), icon: 'time', iconActive: 'time-filled', route: '/history' },
   { value: 'lists', label: t('shared.LeftSidebar.s15'), icon: 'view-list', iconActive: 'view-list', route: '/lists' },
   { value: 'profile', label: t('shared.LeftSidebar.s16'), icon: 'user-circle', iconActive: 'user-circle-filled', route: authStore.currentUser ? `/@${authStore.currentUser.username}` : '/login' },
   ...(adminEntry(authStore.currentUser) ? [{ value: 'admin', label: t('shared.LeftSidebar.s17'), icon: 'dashboard', iconActive: 'dashboard', route: adminEntry(authStore.currentUser)! }] : []),

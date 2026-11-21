@@ -77,7 +77,7 @@ describe('streamed edits', () => {
     list.applyStreamed({ event: 'status.update', id: '1' })
     await vi.waitFor(() => expect(list.items.value[0]?.content).toBe('new'))
     expect(fetcher).toHaveBeenCalledTimes(1)
-    expect(api.getStatus).toHaveBeenCalledWith('1')
+    expect(api.getStatus).toHaveBeenCalledWith('1', { background: true })
     expect(list.newer.value).toEqual([])
   })
 })
