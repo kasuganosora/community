@@ -58,6 +58,17 @@ func TestDiscoveryConfigurationReadsPrimaryAndFailsClosed(t *testing.T) {
 	settings, err = ReadDiscoveryConfiguration(ctx, conn)
 	require.NoError(t, err)
 	require.True(t, settings.RequireManualApproval, "deployment configuration takes precedence over the database")
+	require.Zero(t, settings.MeiliDatabaseMaxMiB)
+	budgetRow := models.SystemSetting{Key: KeyRecommendationMeiliDatabaseMaxMiB, Val: 4096}
+	require.NoError(t, conn.Create(&budgetRow).Error)
+	settings, err = ReadDiscoveryConfiguration(ctx, conn)
+	require.NoError(t, err)
+	require.Equal(t, 4096, settings.MeiliDatabaseMaxMiB)
+	budgetRow.Val = 2000000
+	require.NoError(t, conn.Save(&budgetRow).Error)
+	settings, err = ReadDiscoveryConfiguration(ctx, conn)
+	require.NoError(t, err)
+	require.Zero(t, settings.MeiliDatabaseMaxMiB, "out-of-bounds DB row must not overflow int64 shift")
 	require.NoError(t, conn.Migrator().DropTable(&models.SystemSetting{}))
 	_, err = ReadDiscoveryConfiguration(ctx, conn)
 	require.Error(t, err)

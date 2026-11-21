@@ -884,7 +884,11 @@
       "s96": "Current index version approved.",
       "s97": "Approval failed",
       "s98": "Site-wide exclusion removed.",
-      "s99": "Undo failed"
+      "s99": "Undo failed",
+      "s100": "Search disk budget",
+      "s101": "Recommendation index size",
+      "s102": "Meilisearch used database size",
+      "s103": "Meilisearch whole database size (shared)"
     },
     "EmojiAdminPage": {
       "s1": "Community expression",

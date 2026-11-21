@@ -20,6 +20,11 @@ const reasonLabel: Record<string, string> = {
   quality_not_approved: t('admin.DiscoveryAdminPage.s79'), awaiting_manual_approval: t('admin.DiscoveryAdminPage.s80'), index_empty: t('admin.DiscoveryAdminPage.s81'), approval_required: t('admin.DiscoveryAdminPage.s82'),
   pool_not_built: t('admin.DiscoveryAdminPage.s83'), invalid_pool: t('admin.DiscoveryAdminPage.s84'), pool_expired: t('admin.DiscoveryAdminPage.s85'),
 }
+const sizeSourceKey: Record<string, string> = {
+  owned_indexes: 'admin.DiscoveryAdminPage.s101',
+  used_database: 'admin.DiscoveryAdminPage.s102',
+  database: 'admin.DiscoveryAdminPage.s103',
+}
 function reasonText(code?: string) { return code ? reasonLabel[code] || t('admin.DiscoveryAdminPage.s86') : t('admin.DiscoveryAdminPage.s87') }
 function bytes(value: number) { return value >= 1048576 ? `${(value / 1048576).toFixed(1)} MiB` : `${(value / 1024).toFixed(1)} KiB` }
 let version = 0, active = true
@@ -102,6 +107,7 @@ onBeforeUnmount(() => { active = false; ++version })
         <div v-if="status.index.last_build_error"><dt>{{ $t('admin.DiscoveryAdminPage.s15') }}</dt><dd>{{ reasonText(status.index.last_build_error) }}<small>{{ date(status.index.last_build_error_at) }}</small></dd></div>
         <div v-if="status.index.last_query_error"><dt>{{ $t('admin.DiscoveryAdminPage.s16') }}</dt><dd>{{ reasonText(status.index.last_query_error) }}<small>{{ date(status.index.last_query_error_at) }}</small></dd></div>
         <div><dt>{{ $t('admin.DiscoveryAdminPage.s17') }}</dt><dd>{{ status.index.document_count }}</dd></div>
+        <div v-if="status.index.database_budget_bytes" data-testid="discovery-disk-budget"><dt>{{ $t('admin.DiscoveryAdminPage.s100') }}</dt><dd>{{ bytes(status.index.database_bytes || 0) }} / {{ bytes(status.index.database_budget_bytes) }}<small v-if="status.index.database_size_source">{{ sizeSourceKey[status.index.database_size_source] ? $t(sizeSourceKey[status.index.database_size_source]!) : status.index.database_size_source }}</small></dd></div>
         <div><dt>{{ $t('admin.DiscoveryAdminPage.s18') }}</dt><dd>{{ date(status.index.data_cutoff) }}</dd></div>
         <div><dt>{{ $t('admin.DiscoveryAdminPage.s19') }}</dt><dd>{{ date(status.index.checked_at) }}</dd></div>
         <div><dt>{{ $t('admin.DiscoveryAdminPage.s20') }}</dt><dd>{{ status.index.version || $t('admin.DiscoveryAdminPage.s21') }}</dd></div>

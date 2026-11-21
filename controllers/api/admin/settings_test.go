@@ -277,3 +277,82 @@ func TestNewAccountModSettingsRoundTrip(t *testing.T) {
 	require.Equal(t, 422, w.Code)
 	require.Equal(t, 12, newacctmod.ObservationN())
 }
+
+func TestPerformanceMeiliDatabaseBudgetSettingAndEnvLock(t *testing.T) {
+	env := newAdminTestEnv(t)
+	t.Cleanup(func() { systemsettings.Set(systemsettings.KeyRecommendationMeiliDatabaseMaxMiB, nil) })
+
+	c, w := newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "performance"}}, map[string]any{
+		"values": map[string]any{systemsettings.KeyRecommendationMeiliDatabaseMaxMiB: 12288},
+	})
+	UpdateSettings(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Equal(t, 12288, systemsettings.GetInt(systemsettings.KeyRecommendationMeiliDatabaseMaxMiB, 0))
+	var row models.SystemSetting
+	require.NoError(t, env.gdb.Where(map[string]any{"key": systemsettings.KeyRecommendationMeiliDatabaseMaxMiB}).First(&row).Error)
+
+	// When RECOMMENDATION_MEILI_DATABASE_MAX_BYTES is set in the deployment env,
+	// GET /settings/performance displays the MiB value as read-only and blocks writes.
+	t.Setenv("RECOMMENDATION_MEILI_DATABASE_MAX_BYTES", "2147483648")
+	old := config.C.Other
+	config.C.Other = map[string]string{"RECOMMENDATION_MEILI_DATABASE_MAX_BYTES": "2147483648"}
+	t.Cleanup(func() { config.C.Other = old })
+
+	c, w = newJSONContext(t, http.MethodGet, gin.Params{{Key: "section", Value: "performance"}}, nil)
+	GetSettings(c)
+	require.Equal(t, 200, w.Code)
+	var section SettingsSection
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &section))
+	var budgetField *SettingsField
+	for i := range section.Fields {
+		if section.Fields[i].Key == systemsettings.KeyRecommendationMeiliDatabaseMaxMiB {
+			budgetField = &section.Fields[i]
+			break
+		}
+	}
+	require.NotNil(t, budgetField)
+	require.True(t, budgetField.ReadOnly)
+	require.Equal(t, "environment", budgetField.Source)
+	require.Equal(t, float64(2048), budgetField.Value)
+
+	c, w = newJSONContext(t, http.MethodPut, gin.Params{{Key: "section", Value: "performance"}}, map[string]any{
+		"values": map[string]any{systemsettings.KeyRecommendationMeiliDatabaseMaxMiB: 4096},
+	})
+	UpdateSettings(c)
+	require.Equal(t, 409, w.Code)
+
+	// Zero or invalid RECOMMENDATION_MEILI_DATABASE_MAX_BYTES is ignored by
+	// NewMeiliProvider, so it must NOT lock the admin setting to 0 MiB.
+	t.Setenv("RECOMMENDATION_MEILI_DATABASE_MAX_BYTES", "0")
+	config.C.Other = map[string]string{"RECOMMENDATION_MEILI_DATABASE_MAX_BYTES": "0"}
+	c, w = newJSONContext(t, http.MethodGet, gin.Params{{Key: "section", Value: "performance"}}, nil)
+	GetSettings(c)
+	require.Equal(t, 200, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &section))
+	budgetField = nil
+	for i := range section.Fields {
+		if section.Fields[i].Key == systemsettings.KeyRecommendationMeiliDatabaseMaxMiB {
+			budgetField = &section.Fields[i]
+			break
+		}
+	}
+	require.NotNil(t, budgetField)
+	require.False(t, budgetField.ReadOnly)
+	require.Equal(t, "database", budgetField.Source)
+	require.Equal(t, float64(12288), budgetField.Value)
+
+	// Direct key override in config.C.Other stays in MiB (not shifted as bytes).
+	config.C.Other = map[string]string{systemsettings.KeyRecommendationMeiliDatabaseMaxMiB: "4096"}
+	c, w = newJSONContext(t, http.MethodGet, gin.Params{{Key: "section", Value: "performance"}}, nil)
+	GetSettings(c)
+	require.Equal(t, 200, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &section))
+	for i := range section.Fields {
+		if section.Fields[i].Key == systemsettings.KeyRecommendationMeiliDatabaseMaxMiB {
+			budgetField = &section.Fields[i]
+			break
+		}
+	}
+	require.True(t, budgetField.ReadOnly)
+	require.Equal(t, float64(4096), budgetField.Value)
+}

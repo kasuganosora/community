@@ -10,6 +10,7 @@ Community 的首页发现页使用独立的推荐接口，关注时间线继续�
 - `config.recommendation.mode`：`auto` 或 `rules`，默认 `auto`。`rules` 使用公开热度、新鲜度和探索规则；允许个性化时加入明确兴趣和合格的公开关系信号。
 - `config.recommendation.require_manual_approval`：是否需要人工审核推荐索引，默认 `false`。关闭时，`mode=auto` 下索引构建完成且健康（非空、未过期、配置一致）即自动启用 Meilisearch 增强；开启时，仅在 `meili_approved_version` 等于当前索引版本时启用，否则原因为 `awaiting_manual_approval`。
 - `config.recommendation.meili_approved_version`：人工审核模式下已批准的索引版本，默认空。通常不需手填：在 `/admin/discovery` 点击“批准当前版本”即写入（`POST /api/v1/admin/discovery/approve`，需设置管理权限）。自动模式下该值被忽略。
+- `config.recommendation.meili_database_max_mib`：与全文搜索共用 Meilisearch 且服务端未提供分索引字节统计时的整库准入上限（MiB），默认 `8192`（8 GiB，预留 64 MiB 余量），修改后在下一轮重建周期（约 1–2 分钟）自动生效；部署环境变量 `RECOMMENDATION_MEILI_DATABASE_MAX_BYTES` 存在正整数值时锁定为环境变量值。
 - `config.discovery.trends_enabled`：热点开关，默认 `true`，不随个人退出推荐而关闭。
 
 设置事务同时保存推荐策略版本，跨 API 副本直接读主库。关闭后再开启、改变算法模式或撤销增强审批都不会让旧窗口重新生效。管理员可独立禁止推荐作者、帖子或话题，填写原因并撤销；这些操作保留审计，不删除帖子或封禁账号。
@@ -38,7 +39,7 @@ Redis 不可用时新请求只返回一页经过相同资格检查的时间顺�
 
 语义混合还要求显式部署 `RECOMMENDATION_EMBEDDER_NAME`、`RECOMMENDATION_EMBEDDER_MODEL_VERSION`、`RECOMMENDATION_EMBEDDER_CONFIG`，以及 `RECOMMENDATION_EMBEDDER_BUDGET_APPROVED=true`、有效的 `RECOMMENDATION_EMBEDDER_MAX_DOCUMENTS` 和 `RECOMMENDATION_EMBEDDER_MAX_UNITS_PER_HOUR`。小时预算为部署共享，提交一个文档或查询分别消耗一个单位，失败也不退回；它是工作量上限，不是模型收费的精确计量。不会自动安装或下载模型。模型配置可能含凭据，应按部署机密管理，后台诊断不返回原始配置。
 
-本版构建预算：SQL 扫描最多 5,000 个公开根帖；提取前检查原始正文、引用和标签预算，单条正文/CW 上限 64 KiB，最多 16 个标签，原文字节和最终 JSON 文档分别限 16 MiB；这些不是进程 RSS 上限。总构建 70 秒、任务等待最多 60 秒。每兴趣桶查询总预算 1 秒，部署最多 2 个并发搜索槽。`RECOMMENDATION_MEILI_DATABASE_MAX_BYTES` 默认 512 MiB，按整个 Meilisearch 的数据库大小预留 64 MiB 才允许构建；它是准入检查，不是远端磁盘硬配额。超预算或构建失败保留规则模式，不能把部分索引宣称为全量完成。
+本版构建预算：SQL 扫描最多 5,000 个公开根帖；提取前检查原始正文、引用和标签预算，单条正文/CW 上限 64 KiB，最多 16 个标签，原文字节和最终 JSON 文档分别限 16 MiB；这些不是进程 RSS 上限。总构建 70 秒、任务等待最多 60 秒。每兴趣桶查询总预算 1 秒，部署最多 2 个并发搜索槽。磁盘准入检查区分“推荐索引自身预算”（默认 512 MiB，预留 64 MiB 余量）与“共享 Meilisearch 整库安全上限”：当服务端支持分索引字节统计（`owned_indexes`）或引擎仅供推荐独享时，按 512 MiB 检查且不受全文搜索索引体积影响；当与全文搜索（`accounts`、`statuses`、`hashtags`）共用同一实例且服务端仅返回整库 `databaseSize`（如默认编排的 Meilisearch v1.12.8）时，整库默认上限为 8 GiB（可通过 **性能设置** 中的 `config.recommendation.meili_database_max_mib` 热调整或通过环境变量 `RECOMMENDATION_MEILI_DATABASE_MAX_BYTES` 固定），同时独立限制推荐代次索引总文档数不超过 10,000 条。它是准入检查，不是远端磁盘硬配额。超预算或构建失败保留规则模式，不能把部分索引宣称为全量完成。
 
 ## 热点与兼容接口
 

@@ -884,7 +884,11 @@
       "s96": "Aktuelle Indexversion genehmigt.",
       "s97": "Genehmigung fehlgeschlagen",
       "s98": "Seitenweiter Ausschluss aufgehoben.",
-      "s99": "Rückgängigmachen fehlgeschlagen"
+      "s99": "Rückgängigmachen fehlgeschlagen",
+      "s100": "Such-Speicherbudget",
+      "s101": "Größe des Empfehlungsindex",
+      "s102": "Belegte Meilisearch-Datenbankgröße",
+      "s103": "Gesamte Meilisearch-Datenbankgröße (geteilt)"
     },
     "EmojiAdminPage": {
       "s1": "Ausdruck der Community",

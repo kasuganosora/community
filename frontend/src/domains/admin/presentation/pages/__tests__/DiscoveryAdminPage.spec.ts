@@ -94,4 +94,20 @@ describe('discovery index approval', () => {
     expect(wrapper.find('[role="status"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="discovery-approval"]').text()).toContain('自动')
   })
+
+  it('displays Meilisearch disk budget telemetry when reported by status', async () => {
+    api.status.mockResolvedValue({
+      ...base,
+      index: {
+        ...base.index,
+        database_bytes: 809553920,
+        database_budget_bytes: 8589934592,
+        database_size_source: 'database',
+      },
+    })
+    const wrapper = mount(DiscoveryAdminPage, opts); await flushPromises()
+    const row = wrapper.get('[data-testid="discovery-disk-budget"]').text()
+    expect(row).toContain('772.1 MiB / 8192.0 MiB')
+    expect(row).toContain('Meilisearch 整库体积（共享）')
+  })
 })

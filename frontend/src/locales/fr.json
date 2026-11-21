@@ -884,7 +884,11 @@
       "s96": "Version actuelle de l’index approuvée.",
       "s97": "Échec de l’approbation",
       "s98": "Exclusion du site retirée.",
-      "s99": "Échec de l’annulation"
+      "s99": "Échec de l’annulation",
+      "s100": "Budget disque de recherche",
+      "s101": "Taille de l’index de recommandation",
+      "s102": "Taille utilisée de la base Meilisearch",
+      "s103": "Taille totale de la base Meilisearch (partagée)"
     },
     "EmojiAdminPage": {
       "s1": "Expression de la communauté",

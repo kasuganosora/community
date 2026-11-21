@@ -58,3 +58,84 @@ func TestMeiliRebuildLogSuppressionCounts(t *testing.T) {
 	p.logRebuildAt(nil, start.Add(12*time.Minute))
 	require.Empty(t, p.lastWarnReason)
 }
+
+func TestMeiliSharedV112DatabaseBudgetAndTelemetry(t *testing.T) {
+	ctx := context.Background()
+
+	// Bundled Meilisearch v1.12.8 sharing one LMDB database across accounts,
+	// statuses, hashtags, and discovery_statuses_v1_* reports only whole-DB
+	// databaseSize (772 MiB) and per-index document counts. Without an explicit
+	// ceiling override, Discovery must use the shared-engine ceiling (8 GiB)
+	// rather than blocking rebuilds at 512 MiB.
+	sharedPayload := `{"databaseSize":809553920,"indexes":{"accounts":{"numberOfDocuments":8341,"isIndexing":false},"statuses":{"numberOfDocuments":140740,"isIndexing":false},"hashtags":{"numberOfDocuments":8146,"isIndexing":false},"discovery_statuses_v1_gen1":{"numberOfDocuments":1811,"isIndexing":false}}}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(sharedPayload))
+	}))
+	t.Cleanup(server.Close)
+	p, cfg := meiliTestProvider(t, server.URL)
+	p.connection.Prefix = ""
+	p.maxDatabaseBytes = 0
+	require.NoError(t, p.checkDiskBudget(ctx))
+
+	st := p.Status()
+	require.EqualValues(t, 809553920, st.DatabaseBytes)
+	require.EqualValues(t, DefaultSharedMeiliDatabaseMaxBytes, st.DatabaseBudgetBytes)
+	require.Equal(t, "database", st.DatabaseSizeSource)
+
+	// Switching to rules mode hides stale Meilisearch disk telemetry.
+	cfg.Mode = "rules"
+	require.Zero(t, p.Status().DatabaseBudgetBytes)
+	cfg.Mode = "auto"
+
+	// Multi-replica health telemetry: when Replica A records a failed build
+	// operation in Redis, Replica B (which has never probed /stats) surfaces it.
+	leaseCtx, token, release, err := p.lease(ctx, time.Second)
+	require.NoError(t, err)
+	budgetErr := p.checkDiskBudgetWithSetting(leaseCtx, 700)
+	require.ErrorContains(t, budgetErr, "772 MiB database of 700 MiB")
+	p.recordOperation(token, "build", budgetErr)
+	release()
+
+	replicaB := &MeiliProvider{
+		connection: p.connection,
+		client:     p.client,
+		conn:       p.conn,
+		redis:      p.redis,
+		settings:   p.settings,
+		reason:     "not_built",
+	}
+	bStatus := replicaB.Status()
+	require.EqualValues(t, 809553920, bStatus.DatabaseBytes)
+	require.EqualValues(t, 700<<20, bStatus.DatabaseBudgetBytes)
+	require.Equal(t, "database", bStatus.DatabaseSizeSource)
+	require.Equal(t, "resource_budget_exceeded", bStatus.LastBuildError)
+
+	require.NoError(t, p.checkDiskBudgetWithSetting(ctx, 1024))
+
+	// Small/young instance with high-water-mark LMDB free pages (e.g. 1.2 GiB
+	// data.mdb with 2,000 statuses and 2,000 discovery docs) must NOT false-positive.
+	highWater := budgetServer(t, `{"databaseSize":1258291200,"indexes":{"statuses":{"numberOfDocuments":2000,"isIndexing":false},"discovery_statuses_v1_gen1":{"numberOfDocuments":2000,"isIndexing":false}}}`)
+	highWater.connection.Prefix = ""
+	require.NoError(t, highWater.checkDiskBudget(ctx))
+
+	// Runaway owned Discovery document accumulation (> 2 * meiliRowLimit) is rejected.
+	runawayDocs := budgetServer(t, `{"databaseSize":209715200,"indexes":{"statuses":{"numberOfDocuments":100000,"isIndexing":false},"discovery_statuses_v1_gen1":{"numberOfDocuments":10001,"isIndexing":false}}}`)
+	runawayDocs.connection.Prefix = ""
+	err = runawayDocs.checkDiskBudget(ctx)
+	require.ErrorContains(t, err, "document budget exceeded")
+	require.Equal(t, "resource_budget_exceeded", meiliSafeBudgetReason(err))
+
+	// When Meilisearch v1.15+ reports owned_indexes bytes, full-text statuses
+	// growth above configuredMaxMiB must never block Discovery.
+	v115 := budgetServer(t, `{"databaseSize":12884901888,"usedDatabaseSize":10737418240,"indexes":{"statuses":{"usedIndexSize":10737418240},"discovery_statuses_v1_gen1":{"numberOfDocuments":1811,"usedIndexSize":41943040}}}`)
+	v115.connection.Prefix = ""
+	require.NoError(t, v115.checkDiskBudgetWithSetting(ctx, 4096))
+	require.Equal(t, "owned_indexes", v115.Status().DatabaseSizeSource)
+	require.EqualValues(t, DefaultOwnedMeiliIndexMaxBytes, v115.Status().DatabaseBudgetBytes)
+
+	// Dedicated engine (no shared non-discovery indexes) keeps the 512 MiB default.
+	dedicated := budgetServer(t, `{"databaseSize":809553920,"indexes":{"discovery_statuses_v1_gen1":{"numberOfDocuments":1811,"isIndexing":false}}}`)
+	dedicated.connection.Prefix = ""
+	dedicated.maxDatabaseBytes = 0
+	require.ErrorContains(t, dedicated.checkDiskBudget(ctx), "772 MiB database of 512 MiB")
+}

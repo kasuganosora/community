@@ -9,9 +9,16 @@ import (
 )
 
 type meiliOperationError struct {
-	Policy string    `json:"policy"`
-	Code   string    `json:"code"`
-	At     time.Time `json:"at"`
+	Policy              string    `json:"policy"`
+	Code                string    `json:"code"`
+	At                  time.Time `json:"at"`
+	DatabaseBytes       int64     `json:"database_bytes,omitempty"`
+	DatabaseBudgetBytes int64     `json:"database_budget_bytes,omitempty"`
+	DatabaseSizeSource  string    `json:"database_size_source,omitempty"`
+}
+
+func validMeiliSizeSource(source string) bool {
+	return source == "" || source == "owned_indexes" || source == "used_database" || source == "database"
 }
 
 // Health is deployment-wide, and an expired worker must not clear a new
@@ -27,6 +34,13 @@ func (p *MeiliProvider) recordOperation(token, stage string, operationErr error)
 		return
 	}
 	entry := meiliOperationError{Policy: p.PolicyVersion()}
+	if stage == "build" {
+		p.mu.RLock()
+		entry.DatabaseBytes = p.lastDatabaseBytes
+		entry.DatabaseBudgetBytes = p.lastBudgetBytes
+		entry.DatabaseSizeSource = p.lastSizeSource
+		p.mu.RUnlock()
+	}
 	if operationErr != nil {
 		entry.Code = "query_unavailable"
 		if stage == "build" {
@@ -56,7 +70,15 @@ func (p *MeiliProvider) operationErrors(ctx context.Context, status *MeiliStatus
 			continue
 		}
 		var entry meiliOperationError
-		if json.Unmarshal([]byte(encoded), &entry) != nil || entry.Policy != p.PolicyVersion() || entry.Code == "" || entry.At.IsZero() {
+		if json.Unmarshal([]byte(encoded), &entry) != nil || entry.Policy != p.PolicyVersion() || !validMeiliSizeSource(entry.DatabaseSizeSource) {
+			continue
+		}
+		if i == 0 && status.DatabaseBudgetBytes == 0 && entry.DatabaseBudgetBytes > 0 {
+			status.DatabaseBytes = entry.DatabaseBytes
+			status.DatabaseBudgetBytes = entry.DatabaseBudgetBytes
+			status.DatabaseSizeSource = entry.DatabaseSizeSource
+		}
+		if entry.Code == "" || entry.At.IsZero() {
 			continue
 		}
 		// Never render arbitrary Redis text as an operational error message.

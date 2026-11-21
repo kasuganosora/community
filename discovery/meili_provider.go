@@ -54,29 +54,35 @@ const meiliDocumentBytes = 16 << 20
 const meiliLeaseTTL = 90 * time.Second
 
 type MeiliStatus struct {
-	Ready            bool       `json:"ready"`
-	Mode             string     `json:"mode"`
-	Reason           string     `json:"reason"`
-	Generation       string     `json:"generation,omitempty"`
-	Version          string     `json:"version,omitempty"`
-	ServerVersion    string     `json:"server_version,omitempty"`
-	DocumentCount    int        `json:"document_count"`
-	DataCutoff       time.Time  `json:"data_cutoff,omitempty"`
-	CheckedAt        time.Time  `json:"checked_at"`
-	LastBuildError   string     `json:"last_build_error,omitempty"`
-	LastBuildErrorAt *time.Time `json:"last_build_error_at,omitempty"`
-	LastQueryError   string     `json:"last_query_error,omitempty"`
-	LastQueryErrorAt *time.Time `json:"last_query_error_at,omitempty"`
+	Ready               bool       `json:"ready"`
+	Mode                string     `json:"mode"`
+	Reason              string     `json:"reason"`
+	Generation          string     `json:"generation,omitempty"`
+	Version             string     `json:"version,omitempty"`
+	ServerVersion       string     `json:"server_version,omitempty"`
+	DocumentCount       int        `json:"document_count"`
+	DatabaseBytes       int64      `json:"database_bytes,omitempty"`
+	DatabaseBudgetBytes int64      `json:"database_budget_bytes,omitempty"`
+	DatabaseSizeSource  string     `json:"database_size_source,omitempty"`
+	DataCutoff          time.Time  `json:"data_cutoff,omitempty"`
+	CheckedAt           time.Time  `json:"checked_at"`
+	LastBuildError      string     `json:"last_build_error,omitempty"`
+	LastBuildErrorAt    *time.Time `json:"last_build_error_at,omitempty"`
+	LastQueryError      string     `json:"last_query_error,omitempty"`
+	LastQueryErrorAt    *time.Time `json:"last_query_error_at,omitempty"`
 }
 type meiliManifest struct {
-	Index         string    `json:"index"`
-	Generation    string    `json:"generation"`
-	Version       string    `json:"version"`
-	ServerVersion string    `json:"server_version"`
-	Mode          string    `json:"mode"`
-	Documents     int       `json:"documents"`
-	Cutoff        time.Time `json:"cutoff"`
-	CompletedAt   time.Time `json:"completed_at"`
+	Index               string    `json:"index"`
+	Generation          string    `json:"generation"`
+	Version             string    `json:"version"`
+	ServerVersion       string    `json:"server_version"`
+	Mode                string    `json:"mode"`
+	Documents           int       `json:"documents"`
+	DatabaseBytes       int64     `json:"database_bytes,omitempty"`
+	DatabaseBudgetBytes int64     `json:"database_budget_bytes,omitempty"`
+	DatabaseSizeSource  string    `json:"database_size_source,omitempty"`
+	Cutoff              time.Time `json:"cutoff"`
+	CompletedAt         time.Time `json:"completed_at"`
 }
 type meiliState struct {
 	Active  *meiliManifest `json:"active,omitempty"`
@@ -101,16 +107,19 @@ type meiliEmbedding struct {
 	MaxUnitsPerHour int
 }
 type MeiliProvider struct {
-	connection       search.DiscoveryConnection
-	client           *http.Client
-	conn             func() *gorm.DB
-	redis            func() redis.UniversalClient
-	settings         func(context.Context, *gorm.DB) (systemsettings.DiscoveryConfiguration, error)
-	embedding        *meiliEmbedding
-	start            sync.Once
-	mu               sync.RWMutex
-	reason           string
-	maxDatabaseBytes int64
+	connection        search.DiscoveryConnection
+	client            *http.Client
+	conn              func() *gorm.DB
+	redis             func() redis.UniversalClient
+	settings          func(context.Context, *gorm.DB) (systemsettings.DiscoveryConfiguration, error)
+	embedding         *meiliEmbedding
+	start             sync.Once
+	mu                sync.RWMutex
+	reason            string
+	maxDatabaseBytes  int64
+	lastDatabaseBytes int64
+	lastBudgetBytes   int64
+	lastSizeSource    string
 	// Rebuild logging state (Start loop only).
 	lastStatus     string
 	lastWarnAt     time.Time
@@ -132,9 +141,8 @@ func NewMeiliProvider() *MeiliProvider {
 	raw := strings.TrimSpace(config.C.Other["RECOMMENDATION_EMBEDDER_CONFIG"])
 	count, _ := strconv.Atoi(config.C.Other["RECOMMENDATION_EMBEDDER_MAX_DOCUMENTS"])
 	units, _ := strconv.Atoi(config.C.Other["RECOMMENDATION_EMBEDDER_MAX_UNITS_PER_HOUR"])
-	p.maxDatabaseBytes, _ = strconv.ParseInt(config.C.Other["RECOMMENDATION_MEILI_DATABASE_MAX_BYTES"], 10, 64)
-	if p.maxDatabaseBytes <= 0 {
-		p.maxDatabaseBytes = 512 << 20
+	if parsed, err := strconv.ParseInt(strings.TrimSpace(config.C.Other["RECOMMENDATION_MEILI_DATABASE_MAX_BYTES"]), 10, 64); err == nil && parsed > 0 {
+		p.maxDatabaseBytes = parsed
 	}
 	var value map[string]any
 	if name != "" && version != "" && count > 0 && count <= meiliRowLimit && units > 0 && units <= 1000000 && config.C.Other["RECOMMENDATION_EMBEDDER_BUDGET_APPROVED"] == "true" && json.Unmarshal([]byte(raw), &value) == nil && len(value) > 0 {
@@ -185,6 +193,9 @@ func (p *MeiliProvider) Status() MeiliStatus {
 	result := MeiliStatus{Mode: "rules", CheckedAt: time.Now().UTC()}
 	p.mu.RLock()
 	result.Reason = p.reason
+	dbBytes := p.lastDatabaseBytes
+	dbBudget := p.lastBudgetBytes
+	dbSource := p.lastSizeSource
 	p.mu.RUnlock()
 	if !p.connection.Enabled {
 		result.Reason = "meilisearch_disabled"
@@ -205,6 +216,9 @@ func (p *MeiliProvider) Status() MeiliStatus {
 		result.Reason = "rules_configured"
 		return result
 	}
+	result.DatabaseBytes = dbBytes
+	result.DatabaseBudgetBytes = dbBudget
+	result.DatabaseSizeSource = dbSource
 	state, err := p.readState(ctx)
 	if err != nil {
 		result.Reason = "redis_unavailable"
@@ -219,6 +233,11 @@ func (p *MeiliProvider) Status() MeiliStatus {
 	result.Version = a.Version
 	result.ServerVersion = a.ServerVersion
 	result.DocumentCount = a.Documents
+	if result.DatabaseBudgetBytes == 0 && a.DatabaseBudgetBytes > 0 {
+		result.DatabaseBytes = a.DatabaseBytes
+		result.DatabaseBudgetBytes = a.DatabaseBudgetBytes
+		result.DatabaseSizeSource = a.DatabaseSizeSource
+	}
 	result.DataCutoff = a.Cutoff
 	if a.Version != p.versionForMode(a.ServerVersion, a.Mode) {
 		result.Reason = "configuration_changed"
@@ -576,14 +595,14 @@ func (p *MeiliProvider) rebuild(parent context.Context) error {
 		}
 	}
 	defer release()
-	err = p.buildOwned(ctx, token)
+	err = p.buildOwned(ctx, token, settings.MeiliDatabaseMaxMiB)
 	p.recordOperation(token, "build", err)
 	if err != nil {
 		p.setReason(meiliSafeBudgetReason(err))
 	}
 	return err
 }
-func (p *MeiliProvider) buildOwned(ctx context.Context, token string) error {
+func (p *MeiliProvider) buildOwned(ctx context.Context, token string, configuredMaxMiB int) error {
 	state, err := p.readState(ctx)
 	if err != nil {
 		return err
@@ -643,7 +662,7 @@ func (p *MeiliProvider) buildOwned(ctx context.Context, token string) error {
 	if state.Active != nil && state.Active.Version == p.versionForMode(version.Version, state.Active.Mode) && time.Since(state.Active.Cutoff) < 2*time.Minute {
 		return nil
 	}
-	if err = p.checkDiskBudget(ctx); err != nil {
+	if err = p.checkDiskBudgetWithSetting(ctx, configuredMaxMiB); err != nil {
 		return err
 	}
 	cutoff := time.Now().UTC()
@@ -703,7 +722,10 @@ func (p *MeiliProvider) buildOwned(ctx context.Context, token string) error {
 	if time.Since(cutoff) >= PoolMaxAge {
 		return ErrUnavailable
 	}
-	active := &meiliManifest{Index: index, Generation: generation, Version: fingerprint, ServerVersion: version.Version, Mode: mode, Documents: len(documents), Cutoff: cutoff, CompletedAt: time.Now().UTC()}
+	p.mu.RLock()
+	dbBytes, dbBudget, dbSource := p.lastDatabaseBytes, p.lastBudgetBytes, p.lastSizeSource
+	p.mu.RUnlock()
+	active := &meiliManifest{Index: index, Generation: generation, Version: fingerprint, ServerVersion: version.Version, Mode: mode, Documents: len(documents), DatabaseBytes: dbBytes, DatabaseBudgetBytes: dbBudget, DatabaseSizeSource: dbSource, Cutoff: cutoff, CompletedAt: time.Now().UTC()}
 	if state.Active != nil {
 		state.Retired = state.Active.Index
 	}

@@ -15,12 +15,13 @@ import (
 )
 
 const (
-	KeyRecommendationEnabled         = "config.recommendation.enabled"
-	KeyRecommendationMode            = "config.recommendation.mode"
-	KeyRecommendationApprovedVersion = "config.recommendation.meili_approved_version"
-	KeyRecommendationManualApproval  = "config.recommendation.require_manual_approval"
-	KeyDiscoveryTrendsEnabled        = "config.discovery.trends_enabled"
-	KeyRecommendationPolicyRevision  = "config.recommendation.policy_revision"
+	KeyRecommendationEnabled             = "config.recommendation.enabled"
+	KeyRecommendationMode                = "config.recommendation.mode"
+	KeyRecommendationApprovedVersion     = "config.recommendation.meili_approved_version"
+	KeyRecommendationManualApproval      = "config.recommendation.require_manual_approval"
+	KeyRecommendationMeiliDatabaseMaxMiB = "config.recommendation.meili_database_max_mib"
+	KeyDiscoveryTrendsEnabled            = "config.discovery.trends_enabled"
+	KeyRecommendationPolicyRevision      = "config.recommendation.policy_revision"
 )
 
 // DiscoveryConfiguration is read from the primary database, not the process
@@ -32,6 +33,7 @@ type DiscoveryConfiguration struct {
 	// RequireManualApproval keeps the Meili index gated on ApprovedVersion.
 	// When false (default) a healthy active index is used automatically.
 	RequireManualApproval bool   `json:"require_manual_approval"`
+	MeiliDatabaseMaxMiB   int    `json:"meili_database_max_mib,omitempty"`
 	TrendsEnabled         bool   `json:"trends_enabled"`
 	PolicyRevision        string `json:"-"`
 }
@@ -41,7 +43,7 @@ func ReadDiscoveryConfiguration(ctx context.Context, conn *gorm.DB) (DiscoveryCo
 	if conn == nil {
 		return result, fmt.Errorf("discovery settings database unavailable")
 	}
-	keys := []string{KeyRecommendationEnabled, KeyRecommendationMode, KeyRecommendationApprovedVersion, KeyRecommendationManualApproval, KeyDiscoveryTrendsEnabled, KeyRecommendationPolicyRevision}
+	keys := []string{KeyRecommendationEnabled, KeyRecommendationMode, KeyRecommendationApprovedVersion, KeyRecommendationManualApproval, KeyRecommendationMeiliDatabaseMaxMiB, KeyDiscoveryTrendsEnabled, KeyRecommendationPolicyRevision}
 	var rows []models.SystemSetting
 	if err := conn.WithContext(ctx).Where(map[string]any{"key": keys}).Find(&rows).Error; err != nil {
 		return result, err
@@ -73,6 +75,11 @@ func ReadDiscoveryConfiguration(ctx context.Context, conn *gorm.DB) (DiscoveryCo
 	}
 	if v, ok := values[KeyRecommendationManualApproval]; ok {
 		result.RequireManualApproval = utils.ToBool(v)
+	}
+	if v, ok := values[KeyRecommendationMeiliDatabaseMaxMiB]; ok {
+		if mib := utils.ToInt(v); mib > 0 && mib <= 1048576 {
+			result.MeiliDatabaseMaxMiB = mib
+		}
 	}
 	result.PolicyRevision = utils.ToString(values[KeyRecommendationPolicyRevision])
 	return result, nil

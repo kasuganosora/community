@@ -78,6 +78,7 @@ func settingsSections() map[string]SettingsSection {
 			{Key: systemsettings.KeyRecommendationMode, Label: "推荐算法", Type: "select", Value: "auto", Options: []string{"auto", "rules"}, Max: 16, Description: "auto 在索引就绪后使用 Meilisearch（开启人工审核时还需批准版本），否则使用规则排序。rules 固定使用规则排序。"},
 			{Key: systemsettings.KeyRecommendationManualApproval, Label: "需要人工审核推荐索引", Type: "boolean", Value: false, Description: "默认关闭：索引构建完成且健康（非空、未过期、配置一致）后自动启用 Meilisearch 增强推荐。开启后，每个新索引版本都需要管理员在“推荐管理”页点击“批准当前版本”才会生效，未批准前使用规则排序。"},
 			{Key: systemsettings.KeyRecommendationApprovedVersion, Label: "已批准的索引版本（高级）", Type: "text", Value: "", Max: 128, Description: "仅在开启“需要人工审核推荐索引”时使用。通常无需手动填写，请在“推荐管理”页点击“批准当前版本”自动写入。"},
+			{Key: systemsettings.KeyRecommendationMeiliDatabaseMaxMiB, Env: "RECOMMENDATION_MEILI_DATABASE_MAX_BYTES", Label: "推荐搜索 Meilisearch 整库预算（MiB）", Type: "number", Value: 8192, Min: 128, Max: 1048576, Description: "与全文搜索共用 Meilisearch 且服务端未提供分索引字节统计时的整库体积准入上限（预留 64 MiB 余量，默认 8192 MiB = 8 GiB）；推荐索引自身仍独立受 512 MiB 与 5,000 条文档限制。修改后在下一轮重建周期（约 1–2 分钟）自动生效，无需重启。"},
 			{Key: systemsettings.KeyDiscoveryTrendsEnabled, Label: "启用热门话题", Type: "boolean", Value: true, Description: "独立控制公开热点和趋势接口，不受用户推荐偏好影响。"},
 		}},
 	}
@@ -106,7 +107,7 @@ func GetSettings(c *gin.Context) {
 		if field.ReadOnly {
 			field.Source = "runtime"
 		}
-		if field.Env != "" && config.IsExplicitlyConfigured(field.Env) {
+		if isDeploymentEnvConfigured(*field) {
 			envValue := deploymentSettingValue(field.Env)
 			_, stored := systemsettings.Stored(field.Key)
 			if dbBackedSections[section.Section] {
@@ -129,13 +130,14 @@ func GetSettings(c *gin.Context) {
 				applyDeploymentDisplay(field, envValue)
 			}
 		}
-		if _, exists := config.C.Other[field.Key]; exists && !dbBackedSections[section.Section] {
+		if v, exists := config.C.Other[field.Key]; exists && !dbBackedSections[section.Section] {
 			field.ReadOnly = true
 			field.Source = "environment"
 			field.LockedBy = "process"
 			if config.IsSetInEnvFile(field.Key) {
 				field.LockedBy = "env_file"
 			}
+			applyKeyDeploymentDisplay(field, v)
 		}
 		if liveSections[section.Section] && field.Env != "" {
 			field.RestartRequired = false
@@ -187,7 +189,7 @@ func UpdateSettings(c *gin.Context) {
 			return
 		}
 		if !dbBackedSections[c.Param("section")] {
-			if _, exists := config.C.Other[key]; exists || (field.Env != "" && config.IsExplicitlyConfigured(field.Env)) {
+			if _, exists := config.C.Other[key]; exists || isDeploymentEnvConfigured(field) {
 				c.JSON(http.StatusConflict, gin.H{"error": "setting is managed by deployment"})
 				return
 			}
@@ -315,15 +317,36 @@ var liveSections = map[string]bool{"email": true, "storage": true}
 // existing environment value is only a fallback until the key is saved.
 var dbBackedSections = map[string]bool{"email": true, "storage": true}
 
+func isDeploymentEnvConfigured(field SettingsField) bool {
+	if field.Env == "" || !config.IsExplicitlyConfigured(field.Env) {
+		return false
+	}
+	if field.Env == "RECOMMENDATION_MEILI_DATABASE_MAX_BYTES" {
+		b, err := strconv.ParseInt(strings.TrimSpace(deploymentSettingValue(field.Env)), 10, 64)
+		return err == nil && b > 0
+	}
+	return true
+}
+
 func applyDeploymentDisplay(field *SettingsField, envValue string) {
+	if field.Type == "number" && field.Env == "RECOMMENDATION_MEILI_DATABASE_MAX_BYTES" {
+		if b, err := strconv.ParseInt(strings.TrimSpace(envValue), 10, 64); err == nil && b > 0 {
+			field.Value = int(min(max(int64(1), b>>20), 1048576))
+			return
+		}
+	}
+	applyKeyDeploymentDisplay(field, envValue)
+}
+
+func applyKeyDeploymentDisplay(field *SettingsField, raw string) {
 	switch field.Type {
 	case "number":
-		n, _ := strconv.Atoi(envValue)
+		n, _ := strconv.Atoi(strings.TrimSpace(raw))
 		field.Value = n
 	case "boolean":
-		field.Value = envValue == "true"
+		field.Value = strings.TrimSpace(raw) == "true"
 	default:
-		field.Value = envValue
+		field.Value = raw
 	}
 }
 

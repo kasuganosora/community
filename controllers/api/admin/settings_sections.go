@@ -102,7 +102,10 @@ func deploymentSettingValue(env string) string {
 	case "STORAGE_TYPE":
 		return config.C.StorageType
 	default:
-		return config.C.Other[env]
+		if v, ok := config.C.Other[env]; ok && v != "" {
+			return v
+		}
+		return os.Getenv(env)
 	}
 }
 

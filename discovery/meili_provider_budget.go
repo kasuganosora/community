@@ -1,18 +1,32 @@
 package discovery
 
 import (
-	"time"
-
 	"context"
 	"errors"
 	"fmt"
-	"github.com/kasuganosora/community/log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/kasuganosora/community/db/dialect"
+	"github.com/kasuganosora/community/log"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
+)
+
+const (
+	// DefaultOwnedMeiliIndexMaxBytes caps the recommendation index itself
+	// (discovery_statuses_v1_* holds <= 5,000 documents / <= 16 MiB JSON).
+	DefaultOwnedMeiliIndexMaxBytes int64 = 512 << 20
+	// DefaultSharedMeiliDatabaseMaxBytes is the default whole-engine safety
+	// ceiling when Meilisearch (such as bundled v1.12.8) shares one LMDB
+	// database across full-text search (accounts, statuses, hashtags) and
+	// discovery without reporting per-index byte sizes.
+	DefaultSharedMeiliDatabaseMaxBytes int64 = 8 << 30
+	// DefaultOwnedMeiliMaxDocuments bounds total documents across owned
+	// discovery_statuses_v1_* indexes (at most active + pending generations).
+	DefaultOwnedMeiliMaxDocuments int64 = 2 * meiliRowLimit
+	meiliDiskHeadroomBytes        int64 = 64 << 20
 )
 
 // Units count a submitted document embedding or a query embedding. They bound
@@ -39,15 +53,16 @@ func (p *MeiliProvider) reserveEmbedding(ctx context.Context, units int) bool {
 }
 
 // meiliStats is the subset of GET /stats used for the disk budget. Every size
-// is optional: v1.12 reports only databaseSize (no usedDatabaseSize and no
-// per-index sizes), newer servers add usedDatabaseSize and per-index
-// usedIndexSize/indexSize.
+// is optional: v1.12 reports databaseSize + per-index numberOfDocuments (no
+// usedDatabaseSize and no per-index byte sizes), while newer servers add
+// usedDatabaseSize and per-index usedIndexSize/indexSize.
 type meiliStats struct {
 	DatabaseSize     *int64 `json:"databaseSize"`
 	UsedDatabaseSize *int64 `json:"usedDatabaseSize"`
 	Indexes          map[string]struct {
-		IndexSize     *int64 `json:"indexSize"`
-		UsedIndexSize *int64 `json:"usedIndexSize"`
+		NumberOfDocuments *int64 `json:"numberOfDocuments"`
+		IndexSize         *int64 `json:"indexSize"`
+		UsedIndexSize     *int64 `json:"usedIndexSize"`
 	} `json:"indexes"`
 }
 
@@ -88,26 +103,87 @@ func meiliBudgetBytes(stats meiliStats, prefix string) (used int64, source strin
 	return 0, "", false
 }
 
-func (p *MeiliProvider) checkDiskBudget(ctx context.Context) error {
-	ceiling := p.maxDatabaseBytes
-	if ceiling <= 0 {
-		ceiling = 512 << 20
+func meiliSharedIndexCounts(stats meiliStats, prefix string) (hasSharedIndexes bool, ownedDocs int64) {
+	for uid, idx := range stats.Indexes {
+		var docs int64
+		if idx.NumberOfDocuments != nil && *idx.NumberOfDocuments > 0 {
+			docs = *idx.NumberOfDocuments
+		}
+		if strings.HasPrefix(uid, prefix) {
+			ownedDocs += docs
+		} else {
+			hasSharedIndexes = true
+		}
 	}
+	return hasSharedIndexes, ownedDocs
+}
+
+func (p *MeiliProvider) checkDiskBudget(ctx context.Context) error {
+	return p.checkDiskBudgetWithSetting(ctx, 0)
+}
+
+func (p *MeiliProvider) checkDiskBudgetWithSetting(ctx context.Context, configuredMaxMiB int) error {
 	var stats meiliStats
 	if err := p.http(ctx, http.MethodGet, "/stats", nil, &stats); err != nil {
 		return err
 	}
-	used, source, ok := meiliBudgetBytes(stats, p.connection.Prefix+"discovery_statuses_v1_")
+	prefix := p.connection.Prefix + "discovery_statuses_v1_"
+	used, source, ok := meiliBudgetBytes(stats, prefix)
 	if !ok {
 		// No readable size must not stop the rebuild (and with it all of
 		// discovery). The build stays bounded by the document row limit.
+		p.recordDiskTelemetry(0, 0, "")
 		p.warnBudgetUnreadable()
 		return nil
 	}
-	if used > ceiling-(64<<20) {
-		return fmt.Errorf("recommendation search disk budget exceeded (%d MiB %s of %d MiB)", used>>20, source, ceiling>>20)
+
+	hasSharedIndexes, ownedDocs := meiliSharedIndexCounts(stats, prefix)
+	if ownedDocs > DefaultOwnedMeiliMaxDocuments {
+		return fmt.Errorf("recommendation search document budget exceeded (%d owned documents of %d)", ownedDocs, DefaultOwnedMeiliMaxDocuments)
+	}
+
+	if source == "owned_indexes" {
+		// When Meilisearch reports per-index byte sizes, full-text search
+		// indexes and LMDB free pages must never block our rebuild.
+		ownedCeiling := DefaultOwnedMeiliIndexMaxBytes
+		if p.maxDatabaseBytes > 0 && p.maxDatabaseBytes < ownedCeiling {
+			ownedCeiling = p.maxDatabaseBytes
+		}
+		p.recordDiskTelemetry(used, ownedCeiling, source)
+		if used > ownedCeiling-meiliDiskHeadroomBytes {
+			return fmt.Errorf("recommendation search disk budget exceeded (%d MiB %s of %d MiB)", used>>20, source, ownedCeiling>>20)
+		}
+		return nil
+	}
+
+	// Meilisearch v1.12 reports only whole-engine databaseSize (without
+	// per-index byte sizes). Use an explicit override when configured;
+	// otherwise default to 8 GiB when shared with full-text search indexes
+	// (accounts, statuses, hashtags) or 512 MiB on a dedicated engine.
+	dbCeiling := p.maxDatabaseBytes
+	if dbCeiling <= 0 && configuredMaxMiB > 0 {
+		dbCeiling = int64(configuredMaxMiB) << 20
+	}
+	if dbCeiling <= 0 {
+		if hasSharedIndexes {
+			dbCeiling = DefaultSharedMeiliDatabaseMaxBytes
+		} else {
+			dbCeiling = DefaultOwnedMeiliIndexMaxBytes
+		}
+	}
+	p.recordDiskTelemetry(used, dbCeiling, source)
+	if used > dbCeiling-meiliDiskHeadroomBytes {
+		return fmt.Errorf("recommendation search disk budget exceeded (%d MiB %s of %d MiB)", used>>20, source, dbCeiling>>20)
 	}
 	return nil
+}
+
+func (p *MeiliProvider) recordDiskTelemetry(used, ceiling int64, source string) {
+	p.mu.Lock()
+	p.lastDatabaseBytes = used
+	p.lastBudgetBytes = ceiling
+	p.lastSizeSource = source
+	p.mu.Unlock()
 }
 
 func (p *MeiliProvider) warnBudgetUnreadable() {
