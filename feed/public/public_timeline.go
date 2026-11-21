@@ -31,14 +31,18 @@ func init() {
 			return true
 		}
 
-		// The saved row already carries the new visibility. Leaving the public
-		// stream still has to delete the previous card.
+		// The struct already has the new visibility. Read the stored row, which
+		// BeforeUpdate has not replaced yet, and revoke only a post that was
+		// actually public. A private post that was never public must not be
+		// announced on the public channels.
 		if event.Name == "before_update" && status.Visibility != models.StatusVisibilityPublic {
-			go func() {
-				clone := *status
-				clone.Visibility = models.StatusVisibilityPublic
-				_ = Unpush(&clone, true)
-			}()
+			if prev, domain, ok := storedAudience(status.Id); ok && prev == models.StatusVisibilityPublic {
+				id := status.Id
+				media := statusHasAttachments(status)
+				go func() {
+					_ = revokePublicTimeline(id, domain, media)
+				}()
+			}
 			return true
 		}
 
@@ -192,6 +196,64 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 	return
 }
 
+func storedAudience(id uint64) (visibility uint8, domain *string, ok bool) {
+	if id == 0 || db.GetDB() == nil {
+		return 0, nil, false
+	}
+	var row models.Status
+	if err := db.GetDB().Select("id", "visibility", "domain").First(&row, id).Error; err != nil {
+		return 0, nil, false
+	}
+	return row.Visibility, row.Domain, true
+}
+
+func statusHasAttachments(status *models.Status) bool {
+	if status == nil {
+		return false
+	}
+	if len(status.Attachments) > 0 {
+		return true
+	}
+	if status.Id == 0 || db.GetDB() == nil {
+		return false
+	}
+	var n int64
+	if err := db.GetDB().Table("media_attachments").Where("status_id = ?", status.Id).Limit(1).Count(&n).Error; err != nil {
+		return false
+	}
+	return n > 0
+}
+
+func revokePublicTimeline(id uint64, domain *string, media bool) error {
+	if err := Unpush(&models.Status{Id: id}, false); err != nil {
+		return err
+	}
+	payload := map[string]uint64{"id": id}
+	timelines := []*PublicTimeline{{}}
+	if domain == nil {
+		timelines = append(timelines, &PublicTimeline{OnlyLocal: true})
+	} else {
+		timelines = append(timelines, &PublicTimeline{OnlyRemote: true})
+	}
+	if media {
+		timelines = append(timelines, &PublicTimeline{OnlyMedia: true})
+		if domain == nil {
+			timelines = append(timelines, &PublicTimeline{OnlyLocal: true, OnlyMedia: true})
+		} else {
+			timelines = append(timelines, &PublicTimeline{OnlyRemote: true, OnlyMedia: true})
+		}
+	}
+	for _, timeline := range timelines {
+		if !feed.PushUpdateRequired(timeline) {
+			continue
+		}
+		if err := feed.PushToClient(timeline, "delete", payload); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func pushAllChannel(status *models.Status, method string) (err error) {
 	if status.Visibility != models.StatusVisibilityPublic {
 		return err
@@ -207,7 +269,7 @@ func pushAllChannel(status *models.Status, method string) (err error) {
 	}
 
 	for _, timeline := range timelines {
-		if method != "delete" && timeline.OnlyMedia && len(status.Attachments) == 0 {
+		if timeline.OnlyMedia && !statusHasAttachments(status) {
 			continue
 		}
 
@@ -220,7 +282,11 @@ func pushAllChannel(status *models.Status, method string) (err error) {
 		}
 
 		if feed.PushUpdateRequired(timeline) {
-			err = feed.PushToClient(timeline, method, status)
+			payload := any(status)
+			if method == "delete" {
+				payload = map[string]uint64{"id": status.Id}
+			}
+			err = feed.PushToClient(timeline, method, payload)
 			if err != nil {
 				return err
 			}

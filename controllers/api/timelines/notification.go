@@ -105,6 +105,7 @@ func NotificationTimeline(c *gin.Context) {
 	ret := make([]*serializer.Notification, 0, req.Limit)
 	var cursor uint64
 	scanned := 0
+	exhausted := false
 	for len(ret) < req.Limit && scanned < maxNotificationRows {
 		batchQuery := query.Session(&gorm.Session{})
 		if cursor != 0 {
@@ -118,22 +119,45 @@ func NotificationTimeline(c *gin.Context) {
 		if batchSize < 20 {
 			batchSize = 20
 		}
+		if remain := maxNotificationRows - scanned; remain < batchSize {
+			batchSize = remain
+		}
 		nfs := make(models.Notifications, 0, batchSize)
 		err = batchQuery.Order(order).Limit(batchSize).Find(&nfs).Error
 		controllers.AbortIfError(c, err)
 		if len(nfs) == 0 {
+			exhausted = true
 			break
 		}
-		scanned += len(nfs)
 		visible, err := serializer.ToNotifications(nfs, account)
 		controllers.AbortIfError(c, err)
-		remaining := req.Limit - len(ret)
-		if len(visible) > remaining {
-			visible = visible[:remaining]
+		byID := make(map[uint64]*serializer.Notification, len(visible))
+		for _, item := range visible {
+			id, parseErr := strconv.ParseUint(item.Id, 10, 64)
+			if parseErr == nil {
+				byID[id] = item
+			}
 		}
-		ret = append(ret, visible...)
-		cursor = nfs[len(nfs)-1].Id
-		if len(nfs) < batchSize {
+		filled := false
+		for _, row := range nfs {
+			if scanned >= maxNotificationRows {
+				break
+			}
+			scanned++
+			cursor = row.Id
+			if item := byID[row.Id]; item != nil && len(ret) < req.Limit {
+				ret = append(ret, item)
+				if len(ret) == req.Limit {
+					filled = true
+					break
+				}
+			}
+		}
+		if !filled && len(nfs) < batchSize {
+			exhausted = true
+			break
+		}
+		if filled {
 			break
 		}
 	}
@@ -142,6 +166,21 @@ func NotificationTimeline(c *gin.Context) {
 			ret[i], ret[j] = ret[j], ret[i]
 		}
 	}
-	common.SetListLinks(c, ret, func(n *serializer.Notification) string { return n.Id })
+	// Continue from the last raw row inspected, including a window that was
+	// entirely filtered. Using only the last visible id repeats that window.
+	// A non-empty page keeps Mastodon's next link even at the end of history.
+	if cursor != 0 && (len(ret) > 0 || !exhausted) {
+		if forwardMin {
+			common.SetAscPageLinks(c, cursor, true)
+		} else {
+			first := cursor
+			if len(ret) > 0 {
+				if id, parseErr := strconv.ParseUint(ret[0].Id, 10, 64); parseErr == nil {
+					first = id
+				}
+			}
+			common.SetPageLinksUint(c, first, cursor, true)
+		}
+	}
 	c.JSON(200, ret)
 }

@@ -34,17 +34,20 @@ func init() {
 			return true
 		}
 
-		// Lists only carry public and unlisted posts. A save whose new
-		// visibility has left that audience must still emit delete; the
-		// in-memory row already has the new visibility, so Unpush would
-		// otherwise return before touching Redis.
+		// Lists only carry public and unlisted posts. Revoke a card only when
+		// the stored row was in that audience. The in-memory visibility is
+		// already the new value, so it must not be relabeled public.
 		if status.Visibility != models.StatusVisibilityPublic && status.Visibility != models.StatusVisibilityUnlisted {
 			if event.Name == "before_update" {
-				go func() {
-					clone := *status
-					clone.Visibility = models.StatusVisibilityPublic
-					_ = Unpush(&clone, true)
-				}()
+				if prev, _, ok := storedListAudience(status.Id); ok &&
+					(prev == models.StatusVisibilityPublic || prev == models.StatusVisibilityUnlisted) {
+					id := status.Id
+					accountID := status.AccountId
+					media := listStatusHasAttachments(status)
+					go func() {
+						_ = revokeListTimeline(id, accountID, prev, media)
+					}()
+				}
 			}
 			return true
 		}
@@ -266,18 +269,77 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 // handlers are the only callers; durable fanout publishes those variants
 // from the worker and does not enter Push. Private and direct posts never
 // reach here.
-func pushListClients(lists []models.List, status *models.Status, method string) error {
-	hasMedia := method == "delete" || (status != nil && len(status.Attachments) > 0)
+func storedListAudience(id uint64) (visibility uint8, domain *string, ok bool) {
+	if id == 0 || db.GetDB() == nil {
+		return 0, nil, false
+	}
+	var row models.Status
+	if err := db.GetDB().Select("id", "visibility", "domain").First(&row, id).Error; err != nil {
+		return 0, nil, false
+	}
+	return row.Visibility, row.Domain, true
+}
+
+func listStatusHasAttachments(status *models.Status) bool {
+	if status == nil {
+		return false
+	}
+	if len(status.Attachments) > 0 {
+		return true
+	}
+	if status.Id == 0 || db.GetDB() == nil {
+		return false
+	}
+	var n int64
+	if err := db.GetDB().Table("media_attachments").Where("status_id = ?", status.Id).Limit(1).Count(&n).Error; err != nil {
+		return false
+	}
+	return n > 0
+}
+
+func revokeListTimeline(id, accountID uint64, previous uint8, media bool) error {
+	clone := &models.Status{Id: id, AccountId: accountID, Visibility: previous}
+	if err := Unpush(clone, false); err != nil {
+		return err
+	}
+	var lists []models.List
+	if err := targetLists(clone).Find(&lists).Error; err != nil {
+		return err
+	}
+	payload := map[string]uint64{"id": id}
 	for i := range lists {
 		targets := []*ListTimeline{{List: &lists[i]}}
-		if hasMedia {
+		if media {
 			targets = append(targets, &ListTimeline{List: &lists[i], OnlyMedia: true})
 		}
 		for _, timeline := range targets {
 			if !feed.PushUpdateRequired(timeline) {
 				continue
 			}
-			if err := feed.PushToClient(timeline, method, status); err != nil {
+			if err := feed.PushToClient(timeline, "delete", payload); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func pushListClients(lists []models.List, status *models.Status, method string) error {
+	hasMedia := listStatusHasAttachments(status)
+	for i := range lists {
+		targets := []*ListTimeline{{List: &lists[i]}}
+		if hasMedia {
+			targets = append(targets, &ListTimeline{List: &lists[i], OnlyMedia: true})
+		}
+		payload := any(status)
+		if method == "delete" && status != nil {
+			payload = map[string]uint64{"id": status.Id}
+		}
+		for _, timeline := range targets {
+			if !feed.PushUpdateRequired(timeline) {
+				continue
+			}
+			if err := feed.PushToClient(timeline, method, payload); err != nil {
 				return err
 			}
 		}
