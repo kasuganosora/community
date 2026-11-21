@@ -224,20 +224,20 @@ func (p *MeiliProvider) Status() MeiliStatus {
 		result.Reason = "redis_unavailable"
 		return result
 	}
-	p.operationErrors(ctx, &result)
-	if state.Active == nil {
-		return result
-	}
 	a := state.Active
-	result.Generation = a.Generation
-	result.Version = a.Version
-	result.ServerVersion = a.ServerVersion
-	result.DocumentCount = a.Documents
-	if result.DatabaseBudgetBytes == 0 && a.DatabaseBudgetBytes > 0 {
+	if a != nil && a.DatabaseBudgetBytes > 0 {
 		result.DatabaseBytes = a.DatabaseBytes
 		result.DatabaseBudgetBytes = a.DatabaseBudgetBytes
 		result.DatabaseSizeSource = a.DatabaseSizeSource
 	}
+	p.readHealth(ctx, &result)
+	if a == nil {
+		return result
+	}
+	result.Generation = a.Generation
+	result.Version = a.Version
+	result.ServerVersion = a.ServerVersion
+	result.DocumentCount = a.Documents
 	result.DataCutoff = a.Cutoff
 	if a.Version != p.versionForMode(a.ServerVersion, a.Mode) {
 		result.Reason = "configuration_changed"
@@ -662,7 +662,7 @@ func (p *MeiliProvider) buildOwned(ctx context.Context, token string, configured
 	if state.Active != nil && state.Active.Version == p.versionForMode(version.Version, state.Active.Mode) && time.Since(state.Active.Cutoff) < 2*time.Minute {
 		return nil
 	}
-	if err = p.checkDiskBudgetWithSetting(ctx, configuredMaxMiB); err != nil {
+	if err = p.checkDiskBudgetWithSetting(ctx, configuredMaxMiB, token); err != nil {
 		return err
 	}
 	cutoff := time.Now().UTC()
