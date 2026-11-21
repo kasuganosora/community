@@ -91,7 +91,67 @@ func QueueFeedStatus(tx *gorm.DB, kind string, status *Status) error {
 }
 
 func feedTableAvailable(tx *gorm.DB, name string) bool {
-	return FeedOutboxRequired() || tx.Migrator().HasTable(name)
+	if FeedOutboxRequired() {
+		return true
+	}
+	if tx == nil || name == "" {
+		return false
+	}
+	// Same transaction connection, separate statement. See HasFeedOutbox.
+	return tx.Session(&gorm.Session{NewDB: true}).Migrator().HasTable(name)
+}
+
+// priorTimelineState is the persisted audience of a status before the UPDATE
+// statement. It is loaded on the caller's transaction connection so a
+// one-connection pool does not deadlock inside BeforeUpdate.
+type priorTimelineState struct {
+	visibility uint8
+	domain     *string
+	hasMedia   bool
+}
+
+func loadPriorTimeline(tx *gorm.DB, id uint64) (*priorTimelineState, error) {
+	var row Status
+	if err := tx.Select("id", "visibility", "domain").First(&row, id).Error; err != nil {
+		return nil, err
+	}
+	state := &priorTimelineState{visibility: row.Visibility}
+	if row.Domain != nil {
+		domain := *row.Domain
+		state.domain = &domain
+	}
+	if feedTableAvailable(tx, "media_attachments") {
+		var n int64
+		if err := tx.Table("media_attachments").Where("status_id = ?", id).Limit(1).Count(&n).Error; err != nil {
+			return nil, err
+		}
+		state.hasMedia = n > 0
+	}
+	return state, nil
+}
+
+// PriorTimelineVisibility reports the visibility stored before this Save.
+// The boolean is false when this status was not loaded by BeforeUpdate.
+func (s *Status) PriorTimelineVisibility() (uint8, bool) {
+	if s == nil || s.priorTimeline == nil {
+		return 0, false
+	}
+	return s.priorTimeline.visibility, true
+}
+
+// PriorTimelineDomain is the domain stored before this Save. The returned
+// pointer is a copy and is nil for a local post.
+func (s *Status) PriorTimelineDomain() *string {
+	if s == nil || s.priorTimeline == nil || s.priorTimeline.domain == nil {
+		return nil
+	}
+	domain := *s.priorTimeline.domain
+	return &domain
+}
+
+// PriorTimelineHasMedia reports whether a media row was stored before this Save.
+func (s *Status) PriorTimelineHasMedia() bool {
+	return s != nil && s.priorTimeline != nil && s.priorTimeline.hasMedia
 }
 
 func captureFeedAudience(tx *gorm.DB, id uint64, metadata *FeedEventMetadata) error {

@@ -39,11 +39,11 @@ func init() {
 		// already the new value, so it must not be relabeled public.
 		if status.Visibility != models.StatusVisibilityPublic && status.Visibility != models.StatusVisibilityUnlisted {
 			if event.Name == "before_update" {
-				if prev, _, ok := storedListAudience(status.Id); ok &&
+				if prev, ok := status.PriorTimelineVisibility(); ok &&
 					(prev == models.StatusVisibilityPublic || prev == models.StatusVisibilityUnlisted) {
 					id := status.Id
 					accountID := status.AccountId
-					media := listStatusHasAttachments(status)
+					media := status.PriorTimelineHasMedia()
 					go func() {
 						_ = revokeListTimeline(id, accountID, prev, media)
 					}()
@@ -269,17 +269,6 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 // handlers are the only callers; durable fanout publishes those variants
 // from the worker and does not enter Push. Private and direct posts never
 // reach here.
-func storedListAudience(id uint64) (visibility uint8, domain *string, ok bool) {
-	if id == 0 || db.GetDB() == nil {
-		return 0, nil, false
-	}
-	var row models.Status
-	if err := db.GetDB().Select("id", "visibility", "domain").First(&row, id).Error; err != nil {
-		return 0, nil, false
-	}
-	return row.Visibility, row.Domain, true
-}
-
 func listStatusHasAttachments(status *models.Status) bool {
 	if status == nil {
 		return false

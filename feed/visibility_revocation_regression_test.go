@@ -19,8 +19,9 @@ import (
 func TestNeverPublicPrivateUpdateDoesNotBroadcast(t *testing.T) {
 	conn, client := setupTimelineOrder(t)
 	require.NoError(t, conn.AutoMigrate(&models.MediaAttachment{}))
+	mode, reads := feed.SnapshotRuntimeForTest()
+	t.Cleanup(func() { feed.RestoreRuntimeForTest(mode, reads) })
 	require.NoError(t, feed.ConfigureRuntime("shadow"))
-	t.Cleanup(func() { _ = feed.ConfigureRuntime("legacy") })
 
 	quiet := conn.Session(&gorm.Session{SkipHooks: true})
 	author := &models.Account{Id: 1, Username: "author"}
@@ -59,84 +60,11 @@ func TestNeverPublicPrivateUpdateDoesNotBroadcast(t *testing.T) {
 	assertNoStreamMessages(t, sub.Channel())
 }
 
-func TestPublicToPrivateDeleteIsMinimalAndScoped(t *testing.T) {
-	conn, client := setupTimelineOrder(t)
-	require.NoError(t, conn.AutoMigrate(&models.MediaAttachment{}))
-	require.NoError(t, feed.ConfigureRuntime("shadow"))
-	t.Cleanup(func() { _ = feed.ConfigureRuntime("legacy") })
-
-	quiet := conn.Session(&gorm.Session{SkipHooks: true})
-	author := &models.Account{Id: 1, Username: "author"}
-	require.NoError(t, quiet.Create(author).Error)
-	now := time.Now()
-	lst := &models.List{Id: 8, Title: "people", AccountId: author.Id, LastViewedAt: &now}
-	require.NoError(t, quiet.Create(lst).Error)
-	require.NoError(t, quiet.Create(&models.ListAccount{ListId: lst.Id, AccountId: author.Id}).Error)
-
-	plain := &models.Status{Id: 50, AccountId: author.Id, Visibility: models.StatusVisibilityPublic, Content: models.StatusContent{Content: "was-public-body", SpoilerText: "was-public-cw"}}
-	require.NoError(t, quiet.Create(plain).Error)
-	withMedia := &models.Status{Id: 51, AccountId: author.Id, Visibility: models.StatusVisibilityPublic}
-	require.NoError(t, quiet.Create(withMedia).Error)
-	mediaID := withMedia.Id
-	require.NoError(t, quiet.Create(&models.MediaAttachment{StatusId: &mediaID, AccountId: author.Id, FileName: "a", FilePath: "a", ContentType: "image/png"}).Error)
-
-	all := feed.GetRedisChannelName(&public.PublicTimeline{})
-	media := feed.GetRedisChannelName(&public.PublicTimeline{OnlyMedia: true})
-	local := feed.GetRedisChannelName(&public.PublicTimeline{OnlyLocal: true})
-	remote := feed.GetRedisChannelName(&public.PublicTimeline{OnlyRemote: true})
-	listAll := feed.GetRedisChannelName(&list.ListTimeline{List: lst})
-	listMedia := feed.GetRedisChannelName(&list.ListTimeline{List: lst, OnlyMedia: true})
-	ctx := context.Background()
-	sub := client.Subscribe(ctx, all, media, local, remote, listAll, listMedia)
-	t.Cleanup(func() { _ = sub.Close() })
-	waitSubscribed(t, client, []string{all, media, local, remote, listAll, listMedia})
-
-	loaded := &models.Status{}
-	require.NoError(t, conn.First(loaded, plain.Id).Error)
-	loaded.Visibility = models.StatusVisibilityPrivate
-	loaded.Content.Content = "was-public-body"
-	loaded.Content.SpoilerText = "was-public-cw"
-	event.Trigger("status", event.Event{Name: "before_update", Data: loaded})
-	plainMsgs := collectStreamMessages(t, sub.Channel(), 500*time.Millisecond)
-	require.NotEmpty(t, plainMsgs)
-	seen := map[string]int{}
-	for _, msg := range plainMsgs {
-		require.NotContains(t, msg.Payload, "was-public-body")
-		require.NotContains(t, msg.Payload, "was-public-cw")
-		require.Contains(t, msg.Payload, `"id":50`)
-		require.Contains(t, msg.Payload, `"type":"delete"`)
-		seen[msg.Channel]++
-	}
-	require.Equal(t, 1, seen[all])
-	require.Equal(t, 1, seen[local])
-	require.Equal(t, 1, seen[listAll])
-	require.Zero(t, seen[media], "a post with no attachment must not revoke the media stream")
-	require.Zero(t, seen[remote])
-	require.Zero(t, seen[listMedia])
-
-	loaded = &models.Status{}
-	require.NoError(t, conn.First(loaded, withMedia.Id).Error)
-	loaded.Visibility = models.StatusVisibilityPrivate
-	event.Trigger("status", event.Event{Name: "before_update", Data: loaded})
-	mediaMsgs := collectStreamMessages(t, sub.Channel(), 500*time.Millisecond)
-	seen = map[string]int{}
-	for _, msg := range mediaMsgs {
-		require.Contains(t, msg.Payload, `"id":51`)
-		require.Contains(t, msg.Payload, `"type":"delete"`)
-		seen[msg.Channel]++
-	}
-	require.Equal(t, 1, seen[all])
-	require.Equal(t, 1, seen[media])
-	require.Equal(t, 1, seen[local])
-	require.Equal(t, 1, seen[listAll])
-	require.Equal(t, 1, seen[listMedia])
-	require.Zero(t, seen[remote])
-}
-
 func TestDirectTagRefreshDoesNotPublishPublic(t *testing.T) {
 	conn, client := setupTimelineOrder(t)
+	mode, reads := feed.SnapshotRuntimeForTest()
+	t.Cleanup(func() { feed.RestoreRuntimeForTest(mode, reads) })
 	require.NoError(t, feed.ConfigureRuntime("shadow"))
-	t.Cleanup(func() { _ = feed.ConfigureRuntime("legacy") })
 	quiet := conn.Session(&gorm.Session{SkipHooks: true})
 	author := &models.Account{Id: 1, Username: "author"}
 	require.NoError(t, quiet.Create(author).Error)

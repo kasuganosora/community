@@ -29,7 +29,17 @@ var feedOutboxRequired atomic.Bool
 func RequireFeedOutbox()       { feedOutboxRequired.Store(true) }
 func FeedOutboxRequired() bool { return feedOutboxRequired.Load() }
 func HasFeedOutbox(tx *gorm.DB) bool {
-	return feedOutboxRequired.Load() || (tx.Migrator().HasTable(&FeedEvent{}) && tx.Migrator().HasTable(&FeedBatch{}))
+	if feedOutboxRequired.Load() {
+		return true
+	}
+	// HasTable on the callback DB reuses its statement and re-enters Update
+	// while that statement still points at the status being saved. A fresh
+	// session keeps the transaction connection without touching that statement.
+	check := tx
+	if tx != nil && tx.Statement != nil {
+		check = tx.Session(&gorm.Session{NewDB: true})
+	}
+	return check != nil && check.Migrator().HasTable(&FeedEvent{}) && check.Migrator().HasTable(&FeedBatch{})
 }
 
 type FeedEventMetadata struct {

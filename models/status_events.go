@@ -50,6 +50,15 @@ func triggerStatusEvent(tx *gorm.DB, e event.Event) {
 		buffer.mu.Unlock()
 		return
 	}
+	// Save keeps mutating this struct after the hook returns: GORM assignment
+	// and later hooks such as clearing feedEventKind. Handlers start goroutines
+	// that read the status, so hand them a snapshot taken on the Save goroutine.
+	// Deferred events keep the original pointer. ConversationId is assigned
+	// after the create hooks and must still be visible when publish runs.
+	if status, ok := e.Data.(*Status); ok && status != nil {
+		cloned := *status
+		e.Data = &cloned
+	}
 	event.Trigger("status", e)
 }
 

@@ -36,9 +36,13 @@ func init() {
 		// actually public. A private post that was never public must not be
 		// announced on the public channels.
 		if event.Name == "before_update" && status.Visibility != models.StatusVisibilityPublic {
-			if prev, domain, ok := storedAudience(status.Id); ok && prev == models.StatusVisibilityPublic {
+			// BeforeUpdate already read the stored row on the transaction
+			// connection. A missing snapshot means this event was not produced
+			// by that Save, so do not open another pool connection here.
+			if prev, ok := status.PriorTimelineVisibility(); ok && prev == models.StatusVisibilityPublic {
 				id := status.Id
-				media := statusHasAttachments(status)
+				domain := status.PriorTimelineDomain()
+				media := status.PriorTimelineHasMedia()
 				go func() {
 					_ = revokePublicTimeline(id, domain, media)
 				}()
@@ -194,17 +198,6 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 	}
 
 	return
-}
-
-func storedAudience(id uint64) (visibility uint8, domain *string, ok bool) {
-	if id == 0 || db.GetDB() == nil {
-		return 0, nil, false
-	}
-	var row models.Status
-	if err := db.GetDB().Select("id", "visibility", "domain").First(&row, id).Error; err != nil {
-		return 0, nil, false
-	}
-	return row.Visibility, row.Domain, true
 }
 
 func statusHasAttachments(status *models.Status) bool {
