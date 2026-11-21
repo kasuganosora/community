@@ -222,6 +222,19 @@ func Push(status *models.Status, update bool) (err error) {
 	// 加上这个status的作者
 	accountsId = append(accountsId, status.AccountId)
 	accountsId = utils.UniqueSlice(accountsId)
+	excluded, exclErr := ExclusiveHomeRecipients(db.GetDB(), status.AccountId, accountsId)
+	if exclErr != nil {
+		return errors.Wrap(exclErr, fmt.Sprintf("Push status to followers failed, status id %d", status.Id))
+	}
+	if len(excluded) > 0 {
+		kept := make([]uint64, 0, len(accountsId))
+		for _, id := range accountsId {
+			if !excluded[id] {
+				kept = append(kept, id)
+			}
+		}
+		accountsId = kept
+	}
 
 	// 推送到发这个status的用户的粉丝和提及的用户
 	go func() {
