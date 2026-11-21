@@ -212,19 +212,13 @@ func createStatusRow(t *testing.T, env *adminTestEnv, account *models.Account) *
 	now := time.Now()
 	status := &models.Status{
 		AccountId:  account.Id,
+		Content:    models.StatusContent{Content: "hello"},
 		Visibility: uint8(models.StatusVisibilityPublic),
 		CreatedAt:  &now,
 		UpdatedAt:  &now,
 	}
 
 	require.NoError(t, env.gdb.Create(status).Error)
-
-	content := &models.StatusContent{
-		StatusId:    status.Id,
-		Content:     "hello",
-		SpoilerText: "",
-	}
-	require.NoError(t, env.gdb.Create(content).Error)
 
 	return status
 }

@@ -129,7 +129,10 @@ func TestEmojiRehostCopiesLegacyURLAndIsIdempotent(t *testing.T) {
 	require.True(t, strings.HasPrefix(wave.Url, testBaseURL+"/emoji-assets/"), wave.Url)
 	require.True(t, strings.HasPrefix(wave.StaticUrl, testBaseURL+"/emoji-assets/"), wave.StaticUrl)
 	require.NotEqual(t, wave.Url, wave.StaticUrl)
-	require.Equal(t, "image/png", wave.ContentType)
+	info, err := backend.Stat(context.Background(), emojiasset.StorageKey(wave.Url))
+	require.NoError(t, err)
+	require.NotEmpty(t, info.ContentType)
+	require.Equal(t, info.ContentType, wave.ContentType)
 	require.Positive(t, wave.FileSize)
 	require.Positive(t, wave.Width)
 

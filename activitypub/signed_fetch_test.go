@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/resilience"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,8 +49,10 @@ func (s *secureModeServer) serve(r *http.Request) *http.Response {
 
 func withFetchTransport(t *testing.T, rt outboundTransport, signer func(context.Context) (*Client, error)) {
 	t.Helper()
-	oldClient, oldSigner := sharedHTTPClient, systemSigningClient
-	t.Cleanup(func() { sharedHTTPClient, systemSigningClient = oldClient, oldSigner })
+	oldClient, oldSigner, oldBreakers := sharedHTTPClient, systemSigningClient, remoteHostBreakers
+	t.Cleanup(func() { sharedHTTPClient, systemSigningClient, remoteHostBreakers = oldClient, oldSigner, oldBreakers })
+	// Every mock origin starts without failures from the preceding test.
+	remoteHostBreakers = resilience.NewBreakerGroup(resilience.BreakerConfig{}, 16)
 	sharedHTTPClient = &http.Client{Transport: rt}
 	systemSigningClient = signer
 }
