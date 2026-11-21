@@ -29,7 +29,7 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/monoculum/formam/v3 v3.6.0
-	github.com/nicksnyder/go-i18n/v2 v2.6.1
+	github.com/nicksnyder/go-i18n/v2 v2.7.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.24.1
@@ -41,9 +41,9 @@ require (
 	golang.org/x/crypto v0.57.0
 	golang.org/x/image v0.46.0
 	golang.org/x/net v0.59.0
-	golang.org/x/sync v0.23.0
+	golang.org/x/sync v0.24.0
 	golang.org/x/sys v0.48.0
-	golang.org/x/text v0.42.0
+	golang.org/x/text v0.43.0
 	golang.org/x/time v0.16.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gorm.io/driver/mysql v1.6.0
