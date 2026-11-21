@@ -221,147 +221,49 @@ func Following(c *gin.Context) {
 	c.JSON(200, serializer.ToAccounts(accounts))
 }
 
-// RelationshipsRequest represents the request for relationships.
-type RelationshipsRequest struct {
-	Id []string `binding:"required" form:"id"`
-}
-
-// Relationships handles GET /api/v1/accounts/relationships.
+// Relationships returns the signed-in account's relationship to each known ID.
 func Relationships(c *gin.Context) {
-	// Get current account
-	currentAccount := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
-
-	// Get target account IDs
-	// Mastodon clients send id[]=1&id[]=2; also accept plain id=1&id=2.
+	viewer := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	ids := append(c.QueryArray("id"), c.QueryArray("id[]")...)
-	if len(ids) == 0 {
-		c.AbortWithStatusJSON(400, gin.H{"error": "id parameter required"})
-
-		return
-	}
-
-	// Parse IDs
-	targetIds := make([]uint64, 0, len(ids))
-
-	for _, idStr := range ids {
-		if id, err := strconv.ParseUint(idStr, 10, 64); err == nil {
-			targetIds = append(targetIds, id)
+	targetIDs := make([]uint64, 0, len(ids))
+	for _, raw := range ids {
+		if id, err := strconv.ParseUint(raw, 10, 64); err == nil && id != 0 {
+			targetIDs = append(targetIDs, id)
 		}
 	}
-
-	if len(targetIds) == 0 {
-		c.JSON(200, []gin.H{})
-
-		return
+	conn := db.GetDB().WithContext(c.Request.Context())
+	targets := make([]*models.Account, 0, len(targetIDs))
+	if len(targetIDs) > 0 {
+		withSuspended, _ := strconv.ParseBool(c.Query("with_suspended"))
+		query := conn.Select("id", "domain", "followed_message").Where("id IN ? AND deletion_requested_at IS NULL", targetIDs)
+		if !withSuspended {
+			query = query.Where("is_ban = ?", false)
+		}
+		if err := query.Find(&targets).Error; err != nil {
+			_ = c.Error(err)
+			return
+		}
 	}
-
-	// Query relationships
-	// Following status
-	followingMap := make(map[uint64]bool)
-
-	followingList := make([]*models.Follow, 0)
-	err := db.GetDB().Scopes(models.Followed).
-		Where("account_id = ? AND follow_id IN ?", currentAccount.Id, targetIds).
-		Find(&followingList).Error
+	relationships, err := serializer.LoadRelationships(conn, viewer.Id, targets)
 	if err != nil {
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"}) //nolint:goconst
-
+		_ = c.Error(err)
 		return
 	}
-
-	showingReblogsMap := make(map[uint64]bool)
-	for _, f := range followingList {
-		followingMap[f.FollowId] = true
-		showingReblogsMap[f.FollowId] = f.ShowsReblogs()
+	result := make([]*serializer.FollowStatus, 0, len(relationships))
+	for _, id := range targetIDs {
+		if row := relationships[id]; row != nil {
+			result = append(result, row)
+			delete(relationships, id)
+		}
 	}
-
-	// Follow requested status
-	requestedMap := make(map[uint64]bool)
-
-	requestedList := make([]*models.Follow, 0)
-	err = db.GetDB().Scopes(models.FollowRequested).
-		Where("account_id = ? AND follow_id IN ?", currentAccount.Id, targetIds).
-		Find(&requestedList).Error
-	if err != nil {
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-		return
-	}
-
-	for _, f := range requestedList {
-		requestedMap[f.FollowId] = true
-	}
-
-	// Followed by status
-	followedByMap := make(map[uint64]bool)
-
-	followedList := make([]*models.Follow, 0)
-	err = db.GetDB().Scopes(models.Followed).
-		Where("follow_id = ? AND account_id IN ?", currentAccount.Id, targetIds).
-		Find(&followedList).Error
-	if err != nil {
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-		return
-	}
-
-	for _, f := range followedList {
-		followedByMap[f.AccountId] = true
-	}
-
-	// Blocking status
-	blockingMap := make(map[uint64]bool)
-
-	blocks := make([]*models.Block, 0)
-	err = db.GetDB().Where("account_id = ? AND target_account_id IN ?", currentAccount.Id, targetIds).
-		Find(&blocks).Error
-	if err != nil {
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-		return
-	}
-
-	for _, b := range blocks {
-		blockingMap[b.TargetAccountId] = true
-	}
-
-	// Muting status
-	mutingMap := make(map[uint64]bool)
-
-	mutes := make([]*models.MuteAccount, 0)
-	err = db.GetDB().Where("account_id = ? AND target_id IN ?", currentAccount.Id, targetIds).
-		Find(&mutes).Error
-	if err != nil {
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-		return
-	}
-
-	for _, m := range mutes {
-		mutingMap[m.TargetId] = true
-	}
-
-	// Build response
-	relationships := make([]gin.H, 0, len(targetIds))
-	for _, targetId := range targetIds {
-		relationships = append(relationships, gin.H{
-			"id":                   strconv.FormatUint(targetId, 10),
-			"following":            followingMap[targetId], //nolint:goconst
-			"followed_by":          followedByMap[targetId],
-			"blocking":             blockingMap[targetId],
-			"muting":               mutingMap[targetId],
-			"muting_notifications": false,
-			"requested":            requestedMap[targetId],
-			"domain_blocking":      false,
-			"showing_reblogs":      showingReblogs(followingMap[targetId], showingReblogsMap[targetId]),
-			"endorsed":             false,
-			"note":                 "",
-		})
-	}
-
-	c.JSON(200, relationships)
+	c.JSON(200, result)
 }
 
-// showingReblogs mirrors Mastodon: false when not following, otherwise the
-// follow's reblogs preference.
-func showingReblogs(following, shows bool) bool { return following && shows }
+func renderRelationship(c *gin.Context, viewer, target *models.Account) {
+	result, err := serializer.LoadRelationships(db.GetDB().WithContext(c.Request.Context()), viewer.Id, []*models.Account{target})
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	c.JSON(200, result[target.Id])
+}

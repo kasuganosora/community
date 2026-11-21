@@ -143,16 +143,7 @@ func GetNotificationPolicy(c *gin.Context) {
 		}
 	}
 
-	c.JSON(200, gin.H{
-		"filter_not_following":    policy.FilterNotFollowing,
-		"filter_not_followers":    policy.FilterNotFollowers,
-		"filter_new_accounts":     policy.FilterNewAccounts,
-		"filter_private_mentions": policy.FilterPrivateMentions,
-		"summary": gin.H{
-			"pending_requests_count":      0,
-			"pending_notifications_count": 0,
-		},
-	})
+	writeNotificationPolicy(c, policy)
 }
 
 // UpdateNotificationPolicyRequest represents the request for updating notification policy.
@@ -220,11 +211,16 @@ func UpdateNotificationPolicy(c *gin.Context) {
 		policy.FilterPrivateMentions, _ = account.User.Settings.Data["notification_filter_private_mentions"].(bool)
 	}
 
+	writeNotificationPolicy(c, policy)
+}
+
+func writeNotificationPolicy(c *gin.Context, policy NotificationPolicy) {
 	c.JSON(200, gin.H{
 		"filter_not_following":    policy.FilterNotFollowing,
 		"filter_not_followers":    policy.FilterNotFollowers,
 		"filter_new_accounts":     policy.FilterNewAccounts,
 		"filter_private_mentions": policy.FilterPrivateMentions,
+		"filter_bots":             false,
 		"summary": gin.H{
 			"pending_requests_count":      0,
 			"pending_notifications_count": 0,

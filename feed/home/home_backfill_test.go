@@ -21,6 +21,8 @@ func TestHomeCandidatesSkipBackfilledStatuses(t *testing.T) {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	for _, sql := range []string{
 		"CREATE TABLE accounts (id INTEGER PRIMARY KEY, is_ban BOOLEAN)",
+		"CREATE TABLE lists (id INTEGER PRIMARY KEY, account_id INTEGER, exclusive BOOLEAN, deleted_at DATETIME)",
+		"CREATE TABLE list_accounts (list_id INTEGER, account_id INTEGER)",
 		"CREATE TABLE follows (id INTEGER PRIMARY KEY, account_id INTEGER, follow_id INTEGER, status INTEGER, properties TEXT)",
 		"CREATE TABLE status_to_accounts (id INTEGER PRIMARY KEY, status_id INTEGER, account_id INTEGER)",
 		"CREATE TABLE statuses (id INTEGER PRIMARY KEY, account_id INTEGER, visibility INTEGER, scheduled_at DATETIME, deleted_at DATETIME, domain TEXT, properties TEXT, reblog_id INTEGER)",
@@ -68,6 +70,8 @@ func TestHomeCandidatesSkipReblogsFromHiddenFollows(t *testing.T) {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	for _, sql := range []string{
 		"CREATE TABLE accounts (id INTEGER PRIMARY KEY, is_ban BOOLEAN)",
+		"CREATE TABLE lists (id INTEGER PRIMARY KEY, account_id INTEGER, exclusive BOOLEAN, deleted_at DATETIME)",
+		"CREATE TABLE list_accounts (list_id INTEGER, account_id INTEGER)",
 		"CREATE TABLE follows (id INTEGER PRIMARY KEY, account_id INTEGER, follow_id INTEGER, status INTEGER, properties TEXT)",
 		"CREATE TABLE status_to_accounts (id INTEGER PRIMARY KEY, status_id INTEGER, account_id INTEGER)",
 		"CREATE TABLE statuses (id INTEGER PRIMARY KEY, account_id INTEGER, visibility INTEGER, scheduled_at DATETIME, deleted_at DATETIME, domain TEXT, properties TEXT, reblog_id INTEGER)",
@@ -86,4 +90,11 @@ func TestHomeCandidatesSkipReblogsFromHiddenFollows(t *testing.T) {
 		got = append(got, s.Id)
 	}
 	require.Equal(t, []uint64{4, 3, 1}, got)
+
+	require.NoError(t, conn.Exec("INSERT INTO lists (id, account_id, exclusive) VALUES (1, 1, true)").Error)
+	require.NoError(t, conn.Exec("INSERT INTO list_accounts (list_id, account_id) VALUES (1, 3)").Error)
+	page = nil
+	require.NoError(t, homeCandidates(conn, 1).Order("statuses.id DESC").Find(&page).Error)
+	require.Len(t, page, 1)
+	require.EqualValues(t, 1, page[0].Id)
 }

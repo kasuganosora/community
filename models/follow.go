@@ -10,7 +10,9 @@ import (
 )
 
 const (
-	FollowPropertyKeyReblogs = "reblogs"
+	FollowPropertyKeyReblogs   = "reblogs"
+	FollowPropertyKeyNotify    = "notify"
+	FollowPropertyKeyLanguages = "languages"
 )
 
 const (
@@ -37,6 +39,23 @@ func (f *Follow) ShowsReblogs() bool {
 	v, ok := f.Properties[FollowPropertyKeyReblogs].(bool)
 
 	return !ok || v
+}
+
+func (f *Follow) Languages() []string {
+	switch values := f.Properties[FollowPropertyKeyLanguages].(type) {
+	case []string:
+		return values
+	case []any:
+		languages := make([]string, 0, len(values))
+		for _, value := range values {
+			if language, ok := value.(string); ok {
+				languages = append(languages, language)
+			}
+		}
+		return languages
+	default:
+		return nil
+	}
 }
 
 // HiddenReblogsCondition is an SQL predicate on the follows table matching

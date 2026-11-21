@@ -10,7 +10,6 @@ import (
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/utils"
 	"github.com/pkg/errors"
 )
@@ -23,19 +22,24 @@ type CreateAppRequest struct {
 	Website      string `form:"website"                   json:"website"`
 }
 
-// CreateAppResponse represents the response for creating an OAuth application.
-type CreateAppResponse struct {
+// ApplicationResponse is the application metadata returned to registered clients.
+type ApplicationResponse struct {
 	Id           string   `json:"id"`
 	Name         string   `json:"name"`
 	Website      *string  `json:"website"`
 	RedirectUri  string   `json:"redirect_uri"`
 	RedirectUris []string `json:"redirect_uris"`
 	Scopes       []string `json:"scopes"`
-	ClientId     string   `json:"client_id"`
-	ClientSecret string   `json:"client_secret"`
+	VapidKey     *string  `json:"vapid_key"`
+}
+
+// CreateAppResponse adds the credentials returned only on registration.
+type CreateAppResponse struct {
+	ApplicationResponse
+	ClientId     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
 	// ClientSecretExpiresAt is always 0 (never expires), as in Mastodon.
-	ClientSecretExpiresAt int    `json:"client_secret_expires_at"`
-	VapidKey              string `json:"vapid_key"`
+	ClientSecretExpiresAt int `json:"client_secret_expires_at"`
 }
 
 // AuthorizeRequest represents the request for OAuth authorization.
@@ -137,16 +141,21 @@ func CreateApp(c *gin.Context) {
 	clientSecret := utils.GetRandomHex(64)
 
 	// Parse scopes
-	scopes := parseScopes(req.Scopes)
+	scopes, valid := models.ParseOAuthScopes(req.Scopes)
+	if !valid {
+		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_scope"})
+		return
+	}
 
 	// Create application
 	app := &OAuthApplication{
 		Application: models.Application{
-			Name:        req.ClientName,
-			Website:     req.Website,
-			RedirectUri: req.RedirectUris,
-			Scopes:      scopes,
-			IsEnabled:   true,
+			Name:             req.ClientName,
+			Website:          req.Website,
+			RedirectUri:      req.RedirectUris,
+			Scopes:           scopes,
+			RegisteredScopes: req.Scopes,
+			IsEnabled:        true,
 		},
 		ClientId:     clientId,
 		ClientSecret: clientSecret,
@@ -160,15 +169,9 @@ func CreateApp(c *gin.Context) {
 	}
 
 	c.JSON(200, CreateAppResponse{
-		Id:           strconv.FormatUint(app.Id, 10),
-		Name:         app.Name,
-		Website:      websitePtr(app.Website),
-		RedirectUri:  app.RedirectUri,
-		RedirectUris: splitRedirects(app.RedirectUri),
-		Scopes:       responseScopes(req.Scopes),
-		ClientId:     app.ClientId,
-		ClientSecret: app.ClientSecret,
-		VapidKey:     "", // VAPID key for push notifications (optional)
+		ApplicationResponse: applicationResponse(&app.Application, req.Scopes),
+		ClientId:            app.ClientId,
+		ClientSecret:        app.ClientSecret,
 	})
 }
 
@@ -376,52 +379,55 @@ func VerifyCredentials(c *gin.Context) {
 	}
 
 	application := app.(*models.Application) //nolint:forcetypeassert // type guaranteed by caller
-	c.JSON(200, serializer.ToApplication(application))
+	scopes := application.RegisteredScopes
+	if scopes == "" {
+		scopes = application.Scopes.OAuthScopeString()
+	}
+	if scopes == "" {
+		// Older stored applications can have an empty scope set. Report the
+		// current token's grant when the original registration is unavailable.
+		value, _ := c.Get("token_data")
+		if token, ok := value.(*models.AuthTokenData); ok {
+			scopes = token.Scope
+			if scopes == "" {
+				scopes = token.Scopes.OAuthScopeString()
+			}
+		}
+	}
+	c.JSON(200, applicationResponse(application, scopes))
+}
+
+func applicationResponse(app *models.Application, scopes string) ApplicationResponse {
+	redirects := splitRedirects(app.RedirectUri)
+	return ApplicationResponse{
+		Id:           strconv.FormatUint(app.Id, 10),
+		Name:         app.Name,
+		Website:      websitePtr(app.Website),
+		RedirectUri:  app.RedirectUri,
+		RedirectUris: redirects,
+		Scopes:       responseScopes(scopes),
+		// Community does not publish a VAPID key.
+		VapidKey: nil,
+	}
 }
 
 // Helper functions
 
-func parseScopes(scopesStr string) models.ApplicationScope {
-	scopes := models.ApplicationScope{}
-	if scopesStr == "" {
-		// Default scopes
-		return scopes
-	}
-
-	scopeList := strings.SplitSeq(scopesStr, " ")
-	for scope := range scopeList {
-		scope = strings.TrimSpace(scope)
-		switch {
-		// Matrix scopes must be matched before the read:/write: prefixes:
-		// they are opt-in and never imply (or are implied by) read/write.
-		case scope == "read:matrix":
-			scopes.AddScope(models.AppScopeTypeOther, models.AppScopeReadMatrix)
-		case scope == "write:matrix":
-			scopes.AddScope(models.AppScopeTypeOther, models.AppScopeWriteMatrix)
-		case scope == "read" || strings.HasPrefix(scope, "read:"):
-			scopes.AddScope(models.AppScopeTypeRead, models.AppScopeRead)
-		case scope == "write" || strings.HasPrefix(scope, "write:"):
-			scopes.AddScope(models.AppScopeTypeWrite, models.AppScopeWrite)
-		case scope == "admin" || strings.HasPrefix(scope, "admin:"):
-			scopes.AddScope(models.AppScopeTypeAdmin, models.AppScopeAdmin)
-		case scope == "follow":
-			scopes.AddScope(models.AppScopeTypeOther, models.AppScopeFollow)
-		case scope == "push":
-			scopes.AddScope(models.AppScopeTypeOther, models.AppScopePush)
-		}
-	}
-
-	return scopes
-}
-
 // responseScopes returns the registered scopes as an array; Mastodon
 // defaults to ["read"] when the client sent none.
 func responseScopes(raw string) []string {
-	out := strings.Fields(raw)
-	if len(out) == 0 {
+	names := strings.Fields(raw)
+	if len(names) == 0 {
 		return []string{"read"}
 	}
-
+	seen := make(map[string]bool)
+	out := make([]string, 0)
+	for _, name := range names {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
 	return out
 }
 

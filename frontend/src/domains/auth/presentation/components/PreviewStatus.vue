@@ -6,6 +6,7 @@ import { displayAccount } from '@/shared/utils/accountDisplay'
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { MastodonAttachment, MastodonStatus } from '@/shared/types/mastodon'
+import { quotedStatus } from '@/shared/utils/statusIdentity'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import RichText from '@/shared/components/common/RichText.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
@@ -43,7 +44,10 @@ const { mode: mediaMode } = useMediaMode()
 const mediaBlurred = computed(() => mediaGated(shown.value, mediaMode.value) && !mediaRevealed.value)
 const thumbs = computed(() => media.value.filter(m => ['image', 'video', 'gifv'].includes(m.type) && (mediaBlurred.value || thumbUrl(m))).slice(0, 4))
 const otherMedia = computed(() => media.value.length - thumbs.value.length)
-const quoteUrl = computed(() => safeHttp(shown.value.quote?.url || shown.value.quote?.uri))
+const quoteUrl = computed(() => {
+  const quote = quotedStatus(shown.value.quote)
+  return safeHttp(quote?.url || quote?.uri)
+})
 const cardUrl = computed(() => safeHttp(shown.value.card?.url))
 const pollCount = computed(() => shown.value.poll?.options.length ?? 0)
 

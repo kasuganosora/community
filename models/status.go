@@ -131,19 +131,8 @@ func (s *Status) CheckAndLoadAllExtendFields(tx *gorm.DB) (err error) {
 		}
 	}
 
-	if s.QuoteId != nil && *s.QuoteId > 0 && (s.Quote == nil || s.Quote.Id == 0) {
-		quoted := &Status{}
-		err = tx.Preload("Account").Preload("Account.Extra").First(quoted, *s.QuoteId).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		err = nil
-		if quoted.Id > 0 {
-			if err = tx.Model(quoted).Association("Content").Find(&quoted.Content); err != nil {
-				return err
-			}
-			s.Quote = quoted
-		}
+	if err = AttachQuotes(tx, []*Status{s}); err != nil {
+		return err
 	}
 
 	if s.Poll == nil {
@@ -1211,7 +1200,7 @@ func AttachQuotes(tx *gorm.DB, statuses []*Status) error {
 		return nil
 	}
 	quoted := make([]*Status, 0, len(ids))
-	if err := tx.Preload("Account").Preload("Account.Extra").Preload("Content").Where("id IN ?", ids).Find(&quoted).Error; err != nil {
+	if err := StatusLoadAllQuery(tx).Where("id IN ?", ids).Find(&quoted).Error; err != nil {
 		return err
 	}
 	byID := make(map[uint64]*Status, len(quoted))
@@ -1730,6 +1719,7 @@ type StatusHistory struct {
 	EmojisIds           []uint64   `gorm:"type:json;serializer:json"     json:"emojis_ids"`
 	CreatedAt           *time.Time `gorm:"not null;autoCreateTime;index" json:"created_at"`
 	Account             *Account   `gorm:"foreignKey:AccountId"          json:"account"`
+	PollOptions         []string   `gorm:"-"                             json:"-"`
 }
 
 func (StatusHistory) TableName() string {

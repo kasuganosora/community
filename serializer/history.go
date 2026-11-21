@@ -5,17 +5,25 @@ import (
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
-	"time"
 )
 
 type HistoryStatus struct {
 	Content          string        `json:"content"`
 	SpoilerText      string        `json:"spoiler_text"`
 	Sensitive        bool          `json:"sensitive"`
-	CreatedAt        *time.Time    `json:"created_at"`
+	CreatedAt        *APITime      `json:"created_at"`
 	Account          *Account      `json:"account"`
 	Emojis           []*Emoji      `json:"emojis"`
 	MediaAttachments []*Attachment `json:"media_attachments"`
+	Poll             *HistoryPoll  `json:"poll,omitempty"`
+}
+
+type HistoryPoll struct {
+	Options []HistoryPollOption `json:"options"`
+}
+
+type HistoryPollOption struct {
+	Title string `json:"title"`
 }
 
 func ToHistoryStatusBase(history *models.StatusHistory) *HistoryStatus {
@@ -26,13 +34,21 @@ func ToHistoryStatusBase(history *models.StatusHistory) *HistoryStatus {
 		spoiler = htmlsafe.StripTags(spoiler)
 	}
 
-	return &HistoryStatus{
+	result := &HistoryStatus{
 		Content:     htmlsafe.LocalOrRemote(history.Content, local, contentRenderOptions()),
 		SpoilerText: spoiler,
 		Sensitive:   history.Sensitive,
-		CreatedAt:   history.CreatedAt,
+		CreatedAt:   NewAPITime(history.CreatedAt),
 		Account:     ToAccount(history.Account),
 	}
+	if len(history.PollOptions) > 0 {
+		options := make([]HistoryPollOption, 0, len(history.PollOptions))
+		for _, title := range history.PollOptions {
+			options = append(options, HistoryPollOption{Title: title})
+		}
+		result.Poll = &HistoryPoll{Options: options}
+	}
+	return result
 }
 
 func ToHistoryStatus(dbConn *gorm.DB, history *models.StatusHistory) (ret *HistoryStatus, err error) {

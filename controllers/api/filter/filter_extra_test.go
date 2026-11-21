@@ -514,7 +514,8 @@ func TestKeywordsList_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
+	c.Set("user", &models.User{Id: account.Id + 100})
 	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(filter.Id, 10)}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/filters/"+strconv.FormatUint(filter.Id, 10)+"/keywords", nil) //nolint:noctx
 
@@ -532,7 +533,7 @@ func TestKeywordsList_InvalidID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "not-a-number"}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/filters/x/keywords", nil) //nolint:noctx
 
@@ -547,7 +548,7 @@ func TestKeywordsList_ZeroID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "0"}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/filters/0/keywords", nil) //nolint:noctx
 
@@ -562,7 +563,7 @@ func TestKeywordsList_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "999999"}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/filters/999999/keywords", nil) //nolint:noctx
 
@@ -580,7 +581,7 @@ func TestKeywordCreate_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "filter_id", Value: strconv.FormatUint(filter.Id, 10)}}
 	c.Request = jsonRequest(t, http.MethodPost, "/x", CreateKeywordRequest{
 		FilterKeyword: models.FilterKeyword{Keyword: "newkeyword", WholeWord: true},
@@ -610,7 +611,7 @@ func TestKeywordCreate_InvalidFilterID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "filter_id", Value: "abc"}}
 	c.Request = jsonRequest(t, http.MethodPost, "/x", CreateKeywordRequest{})
 
@@ -625,7 +626,7 @@ func TestKeywordCreate_ZeroFilterID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "filter_id", Value: "0"}}
 	c.Request = jsonRequest(t, http.MethodPost, "/x", CreateKeywordRequest{})
 
@@ -640,7 +641,7 @@ func TestKeywordCreate_FilterNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "filter_id", Value: "999999"}}
 	c.Request = jsonRequest(t, http.MethodPost, "/x", CreateKeywordRequest{
 		FilterKeyword: models.FilterKeyword{Keyword: "x"},
@@ -658,7 +659,7 @@ func TestKeywordCreate_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "filter_id", Value: strconv.FormatUint(filter.Id, 10)}}
 	c.Request = httptest.NewRequest(http.MethodPost, "/x", bytes.NewBufferString("not-json")) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -681,7 +682,7 @@ func TestKeywordView_Success(t *testing.T) {
 	keywordID := strconv.FormatUint(filter.Id, 10) + "-seeme"
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: keywordID}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil) //nolint:noctx
 
@@ -700,7 +701,7 @@ func TestKeywordView_InvalidID(t *testing.T) {
 	// No '-' separator
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "invalid"}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil) //nolint:noctx
 
@@ -716,7 +717,7 @@ func TestKeywordView_BadFilterID(t *testing.T) {
 	// filter id part is not a number
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "abc-keyword"}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil) //nolint:noctx
 
@@ -731,7 +732,7 @@ func TestKeywordView_FilterNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "999999-somekeyword"}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil) //nolint:noctx
 
@@ -748,7 +749,7 @@ func TestKeywordView_KeywordNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(filter.Id, 10) + "-missing"}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil) //nolint:noctx
 
@@ -768,7 +769,7 @@ func TestKeywordView_KeywordWithDash(t *testing.T) {
 	keywordID := strconv.FormatUint(filter.Id, 10) + "-has-dash"
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: keywordID}}
 	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil) //nolint:noctx
 
@@ -791,7 +792,7 @@ func TestKeywordUpdate_Success(t *testing.T) {
 	keywordID := strconv.FormatUint(filter.Id, 10) + "-orig"
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: keywordID}}
 	c.Request = jsonRequest(t, http.MethodPut, "/x", KeywordUpdateRequest{
 		FilterKeyword: models.FilterKeyword{Keyword: "changed", WholeWord: true},
@@ -819,7 +820,7 @@ func TestKeywordUpdate_InvalidID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "nodash"}}
 	c.Request = jsonRequest(t, http.MethodPut, "/x", KeywordUpdateRequest{})
 
@@ -834,7 +835,7 @@ func TestKeywordUpdate_BadFilterID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "xx-kw"}}
 	c.Request = jsonRequest(t, http.MethodPut, "/x", KeywordUpdateRequest{})
 
@@ -849,7 +850,7 @@ func TestKeywordUpdate_FilterNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "999999-kw"}}
 	c.Request = jsonRequest(t, http.MethodPut, "/x", KeywordUpdateRequest{})
 
@@ -866,7 +867,7 @@ func TestKeywordUpdate_KeywordNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(filter.Id, 10) + "-absent"}}
 	c.Request = jsonRequest(t, http.MethodPut, "/x", KeywordUpdateRequest{})
 
@@ -883,7 +884,7 @@ func TestKeywordUpdate_InvalidJSON(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: strconv.FormatUint(filter.Id, 10) + "-kw"}}
 	c.Request = httptest.NewRequest(http.MethodPut, "/x", bytes.NewBufferString("not-json")) //nolint:noctx
 	c.Request.Header.Set("Content-Type", "application/json")
@@ -907,7 +908,7 @@ func TestKeywordDelete_Success(t *testing.T) {
 	keywordID := strconv.FormatUint(filter.Id, 10) + "-remove"
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: keywordID}}
 	c.Request = httptest.NewRequest(http.MethodDelete, "/x", nil) //nolint:noctx
 
@@ -935,7 +936,7 @@ func TestKeywordDelete_DeleteLastKeyword(t *testing.T) {
 	keywordID := strconv.FormatUint(filter.Id, 10) + "-only"
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: keywordID}}
 	c.Request = httptest.NewRequest(http.MethodDelete, "/x", nil) //nolint:noctx
 
@@ -958,7 +959,7 @@ func TestKeywordDelete_InvalidID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "nodash"}}
 	c.Request = httptest.NewRequest(http.MethodDelete, "/x", nil) //nolint:noctx
 
@@ -973,7 +974,7 @@ func TestKeywordDelete_BadFilterID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "abc-kw"}}
 	c.Request = httptest.NewRequest(http.MethodDelete, "/x", nil) //nolint:noctx
 
@@ -988,7 +989,7 @@ func TestKeywordDelete_FilterNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: "999999-kw"}}
 	c.Request = httptest.NewRequest(http.MethodDelete, "/x", nil) //nolint:noctx
 
@@ -1007,7 +1008,7 @@ func TestKeywordDelete_NonExistentKeywordIsNoOp(t *testing.T) {
 	keywordID := strconv.FormatUint(filter.Id, 10) + "-absent"
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Set("user", &models.User{Id: account.Id})
+	c.Set("account", account)
 	c.Params = gin.Params{{Key: "id", Value: keywordID}}
 	c.Request = httptest.NewRequest(http.MethodDelete, "/x", nil) //nolint:noctx
 

@@ -208,7 +208,7 @@ var accountS = obj(map[string]sch{
 	"id": idS, "username": {k: kNStr}, "acct": {k: kNStr}, "url": urlS, "uri": urlS,
 	"display_name": strS, "note": strS, "avatar": urlS, "avatar_static": urlS,
 	"header": urlS, "header_static": urlS, "locked": boolS, "bot": boolS, "group": boolS,
-	"discoverable": boolS, "indexable": boolS, "hide_collections": boolS,
+	"discoverable": nullable(boolS), "indexable": boolS, "hide_collections": nullable(boolS),
 	"created_at": dateS, "last_status_at": nullable(sch{k: kDay}),
 	"followers_count": intS, "following_count": intS, "statuses_count": intS,
 	"emojis": arr(emojiS), "fields": arr(fieldS), "roles": arr(sch{k: kAny}),

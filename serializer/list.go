@@ -9,6 +9,7 @@ type List struct {
 	Id            string `json:"id"`
 	Title         string `json:"title"`
 	RepliesPolicy string `json:"replies_policy"`
+	Exclusive     bool   `json:"exclusive"`
 }
 
 func ToList(list *models.List) *List {
@@ -16,6 +17,7 @@ func ToList(list *models.List) *List {
 		Id:            strconv.FormatUint(list.Id, 10),
 		Title:         list.Title,
 		RepliesPolicy: list.GetRepliesPolicy(),
+		Exclusive:     list.Exclusive,
 	}
 }
 

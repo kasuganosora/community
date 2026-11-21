@@ -44,27 +44,44 @@ type Status struct {
 	Content            string         `json:"content"`
 	Filtered           []FilterResult `json:"filtered"`
 	Reblog             *Status        `json:"reblog"`
-	Quote              *Status        `json:"quote,omitempty"`
+	Quote              *StatusQuote   `json:"quote"`
+	QuoteApproval      Approval       `json:"quote_approval"`
 	Application        *Application   `json:"application"`
 	Account            *Account       `json:"account"`
 	MediaAttachments   []*Attachment  `json:"media_attachments"`
 	Mentions           []*Mention     `json:"mentions"`
 	Tags               []*Tag         `json:"tags"`
 	Emojis             []*Emoji       `json:"emojis"`
+	TaggedCollections  []any          `json:"tagged_collections"`
 	Card               Card           `json:"card"`
 	Poll               *Poll          `json:"poll"`
 	intId              uint64         `json:"-"`
 }
 
-func ToStatusBase(status *models.Status) (ret *Status, err error) {
-	return toStatusBase(status, nil)
+type StatusQuote struct {
+	State        string  `json:"state"`
+	QuotedStatus *Status `json:"quoted_status"`
 }
-func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *Status, err error) {
+
+type Approval struct {
+	Automatic   []string `json:"automatic"`
+	Manual      []string `json:"manual"`
+	CurrentUser string   `json:"current_user"`
+}
+
+func deniedApproval() Approval {
+	return Approval{Automatic: []string{}, Manual: []string{}, CurrentUser: "denied"}
+}
+
+func ToStatusBase(status *models.Status) (ret *Status, err error) {
+	return toStatusBase(status, nil, nil)
+}
+func toStatusBase(status *models.Status, accounts *accountSerialization, viewer *models.Account) (ret *Status, err error) {
 	if status == nil {
 		return ret, err
 	}
 
-	ret = &Status{EmojiReactions: make([]*Reaction, 0), Filtered: []FilterResult{}}
+	ret = &Status{EmojiReactions: make([]*Reaction, 0), Filtered: []FilterResult{}, TaggedCollections: []any{}}
 	ret.Id = strconv.FormatUint(status.Id, 10)
 	ret.intId = status.Id
 	ret.CreatedAt = NewAPITime(status.CreatedAt)
@@ -93,6 +110,13 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 		ret.Sensitive = true // like Mastodon: a content warning implies sensitive
 	}
 	ret.Visibility = status.GetVisibilityString()
+	ret.QuoteApproval = deniedApproval()
+	if status.Visibility == models.StatusVisibilityPublic || status.Visibility == models.StatusVisibilityUnlisted {
+		ret.QuoteApproval.Automatic = []string{"public"}
+		if viewer != nil {
+			ret.QuoteApproval.CurrentUser = "automatic"
+		}
+	}
 
 	ret.Language = normalizeLanguage(status.Language)
 	ret.Uri = status.ObjectURI(systemsettings.GetBaseURL())
@@ -110,28 +134,31 @@ func toStatusBase(status *models.Status, accounts *accountSerialization) (ret *S
 	ret.ReblogsCount = status.ReblogsCount
 	ret.FavouritesCount = status.FavouritesCount
 
-	if status.Edited && status.UpdatedAt != nil && status.CreatedAt != nil && status.UpdatedAt.Unix() > status.CreatedAt.Unix() {
+	if status.Edited && status.UpdatedAt != nil && status.CreatedAt != nil && status.UpdatedAt.After(*status.CreatedAt) {
 		ret.EditedAt = NewAPITime(status.UpdatedAt)
 	}
 
 	ret.Content = status.ContentHTML(contentRenderOptions())
 
 	if status.Reblog != nil && (status.Reblog.Id > 0 || status.Reblog.Account != nil) {
-		ret.Reblog, err = toStatusBase(status.Reblog, accounts)
+		ret.Reblog, err = toStatusBase(status.Reblog, accounts, viewer)
 		if err != nil {
 			return ret, err
 		}
+		ret.QuoteApproval = ret.Reblog.QuoteApproval
 	}
 
 	if status.Quote != nil && status.Quote.Id > 0 {
-		ret.Quote, err = toStatusBase(status.Quote, accounts)
+		var quoted *Status
+		quoted, err = toStatusBase(status.Quote, accounts, viewer)
 		if err != nil {
 			return ret, err
 		}
+		ret.Quote = &StatusQuote{State: "accepted", QuotedStatus: quoted}
 	}
 
 	ret.MediaAttachments = ToAttachments(status.Attachments)
-	if status.Application != nil || status.Domain == nil {
+	if status.ReblogId == nil && (status.Application != nil || (status.Domain == nil && status.IsLocal())) {
 		ret.Application = ToApplication(status.Application)
 	}
 	ret.Mentions = ToMentions(status.ToAccounts)
@@ -156,7 +183,7 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 		return nil, err
 	}
 	models.AttachEditFlags(db.GetDB(), []*models.Status{status})
-	ret, err = ToStatusBase(status)
+	ret, err = toStatusBase(status, nil, currentAccount)
 	if err != nil {
 		return ret, err
 	}
@@ -173,14 +200,25 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 		}
 	}
 
-	if ret.Quote != nil && status.Quote != nil {
-		visible, viewErr := status.Quote.CanViewEx(db.GetDB(), currentAccount)
-		if viewErr != nil {
-			return ret, viewErr
+	if status.Quote != nil {
+		// Apply the timeline's visibility check before serializing the quoted
+		// post with its viewer metadata. Keep the representation one level deep.
+		quoted := *status.Quote
+		quoted.Quote, quoted.QuoteId = nil, nil
+		visible, quoteErr := models.FilterVisibleStatuses(db.GetDB(), currentAccount, models.Statuses{&quoted})
+		if quoteErr != nil {
+			return nil, quoteErr
 		}
-		if !visible {
-			ret.Quote = nil
+		ret.Quote = &StatusQuote{State: "unauthorized"}
+		if len(visible) > 0 {
+			embedded, quoteErr := ToStatus(&quoted, currentAccount)
+			if quoteErr != nil {
+				return nil, quoteErr
+			}
+			ret.Quote = &StatusQuote{State: "accepted", QuotedStatus: embedded}
 		}
+	} else if status.QuoteId != nil && *status.QuoteId > 0 {
+		ret.Quote = &StatusQuote{State: "deleted"}
 	}
 
 	if status.Poll != nil {
@@ -234,7 +272,7 @@ func ToStatus(status *models.Status, currentAccount *models.Account) (ret *Statu
 		return ret, err
 	}
 
-	ret.Filtered = ToFilterResults(filters.GetStatusFiltersIn(status, currentAccount, filterContextName(dbConn)))
+	ret.Filtered = ToFilterResults(filters.GetStatusFiltersIn(status, currentAccount, filterContextName(dbConn)), status, currentAccount)
 
 	return ret, err
 }
@@ -395,13 +433,15 @@ UNION ALL SELECT 'muted_author', target_id FROM mute_accounts WHERE account_id =
 		out.Reblogged = reblogged[s.Id]
 		out.Bookmarked = bookmarked[s.Id]
 		out.Muted = muted[s.Id] || mutedAuthors[s.AccountId] || (s.Reblog != nil && mutedAuthors[s.Reblog.AccountId])
-		out.Filtered = ToFilterResults(filters.GetStatusFiltersIn(s, currentAccount, filterContextName(conn)))
+		out.Filtered = ToFilterResults(filters.GetStatusFiltersIn(s, currentAccount, filterContextName(conn)), s, currentAccount)
 		out.Poll = serializedPolls[s.Id]
 		if s.Quote != nil && !visibleQuotes[s.Quote] {
-			out.Quote = nil
+			out.Quote = &StatusQuote{State: "unauthorized"}
 		}
 		apply(s.Reblog, out.Reblog)
-		apply(s.Quote, out.Quote)
+		if out.Quote != nil {
+			apply(s.Quote, out.Quote.QuotedStatus)
+		}
 	}
 	for _, s := range statuses {
 		if conn != nil {
@@ -409,11 +449,17 @@ UNION ALL SELECT 'muted_author', target_id FROM mute_accounts WHERE account_id =
 				return nil, err
 			}
 		}
-		out, e := toStatusBase(s, accounts)
+		out, e := toStatusBase(s, accounts, currentAccount)
 		if e != nil {
 			return nil, e
 		}
 		apply(s, out)
+		if s.QuoteId != nil && *s.QuoteId > 0 && s.Quote == nil {
+			out.Quote = &StatusQuote{State: "deleted"}
+		}
+		if s.Reblog != nil && out.Reblog != nil && s.Reblog.QuoteId != nil && *s.Reblog.QuoteId > 0 && s.Reblog.Quote == nil {
+			out.Reblog.Quote = &StatusQuote{State: "deleted"}
+		}
 		ret = append(ret, out)
 	}
 	if err := attachReplyPreviews(conn, ret, currentAccount, filters); err != nil {
@@ -433,20 +479,6 @@ func filterContextName(conn *gorm.DB) string {
 // (status content, profile notes) as HTML for this instance.
 func contentRenderOptions() htmlsafe.RenderOptions {
 	return htmlsafe.OptionsForBaseURL(systemsettings.GetBaseURL())
-}
-
-func clearHiddenQuote(conn *gorm.DB, src *models.Status, out *Status, viewer *models.Account) error {
-	if out == nil || out.Quote == nil || src == nil || src.Quote == nil {
-		return nil
-	}
-	visible, err := src.Quote.CanViewEx(conn, viewer)
-	if err != nil {
-		return err
-	}
-	if !visible {
-		out.Quote = nil
-	}
-	return nil
 }
 
 // ToCard normalizes stored previews consistently for status and card endpoints.

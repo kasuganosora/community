@@ -1,13 +1,15 @@
 package account
 
 import (
-	"github.com/kasuganosora/community/controllers"
+	"net/url"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/systemsettings"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
@@ -39,7 +41,7 @@ func loadFeaturedTagStats(conn *gorm.DB, accountID, tagID uint64) (featuredTagSt
 		return conn.Table("statuses").
 			Joins("JOIN status_tags ON status_tags.status_id = statuses.id").
 			Where("statuses.account_id = ? AND status_tags.tag_id = ?", accountID, tagID).
-			Where("statuses.deleted_at IS NULL").
+			Where("statuses.deleted_at IS NULL AND statuses.scheduled_at IS NULL").
 			Where("statuses.visibility IN ?", []int{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted})
 	}
 	if err := base().Count(&stats.count).Error; err != nil {
@@ -56,17 +58,21 @@ func loadFeaturedTagStats(conn *gorm.DB, accountID, tagID uint64) (featuredTagSt
 	return stats, nil
 }
 
-func featuredTagJSON(c *gin.Context, account *models.Account, ft *FeaturedTag, stats featuredTagStats) gin.H {
+func featuredTagJSON(account *models.Account, ft *FeaturedTag, stats featuredTagStats) gin.H {
 	var lastStatusAt any
 	if stats.lastAt != nil {
 		lastStatusAt = stats.lastAt.UTC().Format("2006-01-02")
 	}
+	acct := account.Username
+	if account.Domain != nil && *account.Domain != "" {
+		acct += "@" + *account.Domain
+	}
 	return gin.H{
 		"id":             strconv.FormatUint(ft.Id, 10),
-		"name":           ft.Name,                                                                      //nolint:goconst
-		"url":            "https://" + c.Request.Host + "/@" + account.Username + "/tagged/" + ft.Name, //nolint:goconst
-		"statuses_count": stats.count,                                                                  //nolint:goconst
-		"last_status_at": lastStatusAt,                                                                 //nolint:goconst
+		"name":           ft.Name,                                                                                          //nolint:goconst
+		"url":            systemsettings.GetBaseURL() + "/@" + url.PathEscape(acct) + "/tagged/" + url.PathEscape(ft.Name), //nolint:goconst
+		"statuses_count": strconv.FormatInt(stats.count, 10),                                                               //nolint:goconst
+		"last_status_at": lastStatusAt,                                                                                     //nolint:goconst
 	}
 }
 
@@ -91,7 +97,7 @@ func renderFeaturedTags(c *gin.Context, account *models.Account) {
 
 			return
 		}
-		result = append(result, featuredTagJSON(c, account, ft, stats))
+		result = append(result, featuredTagJSON(account, ft, stats))
 	}
 
 	c.JSON(200, result)
@@ -211,7 +217,7 @@ func CreateFeaturedTag(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, featuredTagJSON(c, account, featuredTag, stats))
+	c.JSON(200, featuredTagJSON(account, featuredTag, stats))
 }
 
 // DeleteFeaturedTag handles DELETE /api/v1/featured_tags/:id.

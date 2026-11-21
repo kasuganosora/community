@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/db/database"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/tests/pgtest"
@@ -27,7 +28,7 @@ func featuredTagsDB(t *testing.T) *gorm.DB {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, db.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.Tag{}, &models.StatusTag{}, &FeaturedTag{}))
 	require.NoError(t, db.Session(&gorm.Session{}).Exec(`CREATE TABLE statuses (id BIGINT PRIMARY KEY, account_id BIGINT NOT NULL,
-		visibility SMALLINT NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL, deleted_at TIMESTAMP NULL)`).Error)
+		visibility SMALLINT NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL, deleted_at TIMESTAMP NULL, scheduled_at TIMESTAMP NULL)`).Error)
 	database.SetTestDB(db)
 	t.Cleanup(database.ResetTestDB)
 	return db
@@ -59,6 +60,9 @@ func callFeatured(t *testing.T, handler gin.HandlerFunc, actor *models.Account, 
 }
 
 func TestFeaturedTagsCRUD(t *testing.T) {
+	oldURL, configured := config.C.AppBaseURL, config.AppBaseURLConfigured()
+	t.Cleanup(func() { config.SetAppBaseURL(oldURL, configured) })
+	config.SetAppBaseURL("https://public.example", true)
 	db := featuredTagsDB(t)
 	alice := &models.Account{Id: 1, Username: "alice"}
 	require.NoError(t, db.Create(alice).Error)
@@ -69,8 +73,8 @@ func TestFeaturedTagsCRUD(t *testing.T) {
 	var created map[string]any
 	require.NoError(t, json.Unmarshal(res.body, &created))
 	assert.Equal(t, "OSINT", created["name"])
-	assert.EqualValues(t, 0, created["statuses_count"])
-	assert.Equal(t, "https://c.example/@alice/tagged/OSINT", created["url"])
+	assert.Equal(t, "0", created["statuses_count"])
+	assert.Equal(t, "https://public.example/@alice/tagged/OSINT", created["url"])
 
 	res = callFeatured(t, CreateFeaturedTag, alice, "POST", nil, gin.H{"name": "osint"})
 	assert.Equal(t, 422, res.code, "a case variant is the same featured tag")
@@ -81,10 +85,12 @@ func TestFeaturedTagsCRUD(t *testing.T) {
 	tag, err := models.FindTagByName(db, "osint")
 	require.NoError(t, err)
 	day := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	for id, vis := range map[uint64]int{100: models.StatusVisibilityPublic, 101: models.StatusVisibilityUnlisted, 102: models.StatusVisibilityDirect} {
+	for id, vis := range map[uint64]int{100: models.StatusVisibilityPublic, 101: models.StatusVisibilityUnlisted, 102: models.StatusVisibilityDirect, 103: models.StatusVisibilityPublic} {
 		require.NoError(t, db.Exec("INSERT INTO statuses (id, account_id, visibility, created_at) VALUES (?, ?, ?, ?)", id, alice.Id, vis, day.Add(time.Duration(id)*time.Hour)).Error)
 		require.NoError(t, db.Create(&models.StatusTag{StatusId: id, TagId: tag.Id}).Error)
 	}
+
+	require.NoError(t, db.Exec("UPDATE statuses SET scheduled_at = ? WHERE id = 103", day).Error)
 
 	var listed []map[string]any
 	res = callFeatured(t, ListFeaturedTags, alice, "GET", nil, nil)
@@ -92,7 +98,7 @@ func TestFeaturedTagsCRUD(t *testing.T) {
 	require.NoError(t, json.Unmarshal(res.body, &listed))
 	require.Len(t, listed, 1)
 	assert.Equal(t, created["id"], listed[0]["id"])
-	assert.EqualValues(t, 2, listed[0]["statuses_count"], "direct statuses are not counted")
+	assert.Equal(t, "2", listed[0]["statuses_count"], "direct statuses are not counted")
 	assert.Equal(t, "2026-10-05", listed[0]["last_status_at"])
 
 	// Public view of the account.

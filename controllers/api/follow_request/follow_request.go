@@ -136,30 +136,7 @@ func Authorize(c *gin.Context) {
 		return
 	}
 
-	// Report the relationship from the authenticated owner's perspective.
-	outgoing := &models.Follow{}
-	lookupErr := db.GetDB().Where("account_id = ? AND follow_id = ?", currentAccount.Id, targetId).First(outgoing).Error
-	if lookupErr != nil && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
-		_ = c.Error(errors.Wrap(lookupErr, "get outgoing relationship error"))
-		return
-	}
-	following := lookupErr == nil && outgoing.Status == models.FollowStatusFollowed
-	requested := lookupErr == nil && outgoing.Status == models.FollowStatusRequested
-
-	// Return relationship
-	c.JSON(200, gin.H{
-		"id":                   targetAccountId,
-		"following":            following,
-		"followed_by":          true,
-		"blocking":             false,
-		"muting":               false,
-		"muting_notifications": false,
-		"requested":            requested,
-		"domain_blocking":      false,
-		"showing_reblogs":      true,
-		"endorsed":             false,
-		"note":                 "",
-	})
+	renderRequesterRelationship(c, currentAccount, targetId)
 }
 
 // Reject handles POST /api/v1/follow_requests/:id/reject.
@@ -202,28 +179,24 @@ func Reject(c *gin.Context) {
 		return
 	}
 
-	// Report the relationship from the authenticated owner's perspective.
-	outgoing := &models.Follow{}
-	lookupErr := db.GetDB().Where("account_id = ? AND follow_id = ?", currentAccount.Id, targetId).First(outgoing).Error
-	if lookupErr != nil && !errors.Is(lookupErr, gorm.ErrRecordNotFound) {
-		_ = c.Error(errors.Wrap(lookupErr, "get outgoing relationship error"))
+	renderRequesterRelationship(c, currentAccount, targetId)
+}
+
+func renderRequesterRelationship(c *gin.Context, viewer *models.Account, targetID uint64) {
+	conn := db.GetDB().WithContext(c.Request.Context())
+	var target models.Account
+	if err := conn.First(&target, targetID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(404, gin.H{"error": "account not found"})
+		} else {
+			_ = c.Error(err)
+		}
 		return
 	}
-	following := lookupErr == nil && outgoing.Status == models.FollowStatusFollowed
-	requested := lookupErr == nil && outgoing.Status == models.FollowStatusRequested
-
-	// Return relationship
-	c.JSON(200, gin.H{
-		"id":                   targetAccountId,
-		"following":            following,
-		"followed_by":          false,
-		"blocking":             false,
-		"muting":               false,
-		"muting_notifications": false,
-		"requested":            requested,
-		"domain_blocking":      false,
-		"showing_reblogs":      true,
-		"endorsed":             false,
-		"note":                 "",
-	})
+	result, err := serializer.LoadRelationships(conn, viewer.Id, []*models.Account{&target})
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	c.JSON(200, result[targetID])
 }

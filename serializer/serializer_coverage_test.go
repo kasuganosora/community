@@ -88,7 +88,8 @@ func TestToAccount_LocalBasic(t *testing.T) {
 	assert.Equal(t, "Alice", result.DisplayName)
 	assert.True(t, result.Locked)
 	assert.True(t, result.Bot)
-	assert.True(t, result.Discoverable)
+	require.NotNil(t, result.Discoverable)
+	assert.True(t, *result.Discoverable)
 	assert.True(t, result.Indexable) // Indexable == !NoIndex
 	assert.True(t, result.Group)
 	require.NotNil(t, result.CreatedAt)
@@ -376,8 +377,10 @@ func TestToAttachment_WithValues(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "10", result.Id)
 	assert.Equal(t, "image", result.Type)
-	assert.Contains(t, result.Url, "/media/10/file.jpg")
-	assert.Contains(t, result.PreviewUrl, "/media/10/thumbnail/preview.jpg")
+	require.NotNil(t, result.Url)
+	require.NotNil(t, result.PreviewUrl)
+	assert.Contains(t, *result.Url, "/media/10/file.jpg")
+	assert.Contains(t, *result.PreviewUrl, "/media/10/thumbnail/preview.jpg")
 	require.NotNil(t, result.RemoteUrl)
 	assert.Equal(t, "https://remote/file.jpg", *result.RemoteUrl)
 	require.NotNil(t, result.Description)
@@ -406,9 +409,9 @@ func TestToAttachment_EmptyFields(t *testing.T) {
 	result := ToAttachment(att)
 	require.NotNil(t, result)
 	assert.Equal(t, "13", result.Id)
-	assert.Contains(t, result.Url, "/media/13/")
-	assert.Empty(t, result.Description)
-	assert.Empty(t, result.Blurhash)
+	wire, err := json.Marshal(result)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"id":"13","type":"unknown","url":null,"preview_url":null,"remote_url":null,"preview_remote_url":null,"text_url":null,"meta":{},"description":null,"blurhash":null}`, string(wire))
 }
 
 func TestToAttachments_Multiple(t *testing.T) {
@@ -421,7 +424,8 @@ func TestToAttachments_Multiple(t *testing.T) {
 	require.Len(t, result, 3)
 	assert.Equal(t, "1", result[0].Id)
 	assert.Equal(t, "2", result[1].Id)
-	assert.Contains(t, result[1].PreviewUrl, "/thumbnail/bp.jpg")
+	require.NotNil(t, result[1].PreviewUrl)
+	assert.Contains(t, *result[1].PreviewUrl, "/thumbnail/bp.jpg")
 	assert.Equal(t, "3", result[2].Id)
 }
 
@@ -564,6 +568,11 @@ func TestToStatusBase_EditedAt(t *testing.T) {
 	result, err := ToStatusBase(status)
 	require.NoError(t, err)
 	require.NotNil(t, result)
+	require.NotNil(t, result.EditedAt)
+	assert.Equal(t, updated, result.EditedAt.Time)
+	updated = created.Add(250 * time.Millisecond)
+	result, err = ToStatusBase(status)
+	require.NoError(t, err)
 	require.NotNil(t, result.EditedAt)
 	assert.Equal(t, updated, result.EditedAt.Time)
 
@@ -833,13 +842,14 @@ func TestFilter_JSONMarshal(t *testing.T) {
 	assert.Contains(t, string(data), `"filter_action":"hide"`)
 }
 
-func TestTag_JSONMarshalOmitsEmpty(t *testing.T) {
-	tag := ToTag(&models.Tag{Name: "test"})
+func TestTag_JSONMarshalOmitsLifetimeCounts(t *testing.T) {
+	tag := ToTag(&models.Tag{Name: "test", StatusCount: 100, AccountCount: 9})
 	data, err := json.Marshal(tag)
 	require.NoError(t, err)
-	// history, following, status_count, account_count are omitempty when not set
+	// Status and list tags never expose lifetime counts that include private posts.
 	assert.NotContains(t, string(data), "history")
 	assert.NotContains(t, string(data), "status_count")
+	assert.NotContains(t, string(data), "account_count")
 }
 
 func TestField_JSONMarshal(t *testing.T) {
@@ -877,7 +887,7 @@ func TestToHistoryStatusBase_WithAccount(t *testing.T) {
 	assert.Equal(t, "old spoiler", result.SpoilerText)
 	assert.True(t, result.Sensitive)
 	require.NotNil(t, result.CreatedAt)
-	assert.Equal(t, created, *result.CreatedAt)
+	assert.Equal(t, created, result.CreatedAt.Time)
 	require.NotNil(t, result.Account)
 	assert.Equal(t, "editor", result.Account.Username)
 }
@@ -991,7 +1001,7 @@ func TestToFollowStatus_ReblogsNonBoolValue(t *testing.T) {
 	result := ToFollowStatus(acc, follow)
 	require.NotNil(t, result)
 	assert.True(t, result.Following)
-	assert.False(t, result.ShowingReblogs)
+	assert.True(t, result.ShowingReblogs)
 }
 
 // =============================================================================

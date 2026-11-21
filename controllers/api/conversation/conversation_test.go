@@ -269,9 +269,11 @@ func TestMarkRead_Success(t *testing.T) {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	testDB = &testutil.TestDB{GormDB: conn}
 	database.SetTestDB(conn)
-	require.NoError(t, testDB.AutoMigrate(&models.User{}, &models.Account{}, &models.AccountExtra{}, &models.Status{}, &models.StatusContent{}, &models.Conversation{}, &models.AccountConversation{}, &models.Block{}, &models.StatusToAccount{}))
-	_, account := newContextWithAccount(t, httptest.NewRecorder(), http.MethodPost, "/conversations/1/read")
-	otherAccount := createTestAccount(t, "otheruser")
+	migrateDirectConversationSchema(t)
+	account := &models.Account{Id: 11, Username: "reader"}
+	otherAccount := &models.Account{Id: 12, Username: "participant"}
+	require.NoError(t, conn.Create(account).Error)
+	require.NoError(t, conn.Create(otherAccount).Error)
 
 	// Create a conversation with a status
 	statusId := uint64(42)
@@ -291,7 +293,9 @@ func TestMarkRead_Success(t *testing.T) {
 
 	callHandler(MarkRead, c)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	require.Empty(t, c.Errors)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"unread":false`)
 
 	// Verify last_status_id was updated
 	var updated models.AccountConversation
@@ -311,7 +315,7 @@ func TestMarkRead_EmptyID(t *testing.T) {
 
 	callHandler(MarkRead, c)
 
-	assert.NotEmpty(t, c.Errors)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestMarkRead_InvalidID(t *testing.T) {
@@ -325,7 +329,7 @@ func TestMarkRead_InvalidID(t *testing.T) {
 
 	callHandler(MarkRead, c)
 
-	assert.NotEmpty(t, c.Errors)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestMarkRead_NotFound(t *testing.T) {
@@ -339,7 +343,7 @@ func TestMarkRead_NotFound(t *testing.T) {
 
 	callHandler(MarkRead, c)
 
-	assert.NotEmpty(t, c.Errors)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 // ========== Remove Tests ==========

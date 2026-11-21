@@ -17,6 +17,7 @@ func validateProfileUpdate(req *UpdateCredentialsRequest) error {
 		value *string
 		limit int
 	}{
+		{"display_name", req.DisplayName, models.MaxDisplayNameLength}, {"note", req.Note, models.MaxProfileNoteLength},
 		{"location", req.Location, 128}, {"followed_message", req.FollowedMessage, 200},
 	} {
 		if field.value != nil && utf8.RuneCountInString(*field.value) > field.limit {
@@ -43,7 +44,7 @@ func validateProfileUpdate(req *UpdateCredentialsRequest) error {
 		return fmt.Errorf("at most %d profile fields are allowed", models.MaxProfileFields)
 	}
 	for _, field := range req.FieldsAttributes {
-		if utf8.RuneCountInString(field.Name) > 255 || utf8.RuneCountInString(field.Value) > 2048 {
+		if utf8.RuneCountInString(field.Name) > models.MaxProfileFieldNameLength || utf8.RuneCountInString(field.Value) > models.MaxProfileFieldValueLength {
 			return fmt.Errorf("profile field name or value is too long")
 		}
 	}

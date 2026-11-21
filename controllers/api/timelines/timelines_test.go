@@ -105,6 +105,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 
 	err = db.AutoMigrate(
+		&models.MuteAccount{},
 		&models.Notification{},
 		&models.Account{},
 		&models.User{},

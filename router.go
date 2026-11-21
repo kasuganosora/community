@@ -101,6 +101,7 @@ func SetRouter(app gin.IRouter) {
 
 	// OAuth 应用注册
 	v1ApiGroup.POST("/apps", oauth.CreateApp)
+	v1ApiGroup.GET("/apps/verify_credentials", middleware.ApplicationAuthMiddleware(), middleware.CheckAuthMiddleware(), oauth.VerifyCredentials)
 
 	// Captcha 配置
 	v1ApiGroup.GET("/captcha/config", common.GetCaptchaConfig)
@@ -198,12 +199,18 @@ func SetRouter(app gin.IRouter) {
 	// ===== 可登录也可不登录的路由（v1）=====
 	// AuthMiddleware 在无 token 时放行，由各 handler 决定是否需要登录。
 	maybeAuthGroupV1 := v1ApiGroup.Group("", middleware.AuthMiddleware(), UGCVisitorGuard())
-	maybeAuthGroupV1.GET("/accounts/search", account.Search)
-	maybeAuthGroupV1.GET("/accounts/lookup", account.Lookup)
-	maybeAuthGroupV1.GET("/accounts/:id", account.GetAccount)
-	maybeAuthGroupV1.GET("/accounts/:id/statuses", account.AccountStatuses)
-	maybeAuthGroupV1.GET("/accounts/:id/followers", account.Followers)
-	maybeAuthGroupV1.GET("/accounts/:id/following", account.Following)
+	readAccounts := middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadAccounts}
+	readStatuses := middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses}
+	readFollows := middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFollows}
+	readBlocks := middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadBlocks}
+	writeFollows := middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows}
+	publicAccounts := maybeAuthGroupV1.Group("", middleware.CheckScopeIfTokenMiddleware(readAccounts))
+	publicAccounts.GET("/accounts/search", account.Search)
+	publicAccounts.GET("/accounts/lookup", account.Lookup)
+	publicAccounts.GET("/accounts/:id", account.GetAccount)
+	publicAccounts.GET("/accounts/:id/followers", account.Followers)
+	publicAccounts.GET("/accounts/:id/following", account.Following)
+	maybeAuthGroupV1.GET("/accounts/:id/statuses", middleware.CheckScopeIfTokenMiddleware(readStatuses), account.AccountStatuses)
 	maybeAuthGroupV1.GET("/statuses/:id", status.Show)
 	maybeAuthGroupV1.GET("/statuses/:id/context", status.Context)
 	maybeAuthGroupV1.GET("/statuses/:id/card", status.Card)
@@ -243,7 +250,7 @@ func SetRouter(app gin.IRouter) {
 	v1ApiGroup.GET("/invites/:code", account.GetInvite)
 
 	// 标签关注/取关（需要登录）
-	authTagGroup := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
+	authTagGroup := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(), middleware.CheckScopeMiddleware(writeFollows))
 	authTagGroup.POST("/tags/:id/follow", account.FollowTag)
 	authTagGroup.POST("/tags/:id/unfollow", account.UnfollowTag)
 
@@ -280,7 +287,6 @@ func SetRouter(app gin.IRouter) {
 	transfers.GET("/data/archive/:id", transferapi.ArchivedPost)
 
 	// OAuth 应用凭证验证
-	authGroupV1.GET("/apps/verify_credentials", oauth.VerifyCredentials)
 	authGroupV1.GET("/oauth/authorized_applications", oauth.ListAuthorized)
 	authGroupV1.DELETE("/oauth/authorized_applications/:id", oauth.RevokeAuthorized)
 	authGroupV1.POST("/auth/passkey/register/begin", passkeyapi.RegisterBegin)
@@ -289,10 +295,10 @@ func SetRouter(app gin.IRouter) {
 	authGroupV1.DELETE("/auth/passkeys/:id", passkeyapi.Delete)
 
 	// 账户凭证
-	authGroupV1.GET("/accounts/verify_credentials", account.VerifyCredentials)
-	authGroupV1.GET("/accounts/relationships", account.Relationships)
+	authGroupV1.GET("/accounts/verify_credentials", middleware.CheckProfileScopeMiddleware(), account.VerifyCredentials)
+	authGroupV1.GET("/accounts/relationships", middleware.CheckScopeMiddleware(readFollows), account.Relationships)
 	authGroupV1.PATCH("/accounts/update_credentials", account.UpdateCredentials)
-	authGroupV1.GET("/accounts/familiar_followers", account.FamiliarFollowers)
+	authGroupV1.GET("/accounts/familiar_followers", middleware.CheckScopeMiddleware(readFollows), account.FamiliarFollowers)
 
 	// 邀请码管理（已登录）
 	authGroupV1.GET("/invites", account.ListInvites)
@@ -348,7 +354,7 @@ func SetRouter(app gin.IRouter) {
 		POST("/notifications/policy", timelines.UpdateNotificationPolicy)
 
 	// 关注操作（写入）
-	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(writeFollows)).
 		POST("/accounts/:id/follow", account.Follow).
 		DELETE("/accounts/:id/follow", account.UnFollow).
 		POST("/accounts/:id/unfollow", account.UnFollow). // Mastodon API
@@ -356,21 +362,21 @@ func SetRouter(app gin.IRouter) {
 		POST("/follow_requests/:id/reject", follow_request.Reject)
 
 	// 关注请求 / 屏蔽 / 静音 / 认可 / 已关注标签（读取）
-	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFollows})).
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(readFollows)).
 		GET("/follow_requests", follow_request.List).
-		GET("/blocks", account.BlocksList).
-		GET("/mutes", account.MutesList).
 		GET("/hidden_reblogs", account.HiddenReblogsList).
-		GET("/endorsements", account.ListEndorsements).
 		GET("/followed_tags", account.ListFollowedTags)
+	authGroupV1.GET("/mutes", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadMutes}), account.MutesList)
+	authGroupV1.GET("/endorsements", middleware.CheckScopeMiddleware(readAccounts), account.ListEndorsements)
 
 	// 域名屏蔽（写入）
-	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteBlocks})).
 		POST("/domain_blocks", account.BlockDomain).
 		DELETE("/domain_blocks", account.UnblockDomain)
 
 	// 域名屏蔽（读取）
-	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFollows})).
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(readBlocks)).
+		GET("/blocks", account.BlocksList).
 		GET("/domain_blocks", account.DomainBlocksList)
 
 	// 列表（写入）
@@ -478,8 +484,8 @@ func SetRouter(app gin.IRouter) {
 	// 会话 / 标记 / 偏好设置（读取）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses})).
 		GET("/conversations", conversation.List).
-		GET("/markers", marker.List).
-		GET("/preferences", account.GetPreferences)
+		GET("/markers", marker.List)
+	authGroupV1.GET("/preferences", middleware.CheckScopeMiddleware(readAccounts), account.GetPreferences)
 	authGroupV1.PATCH("/preferences", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteAccounts}), account.UpdatePreferences)
 
 	// 建议与公告（已登录）
@@ -490,16 +496,17 @@ func SetRouter(app gin.IRouter) {
 	authGroupV1.DELETE("/announcements/:id/reactions/:name", account.RemoveAnnouncementReaction)
 
 	// 精选标签
-	authGroupV1.GET("/featured_tags", account.ListFeaturedTags)
+	authGroupV1.GET("/featured_tags", middleware.CheckScopeMiddleware(readAccounts), account.ListFeaturedTags)
 	authGroupV1.POST("/featured_tags", account.CreateFeaturedTag)
 	authGroupV1.DELETE("/featured_tags/:id", account.DeleteFeaturedTag)
-	authGroupV1.GET("/featured_tags/suggestions", account.SuggestFeaturedTags)
+	authGroupV1.GET("/featured_tags/suggestions", middleware.CheckScopeMiddleware(readAccounts), account.SuggestFeaturedTags)
 
 	// 推送通知订阅
-	authGroupV1.POST("/push/subscription", account.CreatePushSubscription)
-	authGroupV1.GET("/push/subscription", account.GetPushSubscription)
-	authGroupV1.PUT("/push/subscription", account.UpdatePushSubscription)
-	authGroupV1.DELETE("/push/subscription", account.DeletePushSubscription)
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeOther, Value: models.AppScopePush})).
+		POST("/push/subscription", account.CreatePushSubscription).
+		GET("/push/subscription", account.GetPushSubscription).
+		PUT("/push/subscription", account.UpdatePushSubscription).
+		DELETE("/push/subscription", account.DeletePushSubscription)
 
 	// 会话（写入）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteConversations})).
@@ -508,16 +515,16 @@ func SetRouter(app gin.IRouter) {
 
 	// 过滤器（读取）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadFilters})).
-		GET("/filters", filter.List).
-		GET("/filters/:id", filter.Show).
+		GET("/filters", filter.LegacyList).
+		GET("/filters/:id", filter.LegacyShow).
 		GET("/filters/:id/keywords", filter.KeywordsList).
 		GET("/filters/keywords/:id", filter.KeywordView)
 
 	// 过滤器（写入）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFilters})).
-		POST("/filters", filter.Create).
-		PUT("/filters/:id", filter.Update).
-		DELETE("/filters/:id", filter.Delete).
+		POST("/filters", filter.LegacyCreate).
+		PUT("/filters/:id", filter.LegacyUpdate).
+		DELETE("/filters/:id", filter.LegacyDelete).
 		POST("/filters/:filter_id/keywords", filter.KeywordCreate).
 		PUT("/filters/keywords/:id", filter.KeywordUpdate).
 		DELETE("/filters/keywords/:id", filter.KeywordDelete)
@@ -656,11 +663,12 @@ func SetRouter(app gin.IRouter) {
 
 	// 可登录也可不登录的路由（v2 兼容）
 	maybeAuthGroup := v2ApiGroup.Group("", middleware.AuthMiddleware(), UGCVisitorGuard())
-	maybeAuthGroup.GET("/accounts/search", account.Search)
-	maybeAuthGroup.GET("/accounts/:id", account.GetAccount)
-	maybeAuthGroup.GET("/accounts/:id/statuses", account.AccountStatuses)
-	maybeAuthGroup.GET("/accounts/:id/followers", account.Followers)
-	maybeAuthGroup.GET("/accounts/:id/following", account.Following)
+	publicAccountsV2 := maybeAuthGroup.Group("", middleware.CheckScopeIfTokenMiddleware(readAccounts))
+	publicAccountsV2.GET("/accounts/search", account.Search)
+	publicAccountsV2.GET("/accounts/:id", account.GetAccount)
+	publicAccountsV2.GET("/accounts/:id/followers", account.Followers)
+	publicAccountsV2.GET("/accounts/:id/following", account.Following)
+	maybeAuthGroup.GET("/accounts/:id/statuses", middleware.CheckScopeIfTokenMiddleware(readStatuses), account.AccountStatuses)
 	maybeAuthGroup.GET("/statuses/:id", status.Show)
 	maybeAuthGroup.GET("/statuses/:id/context", status.Context)
 	maybeAuthGroup.GET("/polls/:id", middleware.CheckScopeIfTokenMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses}), status.ViewPoll)
@@ -687,7 +695,8 @@ func SetRouter(app gin.IRouter) {
 
 	// 通知（读取）
 	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadNotifications})).
-		GET("/notifications", timelines.NotificationTimeline)
+		GET("/notifications", timelines.GroupedNotificationTimeline).
+		GET("/notifications/unread_count", conversation.UnreadNotificationCount)
 
 	// 关注操作（写入）
 	authGroup.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteFollows})).

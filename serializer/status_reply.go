@@ -90,7 +90,7 @@ func attachReplyPreviews(conn *gorm.DB, statuses []*Status, viewer *models.Accou
 			Id: strconv.FormatUint(parent.Id, 10), Account: accounts.account(parent.Account), CreatedAt: NewAPITime(parent.CreatedAt),
 			Content: content, SpoilerText: spoiler, Sensitive: parent.Sensitive || spoiler != "",
 			Emojis:   ToEmojis(models.EmojisInText(parent.Emojis, content+" "+spoiler, domain, false)),
-			Filtered: ToFilterResults(filters.GetStatusFiltersIn(parent, viewer, filterContextName(conn))),
+			Filtered: ToFilterResults(filters.GetStatusFiltersIn(parent, viewer, filterContextName(conn)), parent, viewer),
 		}
 		for _, out := range targets[parent.Id] {
 			out.Reply = preview

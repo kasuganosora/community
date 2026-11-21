@@ -29,36 +29,62 @@ func VerifyCredentials(c *gin.Context) {
 		return
 	}
 
-	// note is rendered HTML; source.note is the raw text the user typed and
-	// is what clients use to prefill the profile editor (Mastodon API).
+	renderCredentials(c, account)
+}
+
+// Account reads and profile edits return the same CredentialAccount entity.
+func renderCredentials(c *gin.Context, account *models.Account) {
 	user, _ := c.Get("user")
 	currentUser, _ := user.(*models.User)
-	permissions, err := models.EffectiveAdminPermissions(db.GetDB().WithContext(c.Request.Context()), currentUser)
+	conn := db.GetDB().WithContext(c.Request.Context())
+	permissions, err := models.EffectiveAdminPermissions(conn, currentUser)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "permission lookup failed"})
 		return
 	}
+	// Mastodon caps the badge at 40 and excludes suspended requesters.
+	requests := conn.Model(&models.Account{}).Select("accounts.id").
+		Joins("JOIN follows ON follows.account_id = accounts.id").
+		Where("follows.follow_id = ? AND follows.status = ?", account.Id, models.FollowStatusRequested).
+		Where("accounts.is_ban = ? AND accounts.deletion_requested_at IS NULL", false).
+		Limit(40)
+	var pending int64
+	if err := conn.Table("(?) AS pending", requests).Count(&pending).Error; err != nil {
+		_ = c.Error(errors.Wrap(err, "count pending follow requests"))
+		c.JSON(500, gin.H{"error": "internal error"})
+		return
+	}
 	result := serializer.ToAccount(account)
 	result.FollowedMessage = account.FollowedMessage
+	var language *string
+	if account.Language != "" {
+		language = &account.Language
+	}
+	var settings *models.UserSetting
+	if currentUser != nil {
+		settings = currentUser.Settings
+	}
 	c.JSON(200, AccountWithSource{
 		Account:          result,
 		IsAdmin:          currentUser != nil && currentUser.IsAdmin,
 		AdminPermissions: models.AdminCapabilities(permissions),
 		Source: AccountSource{
-			Privacy:             "public",
+			Privacy:             postingVisibility(settings),
 			Sensitive:           false,
 			Note:                account.Note,
 			Fields:              sourceFields(account),
-			Language:            account.Language,
-			FollowRequestsCount: 0,
-			HideCollections:     account.HideCollections,
-			Discoverable:        account.Discoverable,
+			Language:            language,
+			FollowRequestsCount: pending,
+			HideCollections:     result.HideCollections,
+			Discoverable:        result.Discoverable,
 			Indexable:           !account.NoIndex,
 			FollowingVisibility: account.FollowingVisibilityValue(),
 			FollowersVisibility: account.FollowersVisibilityValue(),
 			AutoAcceptFollowed:  account.AutoAcceptFollowed,
 			HideOnlineStatus:    account.HideOnlineStatus,
 			SpeakAsCat:          account.SpeakAsCat,
+			AttributionDomains:  []string{},
+			QuotePolicy:         defaultQuotePolicy,
 		},
 		Role: roleFor(currentUser),
 	})
@@ -68,14 +94,16 @@ func VerifyCredentials(c *gin.Context) {
 type AccountSource struct {
 	Privacy   string             `json:"privacy"`
 	Sensitive bool               `json:"sensitive"`
-	Language  string             `json:"language"`
+	Language  *string            `json:"language"`
 	Note      string             `json:"note"`
 	Fields    []serializer.Field `json:"fields"`
 
-	FollowRequestsCount int  `json:"follow_requests_count"`
-	HideCollections     bool `json:"hide_collections"`
-	Discoverable        bool `json:"discoverable"`
-	Indexable           bool `json:"indexable"`
+	FollowRequestsCount int64    `json:"follow_requests_count"`
+	HideCollections     *bool    `json:"hide_collections"`
+	Discoverable        *bool    `json:"discoverable"`
+	Indexable           bool     `json:"indexable"`
+	AttributionDomains  []string `json:"attribution_domains"`
+	QuotePolicy         string   `json:"quote_policy"`
 	// Misskey account settings (extensions).
 	FollowingVisibility string `json:"following_visibility"`
 	FollowersVisibility string `json:"followers_visibility"`
@@ -86,11 +114,12 @@ type AccountSource struct {
 
 // AccountRole mirrors Mastodon's Role entity (CredentialAccount#role).
 type AccountRole struct {
-	Id          string `json:"id"`
-	Name        string `json:"name"`
-	Permissions string `json:"permissions"`
-	Color       string `json:"color"`
-	Highlighted bool   `json:"highlighted"`
+	Id              string `json:"id"`
+	Name            string `json:"name"`
+	Permissions     string `json:"permissions"`
+	Color           string `json:"color"`
+	Highlighted     bool   `json:"highlighted"`
+	CollectionLimit int    `json:"collection_limit"`
 }
 
 func roleFor(u *models.User) AccountRole {
@@ -108,6 +137,15 @@ func sourceFields(a *models.Account) []serializer.Field {
 	}
 
 	return []serializer.Field{}
+}
+
+func postingVisibility(settings *models.UserSetting) string {
+	if settings != nil {
+		if protect, _ := settings.Data["post_protect"].(bool); protect {
+			return "private"
+		}
+	}
+	return "public"
 }
 
 // AccountWithSource extends Account with source field.

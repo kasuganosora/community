@@ -25,7 +25,7 @@ func setupDirectoryDB(t *testing.T) *gorm.DB {
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, conn.AutoMigrate(
-		&models.User{}, &models.Account{}, &models.AccountExtra{}, &models.Emoji{},
+		&models.User{}, &models.Account{}, &models.Follow{}, &models.AccountExtra{}, &models.Emoji{},
 		&models.Block{}, &models.MuteAccount{}, &models.DomainBlock{},
 	))
 	database.SetTestDB(conn)

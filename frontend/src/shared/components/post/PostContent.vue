@@ -9,6 +9,7 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useTimelineRowFlag } from '@/shared/composables/useTimelineRow'
 import { useRouter } from 'vue-router'
 import type { MastodonPoll, MastodonStatus } from '@/shared/types/mastodon'
+import { quotedStatus } from '@/shared/utils/statusIdentity'
 import EmojiText from '@/shared/components/common/EmojiText.vue'
 import RichText from '@/shared/components/common/RichText.vue'
 import PostMedia from './PostMedia.vue'
@@ -104,7 +105,7 @@ const { mode: mediaMode } = useMediaMode()
 const gated = computed(() => mediaGated(props.status, mediaMode.value))
 const mediaHidden = computed(() => gated.value && !mediaRevealed.value)
 const contentId = ref(`status-content-${props.status.id}-${Math.random().toString(36).slice(2, 6)}`)
-const quoted = computed(() => props.status.quote?.id ? props.status.quote : null)
+const quoted = computed(() => quotedStatus(props.status.quote))
 const quoteText = computed(() => {
   const status = quoted.value
   if (!status) return ''

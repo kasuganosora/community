@@ -25,6 +25,7 @@ type List struct { //nolint:recvcheck
 	Title         string         `gorm:"type:varchar(255);not null"      json:"title"`
 	AccountId     uint64         `gorm:"not null"                        json:"account_id"`
 	RepliesPolicy uint8          `gorm:"not null;default:0"              json:"replies_policy"`
+	Exclusive     bool           `gorm:"not null;default:false"          json:"exclusive"`
 	LastViewedAt  *time.Time     `gorm:"index"                           json:"last_viewed_at"` // 最后被查看的时间
 	Visibility    int            `gorm:"not null;default:0"              json:"visibility"`
 	CreatedAt     *time.Time     `gorm:"autoCreateTime"                  json:"created_at"`

@@ -5,15 +5,16 @@ import (
 	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
-	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"strconv"
 )
 
 type FollowRequest struct {
-	AccountId uint64 `form:"-"       json:"account_id"`
-	Reblogs   *bool  `form:"reblogs" json:"reblogs"`
+	AccountId uint64   `form:"-"       json:"account_id"`
+	Reblogs   *bool    `form:"reblogs" json:"reblogs"`
+	Notify    *bool    `json:"notify"`
+	Languages []string `json:"languages"`
 }
 
 // bindOptionalBody binds a JSON or form body if the request has one and is a
@@ -111,18 +112,26 @@ func Follow(c *gin.Context) {
 	if follow.Properties == nil {
 		follow.Properties = make(map[string]any)
 	}
+	if req.Notify != nil {
+		follow.Properties[models.FollowPropertyKeyNotify] = *req.Notify
+	}
+	if req.Languages != nil {
+		follow.Properties[models.FollowPropertyKeyLanguages] = req.Languages
+	}
 
 	if follow.Id > 0 {
-		// Only the reblogs preference can change on an existing follow. Write
-		// just that column so the follow hooks (notifications, federation)
-		// don't fire again.
 		if req.Reblogs != nil {
 			follow.Properties[models.FollowPropertyKeyReblogs] = *req.Reblogs
+		}
+		if req.Reblogs != nil || req.Notify != nil || req.Languages != nil {
+			// Save preferences without emitting a new follow.
 			err = db.GetDB().Transaction(func(tx *gorm.DB) error {
 				if err := tx.Session(&gorm.Session{SkipHooks: true}).Model(follow).Select("properties").Updates(follow).Error; err != nil {
 					return err
 				}
-				// Rebuild the follower's home feed so reblogs appear or vanish.
+				if req.Reblogs == nil {
+					return nil
+				}
 				return models.QueueFeedInvalidation(tx, models.FeedEventMetadata{ActorID: follow.AccountId, RecipientIDs: []uint64{follow.AccountId}, TargetAccountID: follow.FollowId, RelationshipID: follow.Id, Reason: "follow_changed"})
 			})
 		}
@@ -154,7 +163,7 @@ func Follow(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, serializer.ToFollowStatus(targetAccount, follow))
+	renderRelationship(c, account, targetAccount)
 }
 
 type UnfollowRequest struct {
@@ -239,5 +248,5 @@ func UnFollow(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, serializer.ToFollowStatus(targetAccount, nil))
+	renderRelationship(c, account, targetAccount)
 }

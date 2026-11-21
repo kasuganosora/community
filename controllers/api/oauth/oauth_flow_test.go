@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +17,7 @@ import (
 // ============== parseScopes Tests ==============
 
 func TestParseScopes_Empty(t *testing.T) {
-	scopes := parseScopes("")
+	scopes, _ := models.ParseOAuthScopes("")
 	assert.Equal(t, uint64(0), scopes.ReadScope)
 	assert.Equal(t, uint64(0), scopes.WriteScope)
 	assert.Equal(t, uint64(0), scopes.AdminScope)
@@ -24,45 +25,45 @@ func TestParseScopes_Empty(t *testing.T) {
 }
 
 func TestParseScopes_Read(t *testing.T) {
-	scopes := parseScopes("read")
+	scopes, _ := models.ParseOAuthScopes("read")
 	assert.True(t, scopes.ReadScope > 0, "read scope should be set")
 }
 
 func TestParseScopes_Write(t *testing.T) {
-	scopes := parseScopes("write")
+	scopes, _ := models.ParseOAuthScopes("write")
 	assert.True(t, scopes.WriteScope > 0, "write scope should be set")
 }
 
 func TestParseScopes_Admin(t *testing.T) {
-	scopes := parseScopes("admin")
+	scopes, _ := models.ParseOAuthScopes("admin")
 	assert.True(t, scopes.AdminScope > 0, "admin scope should be set")
 }
 
 func TestParseScopes_Follow(t *testing.T) {
-	scopes := parseScopes("follow")
+	scopes, _ := models.ParseOAuthScopes("follow")
 	assert.True(t, scopes.OtherScope > 0, "follow scope should be set")
 }
 
 func TestParseScopes_Push(t *testing.T) {
-	scopes := parseScopes("push")
+	scopes, _ := models.ParseOAuthScopes("push")
 	assert.True(t, scopes.OtherScope > 0, "push scope should be set")
 }
 
 func TestParseScopes_Multiple(t *testing.T) {
-	scopes := parseScopes("read write follow")
+	scopes, _ := models.ParseOAuthScopes("read write follow")
 	assert.True(t, scopes.ReadScope > 0, "read scope should be set")
 	assert.True(t, scopes.WriteScope > 0, "write scope should be set")
 	assert.True(t, scopes.OtherScope > 0, "follow scope should be set")
 }
 
 func TestParseScopes_Prefixed(t *testing.T) {
-	scopes := parseScopes("read:accounts write:statuses")
+	scopes, _ := models.ParseOAuthScopes("read:accounts write:statuses")
 	assert.True(t, scopes.ReadScope > 0, "read:accounts scope should set read")
 	assert.True(t, scopes.WriteScope > 0, "write:statuses scope should set write")
 }
 
 func TestParseScopes_Unknown(t *testing.T) {
-	scopes := parseScopes("unknown_scope")
+	scopes, _ := models.ParseOAuthScopes("unknown_scope")
 	assert.Equal(t, uint64(0), scopes.ReadScope)
 	assert.Equal(t, uint64(0), scopes.WriteScope)
 	assert.Equal(t, uint64(0), scopes.AdminScope)

@@ -1,6 +1,7 @@
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { sessionEpoch } from '@/shared/api/sessionScope'
 import type { MastodonStatus } from '@/shared/types/mastodon'
+import { quotedStatus } from '@/shared/utils/statusIdentity'
 import { applyStatusUpdate } from '@/domains/post/presentation/composables/useStatusActions'
 import { discoveryApi, isDiscoveryReset, type DiscoveryItem, type DiscoveryPage, type FeedbackAction } from '../../infrastructure/discoveryApi'
 import { discoveryInvalidation, discoveryPreference, acceptDiscoveryPreference, invalidateDiscovery } from './discoveryState'
@@ -21,7 +22,7 @@ function containsHiddenTarget(root: MastodonStatus, target: MastodonStatus, acti
     if (depth > 4 || visited.size >= 16 || visited.has(status.id)) return true
     visited.add(status.id)
     if (action === 'hide_author' ? sameAuthor(status, target) : status.id === target.id) return true
-    for (const child of [status.quote, status.reblog]) if (child) pending.push({ status: child, depth: depth + 1 })
+    for (const child of [quotedStatus(status.quote), status.reblog]) if (child) pending.push({ status: child, depth: depth + 1 })
   }
   return false
 }

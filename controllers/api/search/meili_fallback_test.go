@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	accountapi "github.com/kasuganosora/community/controllers/api/account"
 	"github.com/kasuganosora/community/models"
 	searchpkg "github.com/kasuganosora/community/search"
 	"github.com/stretchr/testify/require"
@@ -42,13 +43,12 @@ func fakeMeili(t *testing.T, status int) *atomic.Int32 {
 func meiliFallbackFixture(t *testing.T) *models.Account {
 	t.Helper()
 	conn := sqlTestDB(t)
-	require.NoError(t, conn.AutoMigrate(&models.MuteAccount{}, &models.MuteStatus{}, &models.PinStatus{}, &models.FavoriteStatus{}, &models.BookmarkStatus{}))
+	require.NoError(t, conn.AutoMigrate(&models.MuteAccount{}, &models.MuteStatus{}, &models.PinStatus{}, &models.FavoriteStatus{}, &models.BookmarkStatus{}, &accountapi.FollowedTag{}, &accountapi.FeaturedTag{}))
 	viewer := &models.Account{Username: "tentacle"}
 	require.NoError(t, conn.Create(viewer).Error)
 	require.NoError(t, conn.Create(&models.Account{Username: "fan", DisplayName: "tentacle fan"}).Error)
-	st := &models.Status{AccountId: viewer.Id, Visibility: models.StatusVisibilityPublic}
+	st := &models.Status{AccountId: viewer.Id, Visibility: models.StatusVisibilityPublic, Content: models.StatusContent{Content: "tentacle here"}}
 	require.NoError(t, conn.Create(st).Error)
-	require.NoError(t, conn.Create(&models.StatusContent{StatusId: st.Id, Content: "<p>tentacle here</p>"}).Error)
 	require.NoError(t, conn.Create(&models.Tag{Name: "tentacle", NameKey: "tentacle"}).Error)
 	return viewer
 }

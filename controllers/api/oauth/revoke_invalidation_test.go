@@ -42,7 +42,8 @@ func issueToken(t *testing.T, env *oauthTestEnv, kind uint8) (string, *models.Au
 	account := models.Account{UserId: user.Id, Username: user.UserName}
 	require.NoError(t, env.gdb.Session(&gorm.Session{SkipHooks: true}).Create(&account).Error)
 
-	row, raw := models.NewAuthToken(user.Id, kind, 0, 0, nil, 0, config.C.EncryptedKey)
+	scopes := &models.ApplicationScope{ReadScope: models.AppScopeReadAccounts}
+	row, raw := models.NewAuthToken(user.Id, kind, 0, 0, scopes, 0, config.C.EncryptedKey)
 	require.NotEmpty(t, raw)
 	require.NoError(t, env.gdb.Create(row).Error)
 

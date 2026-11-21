@@ -170,22 +170,17 @@ func displayCallback(raw string) string {
 }
 
 func scopeAllowed(granted models.ApplicationScope, requested string) bool {
-	req := parseScopes(requested)
-	// Apps created before scopes were stored are unrestricted, except admin.
-	if granted.ReadScope == 0 && granted.WriteScope == 0 && granted.AdminScope == 0 && granted.OtherScope == 0 {
-		return req.AdminScope == 0
-	}
-
-	return req.ReadScope&^granted.ReadScope == 0 &&
-		req.WriteScope&^granted.WriteScope == 0 &&
-		req.AdminScope&^granted.AdminScope == 0 &&
-		req.OtherScope&^granted.OtherScope == 0
+	_, ok := granted.OAuthGrant(requested)
+	return ok
 }
 
 func normalizeScope(app *OAuthApplication, requested string) (string, bool) {
-	requested = strings.Join(strings.Fields(strings.ReplaceAll(requested, ",", " ")), " ")
+	requested = strings.TrimSpace(strings.ReplaceAll(requested, ",", " "))
 	if requested == "" {
 		if app != nil {
+			if app.RegisteredScopes != "" && scopeAllowed(app.Scopes, app.RegisteredScopes) {
+				return app.RegisteredScopes, true
+			}
 			if s := app.Scopes.OAuthScopeString(); s != "" {
 				return s, true
 			}
@@ -194,9 +189,11 @@ func normalizeScope(app *OAuthApplication, requested string) (string, bool) {
 		return "read", true
 	}
 
+	requested = strings.Join(responseScopes(requested), " ")
+
 	// IndieAuth clients are not pre-registered. Never hand them admin.
 	if app == nil {
-		if parseScopes(requested).AdminScope != 0 {
+		if !scopeAllowed(models.ApplicationScope{}, requested) {
 			return "", false
 		}
 
@@ -211,7 +208,8 @@ func normalizeScope(app *OAuthApplication, requested string) (string, bool) {
 }
 
 func scopeStringSubset(granted, requested string) bool {
-	return scopeAllowed(parseScopes(granted), requested)
+	permissions, ok := models.ParseOAuthScopes(granted)
+	return ok && permissions != (models.ApplicationScope{}) && scopeAllowed(permissions, requested)
 }
 
 func tokenHash(raw string) string {

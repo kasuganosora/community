@@ -9,6 +9,7 @@ import (
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/moderation"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -114,7 +115,12 @@ func TestInstanceV2Shape(t *testing.T) {
 	assert.Regexp(t, `^wss?://[^/]+$`, urls["streaming"])
 	assert.Contains(t, urls, "status")
 	assert.Nil(t, urls["status"])
-	requireKeys(t, sub(t, cfg, "vapid"), "public_key")
+	assert.Equal(t, "https://social.example.org/about", urls["about"])
+	assert.Contains(t, urls, "terms_of_service")
+	assert.Nil(t, urls["terms_of_service"])
+	vapid := sub(t, cfg, "vapid")
+	assert.Contains(t, vapid, "public_key")
+	assert.Nil(t, vapid["public_key"])
 	requireKeys(t, sub(t, cfg, "accounts"), "max_featured_tags")
 	requireKeys(t, sub(t, cfg, "translation"), "enabled")
 	arr(t, sub(t, cfg, "media_attachments"), "supported_mime_types")
@@ -141,6 +147,24 @@ func TestStreamingURLFromBaseURL(t *testing.T) {
 	setupInstanceShape(t)
 
 	assert.Equal(t, "wss://social.example.org", StreamingURL())
+}
+
+func TestInstanceTimelineAccessMatchesGuestPolicy(t *testing.T) {
+	setupInstanceShape(t)
+	for _, tc := range []struct{ mode, local, remote string }{
+		{moderation.UGCAll, "public", "public"},
+		{moderation.UGCLocal, "public", "authenticated"},
+		{moderation.UGCNone, "authenticated", "authenticated"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			t.Cleanup(moderation.SetForTesting(moderation.Snapshot{UGCVisibilityForVisitor: tc.mode}))
+			cfg := sub(t, fetchInstance(t, false), "configuration")
+			access := sub(t, cfg, "timelines_access")
+			for _, name := range []string{"live_feeds", "hashtag_feeds", "trending_link_feeds"} {
+				assert.Equal(t, map[string]any{"local": tc.local, "remote": tc.remote}, sub(t, access, name))
+			}
+		})
+	}
 }
 
 func TestInstanceDefaultImagesArePNG(t *testing.T) {

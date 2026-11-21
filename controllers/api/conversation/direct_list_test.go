@@ -19,6 +19,12 @@ import (
 	"gorm.io/gorm"
 )
 
+func migrateDirectConversationSchema(t *testing.T) {
+	t.Helper()
+	require.NoError(t, testDB.AutoMigrate(&models.User{}, &models.Account{}, &models.AccountExtra{}, &models.Status{}, &models.StatusContent{}, &models.PinStatus{}, &models.Conversation{}, &models.AccountConversation{}))
+	require.NoError(t, testDB.AutoMigrate(&models.Poll{}, &models.PollOption{}, &models.PollOptionVote{}, &models.Application{}, &models.Tag{}, &models.Emoji{}, &models.MediaAttachment{}, &models.Follow{}, &models.StatusToAccount{}, &models.StatusEmoji{}, &models.AccountEmoji{}, &models.StatusTag{}, &models.StatusMediaAttachment{}, &models.FavoriteStatus{}, &models.BookmarkStatus{}, &models.Filter{}, &models.MuteAccount{}, &models.Block{}, &models.MuteStatus{}))
+}
+
 func TestList_OnlyVisibleDirectMessagesBeforePagination(t *testing.T) {
 	// Exercise real SQL subquery and NULL semantics: the in-memory sqlexec
 	// test adapter does not implement the nested IN filtering used here.
@@ -29,8 +35,7 @@ func TestList_OnlyVisibleDirectMessagesBeforePagination(t *testing.T) {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	testDB = &testutil.TestDB{GormDB: connDB}
 	database.SetTestDB(connDB)
-	require.NoError(t, testDB.AutoMigrate(&models.User{}, &models.Account{}, &models.AccountExtra{}, &models.Status{}, &models.StatusContent{}, &models.PinStatus{}, &models.Conversation{}, &models.AccountConversation{}))
-	require.NoError(t, testDB.AutoMigrate(&models.Poll{}, &models.PollOption{}, &models.PollOptionVote{}, &models.Application{}, &models.Tag{}, &models.Emoji{}, &models.MediaAttachment{}, &models.Follow{}, &models.StatusToAccount{}, &models.StatusEmoji{}, &models.AccountEmoji{}, &models.StatusTag{}, &models.StatusMediaAttachment{}, &models.FavoriteStatus{}, &models.BookmarkStatus{}, &models.Filter{}, &models.MuteAccount{}, &models.Block{}, &models.MuteStatus{}))
+	migrateDirectConversationSchema(t)
 	newAccount := func(id uint64, name string) *models.Account {
 		account := &models.Account{Id: id, Username: name}
 		require.NoError(t, connDB.Create(account).Error)
@@ -94,12 +99,18 @@ func TestList_OnlyVisibleDirectMessagesBeforePagination(t *testing.T) {
 		}
 		return ids
 	}
-	require.ElementsMatch(t, []string{strconv.FormatUint(alice.Id, 10), strconv.FormatUint(bob.Id, 10)}, participantIDs(result[0]), "participants from an unreadable branch must remain private")
+	require.ElementsMatch(t, []string{strconv.FormatUint(bob.Id, 10)}, participantIDs(result[0]), "participants from an unreadable branch must remain private")
 	// Reading only the visible branch must produce a real single response and
 	// a later hidden branch must not change either preview or unread status.
-	require.NoError(t, conn.Model(&models.AccountConversation{}).Where("conversation_id = ? AND account_id = ?", direct.Id, alice.Id).Update("last_status_id", visible.Id).Error)
-	single, err := serializer.ToConversation(direct, alice)
-	require.NoError(t, err)
+	mark := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(mark)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/conversations/"+result[0].Id+"/read", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: result[0].Id}}
+	ctx.Set("account", alice)
+	MarkRead(ctx)
+	require.Equal(t, http.StatusOK, mark.Code)
+	var single serializer.Conversation
+	require.NoError(t, json.Unmarshal(mark.Body.Bytes(), &single))
 	require.Equal(t, strconv.FormatUint(direct.Id, 10), single.Id)
 	require.False(t, single.Unread)
 	require.Equal(t, strconv.FormatUint(visible.Id, 10), single.LastStatus.Id)

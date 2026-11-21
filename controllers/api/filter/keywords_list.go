@@ -24,10 +24,10 @@ func KeywordsList(c *gin.Context) {
 		return
 	}
 
-	currentUser := c.MustGet("user").(*models.User) //nolint:forcetypeassert
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	filter := &models.Filter{}
 
-	err = db.GetDB().Where("id = ? and account_id = ?", filterId, currentUser.Id).First(filter).Error
+	err = db.GetDB().Where("id = ? and account_id = ?", filterId, account.Id).First(filter).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{"error": "filter not found"}) //nolint:goconst

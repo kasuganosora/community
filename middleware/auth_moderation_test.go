@@ -31,7 +31,7 @@ func TestExistingWebAndOAuthTokensRespectCurrentModeration(t *testing.T) {
 	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(&user).Error)
 	require.NoError(t, conn.Session(&gorm.Session{SkipHooks: true}).Create(&account).Error)
 	for _, kind := range []uint8{models.AuthTokenTypeWeb, models.AuthTokenTypeOauth} {
-		token := (models.AuthTokenData{UserId: user.Id, AuthType: kind}).GetTokenStr(config.C.EncryptedKey)
+		token := (models.AuthTokenData{UserId: user.Id, AuthType: kind, Scopes: &models.ApplicationScope{ReadScope: models.AppScopeRead}}).GetTokenStr(config.C.EncryptedKey)
 		require.NotEmpty(t, token)
 		require.NoError(t, globalRedisClient.Set(context.Background(), tokenCacheKey(token), "valid", tokenCacheTTL).Err())
 		request := func() int {

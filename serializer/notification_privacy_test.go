@@ -21,7 +21,7 @@ func TestStatusEditNotificationsStayOutOfInbox(t *testing.T) {
 }
 
 func TestHistoricalNotificationVisibilityRevocation(t *testing.T) {
-	withTestDBMigrated(t, &models.Status{}, &models.StatusToAccount{}, &models.Block{}, &models.Follow{})
+	withTestDBMigrated(t, &models.MuteAccount{}, &models.Status{}, &models.StatusToAccount{}, &models.Block{}, &models.Follow{})
 	conn := db.GetDB().Session(&gorm.Session{SkipHooks: true})
 	author, viewer := &models.Account{Id: 1, Username: "author"}, &models.Account{Id: 2, Username: "viewer"}
 	require.NoError(t, conn.Omit("Extra").Create(author).Error)

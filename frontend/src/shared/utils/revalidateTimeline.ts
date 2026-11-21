@@ -1,8 +1,9 @@
 import axios from 'axios'
 import { editedStatuses } from '@/domains/post/presentation/composables/useStatusActions'
 import { mergeById } from './pagination'
-import { embeddedLocalID } from './statusIdentity'
+import { embeddedLocalID, quotedStatus } from './statusIdentity'
 import { TIMELINE_PAGE_SIZE } from './constants'
+import type { MastodonStatus } from '@/shared/types/mastodon'
 
 async function readTimelinePage<T>(
   fetchPage: (maxId: string | undefined, limit: number) => Promise<T[]>,
@@ -50,8 +51,8 @@ export function representedStatusIDs<T extends { id: string }>(rows: readonly T[
   const seen = new Set<string>()
   for (const row of rows) {
     seen.add(row.id)
-    const extra = row as { uri?: string | null, url?: string | null, reblog?: unknown, reply?: unknown, quote?: unknown }
-    for (const id of [embeddedLocalID(extra.uri), embeddedLocalID(extra.url), embeddedStatusID(extra.reblog), embeddedStatusID(extra.reply), embeddedStatusID(extra.quote)]) {
+    const extra = row as { uri?: string | null, url?: string | null, reblog?: unknown, reply?: unknown, quote?: MastodonStatus['quote'] }
+    for (const id of [embeddedLocalID(extra.uri), embeddedLocalID(extra.url), embeddedStatusID(extra.reblog), embeddedStatusID(extra.reply), embeddedStatusID(quotedStatus(extra.quote))]) {
       if (id) seen.add(id)
     }
   }

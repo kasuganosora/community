@@ -1,6 +1,10 @@
 package search
 
 import (
+	"net/url"
+	"strconv"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/db"
@@ -11,9 +15,6 @@ import (
 	"github.com/kasuganosora/community/search"
 	"github.com/kasuganosora/community/serializer"
 	"gorm.io/gorm/clause"
-	"net/url"
-	"strconv"
-	"strings"
 )
 
 // SearchRequest represents the search query parameters for Mastodon API v2.
@@ -31,9 +32,10 @@ type SearchRequest struct {
 
 // SearchResult represents the response for search API.
 type SearchResult struct {
-	Accounts []*serializer.Account `json:"accounts"`
-	Statuses []*serializer.Status  `json:"statuses"`
-	Hashtags []*serializer.Tag     `json:"hashtags"`
+	Accounts    []*serializer.Account    `json:"accounts"`
+	Statuses    []*serializer.Status     `json:"statuses"`
+	Hashtags    []serializer.DetailedTag `json:"hashtags"`
+	Collections []any                    `json:"collections"`
 }
 
 // Search handles GET /api/v2/search.
@@ -48,11 +50,14 @@ func Search(c *gin.Context) {
 		return
 	}
 
-	// Set defaults
-	if req.Limit == 0 {
+	// Mastodon uses the absolute limit, capped at 40. GORM treats a
+	// negative limit as unbounded, including for the per-tag history query.
+	if _, provided := c.GetQuery("limit"); !provided {
 		req.Limit = 20
-	} else if req.Limit > 40 {
+	} else if req.Limit < -40 || req.Limit > 40 {
 		req.Limit = 40
+	} else if req.Limit < 0 {
+		req.Limit = -req.Limit
 	}
 
 	// Clean up query
@@ -66,9 +71,15 @@ func Search(c *gin.Context) {
 	}
 
 	result := &SearchResult{
-		Accounts: make([]*serializer.Account, 0),
-		Statuses: make([]*serializer.Status, 0),
-		Hashtags: make([]*serializer.Tag, 0),
+		Accounts:    make([]*serializer.Account, 0),
+		Statuses:    make([]*serializer.Status, 0),
+		Hashtags:    make([]serializer.DetailedTag, 0),
+		Collections: []any{},
+	}
+
+	if req.Limit == 0 {
+		c.JSON(200, result)
+		return
 	}
 
 	// Get current account if authenticated
@@ -85,12 +96,17 @@ func Search(c *gin.Context) {
 
 	wantAccounts := searchType == "accounts" || searchType == "all"
 	wantStatuses := searchType == "statuses" || searchType == "all"
+	wantTags := searchType == "hashtags" || searchType == "all"
+	if !wantAccounts && !wantStatuses && !wantTags {
+		c.JSON(200, result)
+		return
+	}
 
 	// Pasted URLs (profile pages, actor ids, note URLs) are looked up exactly,
 	// never full-text searched. Like Mastodon, only signed-in users may make
 	// the server fetch unknown remote objects.
 	if activitypub.IsURLQuery(req.Q) {
-		if req.Offset == 0 {
+		if req.Offset == 0 && (wantAccounts || wantStatuses) {
 			accounts, statuses := searchByURL(c, req, currentAccount)
 			if wantAccounts {
 				result.Accounts = accounts
@@ -119,20 +135,20 @@ func Search(c *gin.Context) {
 		return
 	}
 
-	switch searchType {
-	case "accounts":
+	if wantAccounts {
 		result.Accounts = searchAccounts(req, currentAccount)
-	case "statuses":
-		result.Statuses = searchStatuses(req, currentAccount)
-	case "hashtags":
-		result.Hashtags = searchHashtags(req)
-	default:
-		// Search all types
-		result.Accounts = searchAccounts(req, currentAccount)
-		result.Statuses = searchStatuses(req, currentAccount)
-		result.Hashtags = searchHashtags(req)
 	}
-
+	if wantStatuses {
+		result.Statuses = searchStatuses(req, currentAccount)
+	}
+	if wantTags {
+		tags, err := serializer.ToDetailedTags(db.GetDB().WithContext(c.Request.Context()), searchHashtags(req), currentAccount)
+		if err != nil {
+			_ = c.Error(err)
+			return
+		}
+		result.Hashtags = tags
+	}
 	c.JSON(200, result)
 }
 
@@ -559,7 +575,7 @@ func searchStatuses(req SearchRequest, currentAccount *models.Account) []*serial
 }
 
 // searchHashtags searches for hashtags by name.
-func searchHashtags(req SearchRequest) []*serializer.Tag {
+func searchHashtags(req SearchRequest) []*models.Tag {
 	tags := make([]*models.Tag, 0)
 
 	keyword := strings.TrimPrefix(req.Q, "#")
@@ -574,7 +590,7 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 		} else if len(names) == 0 {
 			// A successful empty answer is final (e.g. offset past the last
 			// hit); falling back would run an unindexed ILIKE scan.
-			return []*serializer.Tag{}
+			return []*models.Tag{}
 		} else {
 			// Fetch full tag data from database (case-insensitive key;
 			// stale documents of merged case variants collapse into one).
@@ -591,7 +607,7 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 					}
 				}
 
-				return serializer.ToTags(withoutHiddenTags(sortedTags))
+				return withoutHiddenTags(sortedTags)
 			}
 		}
 	}
@@ -607,10 +623,10 @@ func searchHashtags(req SearchRequest) []*serializer.Tag {
 
 	err := query.Limit(req.Limit).Offset(req.Offset).Find(&tags).Error
 	if err != nil {
-		return []*serializer.Tag{}
+		return []*models.Tag{}
 	}
 
-	return serializer.ToTags(withoutHiddenTags(tags))
+	return withoutHiddenTags(tags)
 }
 
 // withoutHiddenTags drops the instance's hidden tags from suggestions.

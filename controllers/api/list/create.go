@@ -12,6 +12,7 @@ type CreateListRequest struct {
 	Title         string `binding:"required,min=1,max=64"         json:"title"`
 	RepliesPolicy string `binding:"omitempty,oneof=followed list none"       json:"replies_policy"`
 	Visibility    string `binding:"omitempty,oneof=public private followers" json:"visibility"`
+	Exclusive     bool   `json:"exclusive"`
 }
 
 func CreateList(c *gin.Context) {
@@ -30,6 +31,7 @@ func CreateList(c *gin.Context) {
 	list := &models.List{
 		Title:     req.Title,
 		AccountId: account.Id,
+		Exclusive: req.Exclusive,
 	}
 
 	// Mastodon lists are private. Lists created by Mastodon clients carry no

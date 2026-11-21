@@ -1,6 +1,7 @@
 package models
 
 import (
+	"maps"
 	"slices"
 	"strings"
 )
@@ -50,6 +51,108 @@ var personalTokenScopes = map[string]scopeBits{
 	"admin:write:accounts": {AppScopeTypeAdmin, AppScopeAdminWriteAccounts},
 	"admin:read:reports":   {AppScopeTypeAdmin, AppScopeAdminReadReports},
 	"admin:write:reports":  {AppScopeTypeAdmin, AppScopeAdminWriteReports},
+}
+
+// OAuth applications additionally support the full set of admin scopes.
+var oauthScopes = func() map[string]scopeBits {
+	scopes := maps.Clone(personalTokenScopes)
+	for name, bits := range map[string]uint64{
+		"admin":                              AppScopeAdmin,
+		"admin:read:canonical_email_blocks":  AppScopeAdminReadCanonicalEmailBlocks,
+		"admin:read:domain_allows":           AppScopeAdminReadDomainAllows,
+		"admin:read:domain_blocks":           AppScopeAdminReadDomainBlocks,
+		"admin:read:email_domain_blocks":     AppScopeAdminReadEmailDomainBlocks,
+		"admin:read:ip_blocks":               AppScopeAdminReadIpBlocks,
+		"admin:read:thumbnails":              AppScopeAdminReadThumbnails,
+		"admin:write:canonical_email_blocks": AppScopeAdminWriteCanonicalEmailBlocks,
+		"admin:write:domain_allows":          AppScopeAdminWriteDomainAllows,
+		"admin:write:domain_blocks":          AppScopeAdminWriteDomainBlocks,
+		"admin:write:email_domain_blocks":    AppScopeAdminWriteEmailDomainBlocks,
+		"admin:write:ip_blocks":              AppScopeAdminWriteIpBlocks,
+		"admin:write:rules":                  AppScopeAdminWriteRules,
+		"admin:write:thumbnails":             AppScopeAdminWriteThumbnails,
+	} {
+		scopes[name] = scopeBits{AppScopeTypeAdmin, bits}
+	}
+	scopes["read:collections"] = scopeBits{AppScopeTypeRead, AppScopeReadCollections}
+	scopes["write:collections"] = scopeBits{AppScopeTypeWrite, AppScopeWriteCollections}
+	scopes["profile"] = scopeBits{AppScopeTypeOther, AppScopeProfile}
+	return scopes
+}()
+
+var oauthScopeOrder = func() []string {
+	// Match parents before their children, so each set is expressed without
+	// redundancy. Keep the historic order of coarse and Matrix scopes.
+	priority := []string{"read", "write", "admin", "admin:read", "admin:write", "follow", "push", "read:matrix", "write:matrix"}
+	ordered := slices.Clone(priority)
+	for _, name := range slices.Sorted(maps.Keys(oauthScopes)) {
+		if !slices.Contains(priority, name) {
+			ordered = append(ordered, name)
+		}
+	}
+	return ordered
+}()
+
+func OAuthScopeNames() []string { return slices.Clone(oauthScopeOrder) }
+
+func ParseOAuthScopes(raw string) (ApplicationScope, bool) {
+	return parseOAuthScopes(raw, nil)
+}
+
+// OAuthGrant matches a request against the registered bits. Old applications
+// could store "follow" without its implied bits: keep that bound even when
+// issuing a new token for a previously authorized code.
+func (registered ApplicationScope) OAuthGrant(raw string) (ApplicationScope, bool) {
+	if registered == (ApplicationScope{}) {
+		// Before registration scopes were persisted, empty meant any non-admin grant.
+		req, ok := ParseOAuthScopes(raw)
+		return req, ok && req != (ApplicationScope{}) && req.AdminScope == 0
+	}
+	req, ok := parseOAuthScopes(raw, &registered)
+	return req, ok && registered.Covers(req)
+}
+
+func parseOAuthScopes(raw string, registered *ApplicationScope) (ApplicationScope, bool) {
+	var scopes ApplicationScope
+	for _, name := range strings.Fields(raw) {
+		def, known := oauthScopes[name]
+		if !known {
+			return ApplicationScope{}, false
+		}
+		scopes.AddScope(def.kind, def.bits)
+		if name == "follow" {
+			for _, implied := range followImplies {
+				d := oauthScopes[implied]
+				if registered == nil || registered.HasScope(d.kind, d.bits) {
+					scopes.AddScope(d.kind, d.bits)
+				}
+			}
+		}
+	}
+	return scopes, true
+}
+
+// OAuthScopeString renders only permissions actually held, including during refresh.
+func (s *ApplicationScope) OAuthScopeString() string {
+	if s == nil {
+		return ""
+	}
+	remaining := *s
+	var parts []string
+	for _, name := range oauthScopeOrder {
+		def := oauthScopes[name]
+		if remaining.HasScope(def.kind, def.bits) {
+			parts = append(parts, name)
+			remaining.RemoveScope(def.kind, def.bits)
+			if name == "follow" {
+				for _, implied := range followImplies {
+					d := oauthScopes[implied]
+					remaining.RemoveScope(d.kind, d.bits)
+				}
+			}
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // followImplies is Mastodon's legacy "follow" scope.

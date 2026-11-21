@@ -185,6 +185,44 @@ func NotificationTypeFromString(s string) int {
 	}
 }
 
+// NotificationMutedSenders selects the active mutes that apply to the inbox.
+func NotificationMutedSenders(conn *gorm.DB, recipient uint64) *gorm.DB {
+	return conn.Model(&MuteAccount{}).Select("target_id").
+		Where("account_id = ? AND notifications = ? AND (expired_at IS NULL OR expired_at > ?)", recipient, true, time.Now())
+}
+
+// NotificationInbox excludes edits and muted senders before pagination so
+// long runs of these rows consume neither scan slots nor serialization work.
+func NotificationInbox(conn *gorm.DB, recipient uint64) *gorm.DB {
+	return conn.Model(&Notification{}).Where("account_id = ? AND type <> ?", recipient, NotificationTypeStatusUpdate).
+		Where("from_account_id NOT IN (?)", NotificationMutedSenders(conn, recipient))
+}
+
+// FilterNotificationTypes applies the same Mastodon type selectors to both
+// the notification page and its unread badge.
+func FilterNotificationTypes(query *gorm.DB, include, exclude []string) *gorm.DB {
+	typeIDs := func(names []string) []int {
+		var ids []int
+		for _, name := range names {
+			if id := NotificationTypeFromString(name); id >= 0 {
+				ids = append(ids, id)
+			}
+		}
+		return ids
+	}
+	if len(include) > 0 {
+		if ids := typeIDs(include); len(ids) > 0 {
+			query = query.Where("type IN ?", ids)
+		} else {
+			return query.Where("1 = 0")
+		}
+	}
+	if ids := typeIDs(exclude); len(ids) > 0 {
+		query = query.Where("type NOT IN ?", ids)
+	}
+	return query
+}
+
 func (n *Notification) LoadAllExtendFields(db *gorm.DB) (err error) {
 	if n.StatusId > 0 && n.Status == nil {
 		n.Status = &Status{}

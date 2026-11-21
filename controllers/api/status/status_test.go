@@ -347,6 +347,53 @@ func TestCreate_InvalidVisibility(t *testing.T) {
 	assert.Equal(t, 400, w.Code)
 }
 
+func TestCreateQuoteTargets(t *testing.T) {
+	ts := newTestSetup(t)
+	id := strconv.FormatUint(ts.status.Id, 10)
+	boost := &models.Status{AccountId: ts.acct.Id, ReblogId: &ts.status.Id}
+	require.NoError(t, ts.db.Create(boost).Error)
+	attachment := &models.MediaAttachment{AccountId: ts.acct.Id, StatusId: &ts.status.Id, Type: models.MediaTypeImage, FileName: "picture.jpg"}
+	require.NoError(t, ts.db.Create(attachment).Error)
+	for _, body := range []map[string]string{
+		{"quoted_status_id": id}, {"quote_id": id},
+		{"quoted_status_id": strconv.FormatUint(boost.Id, 10)},
+	} {
+		c, w := newGinContextPost(t, nil, body)
+		setAccount(c, ts.acct)
+		safeHandler(c, Create)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var response struct {
+			Quote struct {
+				State        string `json:"state"`
+				QuotedStatus struct {
+					Id               string
+					MediaAttachments []struct{ Id string } `json:"media_attachments"`
+				} `json:"quoted_status"`
+			} `json:"quote"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+		require.Equal(t, "accepted", response.Quote.State)
+		require.Equal(t, id, response.Quote.QuotedStatus.Id)
+		require.Len(t, response.Quote.QuotedStatus.MediaAttachments, 1)
+		require.Equal(t, strconv.FormatUint(attachment.Id, 10), response.Quote.QuotedStatus.MediaAttachments[0].Id)
+	}
+
+	for _, body := range []map[string]string{
+		{"status": "conflict", "quoted_status_id": id, "quote_id": "0"},
+		{"status": "restricted", "visibility": "public", "quote_approval_policy": "nobody"},
+		{"status": "later", "scheduled_at": "2030-01-01T00:00:00Z"},
+	} {
+		var before, after int64
+		require.NoError(t, ts.db.Model(&models.Status{}).Count(&before).Error)
+		c, w := newGinContextPost(t, nil, body)
+		setAccount(c, ts.acct)
+		safeHandler(c, Create)
+		require.Equal(t, http.StatusUnprocessableEntity, w.Code, w.Body.String())
+		require.NoError(t, ts.db.Model(&models.Status{}).Count(&after).Error)
+		require.Equal(t, before, after)
+	}
+}
+
 func TestCreate_NoVisibility(t *testing.T) {
 	ts := newTestSetup(t)
 	c, w := newGinContextPost(t, nil, map[string]string{
@@ -657,9 +704,13 @@ func TestReblog_Success(t *testing.T) {
 	// Verify response contains reblog count
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	_, hasReblogsCount := resp["reblogs_count"]
+	original, ok := resp["reblog"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, strconv.FormatUint(ts.status.Id, 10), original["id"])
+	require.Nil(t, resp["application"])
+	_, hasReblogsCount := original["reblogs_count"]
 	assert.True(t, hasReblogsCount, "response should contain reblogs_count")
-	reblogged, hasReblogged := resp["reblogged"]
+	reblogged, hasReblogged := original["reblogged"]
 	assert.True(t, hasReblogged, "response should contain reblogged field")
 	require.NotNil(t, reblogged, "reblogged field must not be nil")
 	assert.True(t, reblogged.(bool), "reblogged should be true after reblogging")
@@ -695,7 +746,12 @@ func TestReblog_AlreadyReblogged(t *testing.T) {
 
 	safeHandler(c, Reblog)
 
-	assertIdempotentStatus(t, w, ts.status.Id, "reblogged", true)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	var response struct {
+		Id string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+	require.Equal(t, strconv.FormatUint(reblog.Id, 10), response.Id)
 }
 
 func TestReblog_InvalidBody(t *testing.T) {

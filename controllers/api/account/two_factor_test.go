@@ -39,7 +39,7 @@ func newTwoFactorEnvDSN(t *testing.T, dsn string) *tfEnv {
 	previous := database.GetDB()
 	database.SetTestDB(conn)
 	t.Cleanup(func() { database.SetTestDB(previous); _ = sql.Close() })
-	require.NoError(t, conn.AutoMigrate(&models.User{}, &models.Account{}, &models.AccountExtra{}, &models.UserSecretData{},
+	require.NoError(t, conn.AutoMigrate(&models.User{}, &models.Account{}, &models.Follow{}, &models.AccountExtra{}, &models.UserSecretData{},
 		&models.SystemSetting{}, &models.AuthToken{}, &models.UserTwoFactor{}, &models.UserBackupCode{},
 		&models.Role{}, &models.RoleUser{}))
 	systemsettings.Set(systemsettings.KeyRegistrationCheckEmail, false)

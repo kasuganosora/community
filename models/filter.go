@@ -113,6 +113,27 @@ func keywordsMatch(keywords []*FilterKeyword, content, spoiler string) bool {
 	return false
 }
 
+// MatchedKeywords reports which rules matched this status or its boost target.
+func (f *Filter) MatchedKeywords(status *Status, viewer *Account) []string {
+	if status == nil {
+		return nil
+	}
+	var result []string
+	seen := make(map[string]bool)
+	for _, candidate := range []*Status{status, status.Reblog} {
+		if candidate == nil || (viewer != nil && viewer.Id == candidate.AccountId) {
+			continue
+		}
+		for _, rule := range f.Keywords {
+			if rule != nil && !seen[rule.Keyword] && keywordMatches(rule, candidate.Content.Content, candidate.Content.SpoilerText) {
+				result = append(result, rule.Keyword)
+				seen[rule.Keyword] = true
+			}
+		}
+	}
+	return result
+}
+
 func keywordMatches(keyword *FilterKeyword, content, spoiler string) bool {
 	needle := strings.ToLower(strings.TrimSpace(keyword.Keyword))
 	if needle == "" {

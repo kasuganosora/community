@@ -14,6 +14,7 @@ import (
 )
 
 func TestProfilePreferencesRoundTripPreserveAndClear(t *testing.T) {
+	useAccountCache(t)
 	conn := setupDirectoryDB(t)
 	require.NoError(t, conn.AutoMigrate(&models.ProfileFieldVerification{}, &models.Role{}, &models.RoleUser{}))
 	account := &models.Account{Id: 901, Username: "alice"}
@@ -33,6 +34,7 @@ func TestProfilePreferencesRoundTripPreserveAndClear(t *testing.T) {
 	var output map[string]any
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &output))
 	require.Equal(t, "zh-CN", output["language"])
+	require.Equal(t, "zh-CN", output["source"].(map[string]any)["language"])
 	require.Equal(t, "谢谢关注！", output["followed_message"])
 	require.True(t, output["is_cat"].(bool))
 	var queued models.ProfileFieldVerification
@@ -59,7 +61,8 @@ func TestProfilePreferencesRoundTripPreserveAndClear(t *testing.T) {
 	require.Equal(t, 200, verify.Code, verify.Body.String())
 	var credentials AccountWithSource
 	require.NoError(t, json.Unmarshal(verify.Body.Bytes(), &credentials))
-	require.Equal(t, "zh-CN", credentials.Source.Language)
+	require.NotNil(t, credentials.Source.Language)
+	require.Equal(t, "zh-CN", *credentials.Source.Language)
 	require.Equal(t, "<b>猫</b> & coffee", credentials.Source.Fields[1].Value)
 	require.Equal(t, "谢谢关注！", credentials.FollowedMessage)
 
@@ -75,7 +78,10 @@ func TestProfilePreferencesRoundTripPreserveAndClear(t *testing.T) {
 }
 
 func TestProfileUpdateValidationAndFieldProofCannotBeForged(t *testing.T) {
+	useAccountCache(t)
 	for _, body := range []string{
+		`{"display_name":"` + strings.Repeat("猫", models.MaxDisplayNameLength+1) + `"}`,
+		`{"note":"` + strings.Repeat("猫", models.MaxProfileNoteLength+1) + `"}`,
 		`{"birthday":"2023-02-29"}`, `{"birthday":"2999-01-01"}`, `{"language":"not a language"}`,
 		`{"reaction_acceptance":"anything"}`, `{"location":"` + strings.Repeat("地", 129) + `"}`,
 		`{"followed_message":"` + strings.Repeat("喵", 201) + `"}`,

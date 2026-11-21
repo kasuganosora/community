@@ -3,6 +3,7 @@ package serializer
 import (
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
@@ -10,12 +11,13 @@ import (
 
 // Tag represents a Mastodon-compatible hashtag.
 type Tag struct {
-	Name         string       `json:"name"`
-	Url          string       `json:"url"`
-	History      []TagHistory `json:"history,omitempty"`
-	Following    bool         `json:"following,omitempty"`
-	StatusCount  *uint64      `json:"status_count,omitempty"`
-	AccountCount *uint64      `json:"account_count,omitempty"`
+	Name      string       `json:"name"`
+	Url       string       `json:"url"`
+	History   []TagHistory `json:"history,omitempty"`
+	Following bool         `json:"following,omitempty"`
+	// Lifetime counts also include non-public posts and must stay off the wire.
+	StatusCount  *uint64 `json:"-"`
+	AccountCount *uint64 `json:"-"`
 }
 
 // TagHistory represents tag usage history.
@@ -31,18 +33,10 @@ func ToTag(tag *models.Tag) (ret *Tag) {
 		return nil
 	}
 
-	name := tag.Name
-	// Remove # prefix if present for URL
-	if len(name) > 0 && name[0] == '#' {
-		name = name[1:]
-	}
+	name := strings.TrimPrefix(tag.Name, "#")
+	ret = &Tag{Name: name, Url: systemsettings.GetBaseURL() + "/tags/" + url.PathEscape(name)}
 
-	ret = &Tag{
-		Name: name,
-		Url:  systemsettings.GetBaseURL() + "/tags/" + url.PathEscape(name),
-	}
-
-	// Include counts for search results
+	// Preserve the counters for Go callers.
 	if tag.StatusCount > 0 {
 		ret.StatusCount = &tag.StatusCount
 	}

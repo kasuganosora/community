@@ -88,6 +88,20 @@ func CheckScopeMiddleware(scopes ...Scope) gin.HandlerFunc {
 	}
 }
 
+// CheckProfileScopeMiddleware accepts the profile-only grant on verify_credentials.
+func CheckProfileScopeMiddleware() gin.HandlerFunc {
+	readAccount := CheckScopeMiddleware(Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadAccounts})
+	return func(c *gin.Context) {
+		value, _ := c.Get("token_data")
+		data, _ := value.(*models.AuthTokenData)
+		if data != nil && data.AuthType == models.AuthTokenTypeOauth && data.Scopes != nil && data.Scopes.HasScope(models.AppScopeTypeOther, models.AppScopeProfile) {
+			c.Next()
+			return
+		}
+		readAccount(c)
+	}
+}
+
 // CheckScopeIfTokenMiddleware is Mastodon's authorize_if_got_token!: an
 // anonymous request passes (the handler decides what it may see), while a
 // request carrying a token must hold the scopes like CheckScopeMiddleware.

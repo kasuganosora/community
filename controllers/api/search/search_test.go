@@ -263,7 +263,7 @@ func TestSearch_InvalidLimitTooSmall(t *testing.T) {
 	err := c.ShouldBindQuery(&req)
 	require.NoError(t, err)
 	assert.Equal(t, 0, req.Limit)
-	// Default of 20 is applied inside handler logic
+	// An explicit zero requests an empty result.
 }
 
 // --- SearchResult Tests ---
@@ -282,7 +282,7 @@ func TestSearchResult_Structure(t *testing.T) {
 	handlerResult := &SearchResult{
 		Accounts: make([]*serializer.Account, 0),
 		Statuses: make([]*serializer.Status, 0),
-		Hashtags: make([]*serializer.Tag, 0),
+		Hashtags: make([]serializer.DetailedTag, 0),
 	}
 	assert.NotNil(t, handlerResult)
 }

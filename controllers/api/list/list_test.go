@@ -862,7 +862,7 @@ func TestAddAccountToList(t *testing.T) {
 
 	t.Run("success - add single account", func(t *testing.T) {
 		body, _ := json.Marshal(AddAccountsToListRequest{
-			AccountIds: []string{strconv.FormatUint(otherAccount.Id, 10)},
+			AccountIds: []string{strconv.FormatUint(otherAccount.Id, 10), strconv.FormatUint(otherAccount.Id, 10)},
 		})
 		c, w := newContext(t, http.MethodPost, "/api/v1/lists/"+strconv.FormatUint(list.Id, 10)+"/accounts", body, account)
 		setParams(c, gin.Params{{Key: "id", Value: strconv.FormatUint(list.Id, 10)}})
@@ -951,7 +951,7 @@ func TestAddAccountToList(t *testing.T) {
 		callHandler(AddAccountToList, c)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "already exist")
+		assert.JSONEq(t, "{}", w.Body.String())
 	})
 
 	t.Run("invalid account ids - all non-numeric", func(t *testing.T) {
@@ -1062,7 +1062,7 @@ func TestRemoveAccountFromList(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
-	t.Run("account not in list - not found", func(t *testing.T) {
+	t.Run("repeated removal succeeds", func(t *testing.T) {
 		c, w := newContext(t, http.MethodDelete, "/api/v1/lists/"+strconv.FormatUint(list.Id, 10)+"/accounts/99999", nil, account)
 		setParams(c, gin.Params{
 			{Key: "id", Value: strconv.FormatUint(list.Id, 10)},
@@ -1070,7 +1070,8 @@ func TestRemoveAccountFromList(t *testing.T) {
 		})
 		callHandler(RemoveAccountFromList, c)
 
-		assert.Equal(t, http.StatusNotFound, w.Code)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.JSONEq(t, "{}", w.Body.String())
 	})
 }
 

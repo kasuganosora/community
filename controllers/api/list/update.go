@@ -15,6 +15,7 @@ type UpdateListRequest struct {
 	Title         *string `binding:"omitempty,min=1,max=64"                json:"title"`
 	RepliesPolicy *string `binding:"omitempty,oneof=followed list none"       json:"replies_policy"`
 	Visibility    *string `binding:"omitempty,oneof=public private followers" json:"visibility"`
+	Exclusive     *bool   `json:"exclusive"`
 }
 
 func UpdateList(c *gin.Context) {
@@ -73,6 +74,9 @@ func UpdateList(c *gin.Context) {
 
 	if req.RepliesPolicy != nil {
 		list.SetRepliesPolicy(*req.RepliesPolicy)
+	}
+	if req.Exclusive != nil {
+		list.Exclusive = *req.Exclusive
 	}
 
 	if req.Visibility != nil {

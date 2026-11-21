@@ -127,9 +127,12 @@ func ToConversations(conversations []*models.Conversation, account *models.Accou
 		}
 		item := Conversation{Id: strconv.FormatUint(conversation.Id, 10), Accounts: make([]*Account, 0), LastStatus: last, Unread: row.latest > readThrough[conversation.Id]}
 		for _, id := range row.participants {
-			if a := accountsByID[id]; a != nil {
+			if a := accountsByID[id]; id != account.Id && a != nil {
 				item.Accounts = append(item.Accounts, a)
 			}
+		}
+		if len(item.Accounts) == 0 && accountsByID[account.Id] != nil {
+			item.Accounts = append(item.Accounts, accountsByID[account.Id])
 		}
 		ret = append(ret, item)
 	}

@@ -1,11 +1,13 @@
 package account
 
 import (
+	"math"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 	"strconv"
@@ -53,7 +55,7 @@ func Block(c *gin.Context) {
 	err = db.GetDB().Where("account_id = ? AND target_account_id = ? AND type = ?", account.Id, accid, models.BlockTypeAccount).First(block).Error
 	if err == nil {
 		// Already blocked, return relationship
-		c.JSON(200, buildRelationship(account, targetAccount))
+		renderRelationship(c, account, targetAccount)
 
 		return
 	}
@@ -79,7 +81,7 @@ func Block(c *gin.Context) {
 		_ = c.Error(errors.Wrap(err, "unfollow error"))
 	}
 
-	c.JSON(200, buildRelationship(account, targetAccount))
+	renderRelationship(c, account, targetAccount)
 }
 
 // Unblock handles POST /api/v1/accounts/:id/unblock.
@@ -116,7 +118,7 @@ func Unblock(c *gin.Context) {
 		_ = c.Error(errors.Wrap(err, "delete block error"))
 	}
 
-	c.JSON(200, buildRelationship(account, targetAccount))
+	renderRelationship(c, account, targetAccount)
 }
 
 // Mute handles POST /api/v1/accounts/:id/mute.
@@ -136,6 +138,19 @@ func Mute(c *gin.Context) {
 		c.AbortWithStatusJSON(400, gin.H{"error": "cannot mute yourself"})
 
 		return
+	}
+	var req struct {
+		Notifications *bool `json:"notifications"`
+		Duration      int64 `json:"duration"`
+	}
+	if err := bindOptionalBody(c, &req); err != nil || req.Duration < 0 || req.Duration > math.MaxInt64/int64(time.Second) {
+		c.JSON(422, gin.H{"error": "Invalid mute parameters"})
+		return
+	}
+	notify := req.Notifications == nil || *req.Notifications
+	var expiresAt *time.Time
+	if req.Duration > 0 {
+		expiresAt = new(time.Now().Add(time.Duration(req.Duration) * time.Second))
 	}
 
 	// Check target account exists
@@ -160,9 +175,16 @@ func Mute(c *gin.Context) {
 
 	err = db.GetDB().Where("account_id = ? AND target_id = ?", account.Id, accid).First(mute).Error
 	if err == nil {
-		// Already muted, return relationship
-		c.JSON(200, buildRelationship(account, targetAccount))
+		if err := db.GetDB().Model(mute).Updates(map[string]any{"expired_at": expiresAt, "notifications": notify}).Error; err != nil {
+			_ = c.Error(err)
+			return
+		}
+		renderRelationship(c, account, targetAccount)
 
+		return
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		_ = c.Error(err)
 		return
 	}
 
@@ -170,9 +192,11 @@ func Mute(c *gin.Context) {
 	now := time.Now()
 
 	mute = &models.MuteAccount{
-		AccountId: account.Id,
-		TargetId:  accid,
-		CreatedAt: &now,
+		AccountId:     account.Id,
+		TargetId:      accid,
+		CreatedAt:     &now,
+		ExpiredAt:     expiresAt,
+		Notifications: notify,
 	}
 	if err := db.GetDB().Create(mute).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "create mute error"))
@@ -181,7 +205,7 @@ func Mute(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, buildRelationship(account, targetAccount))
+	renderRelationship(c, account, targetAccount)
 }
 
 // Unmute handles POST /api/v1/accounts/:id/unmute.
@@ -218,75 +242,7 @@ func Unmute(c *gin.Context) {
 		_ = c.Error(errors.Wrap(err, "delete mute error"))
 	}
 
-	c.JSON(200, buildRelationship(account, targetAccount))
-}
-
-// buildRelationship builds a relationship response for an account.
-func buildRelationship(currentAccount *models.Account, targetAccount *models.Account) gin.H {
-	// Check following status
-	following := false
-	follow := &models.Follow{}
-	db.GetDB().Scopes(models.Followed).
-		Where("account_id = ? AND follow_id = ?", currentAccount.Id, targetAccount.Id).
-		First(follow)
-
-	if follow.Id > 0 {
-		following = true
-	}
-
-	// Check followed by status
-	followedBy := false
-	followedByFollow := &models.Follow{}
-	db.GetDB().Scopes(models.Followed).
-		Where("account_id = ? AND follow_id = ?", targetAccount.Id, currentAccount.Id).
-		First(followedByFollow)
-
-	if followedByFollow.Id > 0 {
-		followedBy = true
-	}
-
-	// Check blocking status
-	blocking := false
-	block := &models.Block{}
-	db.GetDB().Where("account_id = ? AND target_account_id = ? AND type = ?", currentAccount.Id, targetAccount.Id, models.BlockTypeAccount).First(block)
-
-	if block.Id > 0 {
-		blocking = true
-	}
-
-	// Check muting status
-	muting := false
-	mute := &models.MuteAccount{}
-	db.GetDB().Where("account_id = ? AND target_id = ?", currentAccount.Id, targetAccount.Id).First(mute)
-
-	if mute.Id > 0 {
-		muting = true
-	}
-
-	// Check requested status
-	requested := false
-	requestedFollow := &models.Follow{}
-	db.GetDB().Scopes(models.FollowRequested).
-		Where("account_id = ? AND follow_id = ?", currentAccount.Id, targetAccount.Id).
-		First(requestedFollow)
-
-	if requestedFollow.Id > 0 {
-		requested = true
-	}
-
-	return gin.H{
-		"id":                   strconv.FormatUint(targetAccount.Id, 10),
-		"following":            following, //nolint:goconst
-		"followed_by":          followedBy,
-		"blocking":             blocking,
-		"muting":               muting,
-		"muting_notifications": false,
-		"requested":            requested,
-		"domain_blocking":      false,
-		"showing_reblogs":      following && follow.ShowsReblogs(),
-		"endorsed":             false,
-		"note":                 "",
-	}
+	renderRelationship(c, account, targetAccount)
 }
 
 // BlocksList handles GET /api/v1/blocks.
@@ -343,9 +299,11 @@ func MutesList(c *gin.Context) {
 
 	cursors := make([]uint64, 0, len(mutes))
 	targets := make([]uint64, 0, len(mutes))
+	expiresAt := make(map[string]*serializer.APITime, len(mutes))
 	for _, m := range mutes {
 		cursors = append(cursors, m.Id)
 		targets = append(targets, m.TargetId)
+		expiresAt[strconv.FormatUint(m.TargetId, 10)] = serializer.NewAPITime(m.ExpiredAt)
 	}
 
 	result, err := accountsInOrder(targets)
@@ -357,5 +315,13 @@ func MutesList(c *gin.Context) {
 	}
 
 	page.links(c, cursors)
-	c.JSON(200, result)
+	type mutedAccount struct {
+		*serializer.Account
+		MuteExpiresAt *serializer.APITime `json:"mute_expires_at"`
+	}
+	out := make([]mutedAccount, 0, len(result))
+	for _, account := range result {
+		out = append(out, mutedAccount{Account: account, MuteExpiresAt: expiresAt[account.Id]})
+	}
+	c.JSON(200, out)
 }

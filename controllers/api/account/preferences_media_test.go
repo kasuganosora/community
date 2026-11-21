@@ -109,4 +109,9 @@ func TestMediaDisplayPreference(t *testing.T) {
 	code, out = do(http.MethodGet, "", true)
 	require.Equal(t, 200, code)
 	assert.Equal(t, "de", out["interface:locale"])
+	assert.Equal(t, "de", out["posting:default:language"])
+	require.NoError(t, conn.Model(&acct).Update("language", "ja").Error)
+	code, out = do(http.MethodGet, "", true)
+	require.Equal(t, 200, code)
+	assert.Equal(t, "ja", out["posting:default:language"])
 }

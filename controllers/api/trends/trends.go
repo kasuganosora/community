@@ -64,13 +64,15 @@ func ListTags(c *gin.Context) {
 		return
 	}
 	limit, offset := pagination(c)
+	conn := db.GetDB().WithContext(c.Request.Context())
+	account := viewer(c)
 	var rows []discovery.TagTrend
 	var partial bool
 	var err error
-	if v := viewer(c); v == nil {
-		rows, partial, err = discovery.AnonymousTagTrendsPartial(c.Request.Context(), db.GetDB(), window, scope, time.Now().UTC())
+	if account == nil {
+		rows, partial, err = discovery.AnonymousTagTrendsPartial(c.Request.Context(), conn, window, scope, time.Now().UTC())
 	} else {
-		rows, partial, err = discovery.AggregateTagTrendsPartial(c.Request.Context(), db.GetDB(), v, window, scope, time.Now().UTC(), nil)
+		rows, partial, err = discovery.AggregateTagTrendsPartial(c.Request.Context(), conn, account, window, scope, time.Now().UTC(), nil)
 	}
 	if err != nil {
 		unavailable(c, err)
@@ -79,7 +81,8 @@ func ListTags(c *gin.Context) {
 	if partial {
 		c.Header("X-Trends-Partial", "true")
 	}
-	result := []gin.H{}
+	page := make([]discovery.TagTrend, 0, limit)
+	names := make([]string, 0, limit)
 	qualified := 0
 	for _, row := range rows {
 		if row.AuthorsCount < discovery.TagTrendMinAuthors {
@@ -89,14 +92,42 @@ func ListTags(c *gin.Context) {
 		if qualified <= offset {
 			continue
 		}
-		history := row.History
-		if len(history) > 7 {
-			history = history[:7]
-		}
-		result = append(result, gin.H{"name": row.Name, "url": row.URL, "history": history})
-		if len(result) == limit {
+		page = append(page, row)
+		names = append(names, row.Name)
+		if len(page) == limit {
 			break
 		}
+	}
+	tags, err := models.FindTagsByNames(conn, names)
+	if err != nil {
+		unavailable(c, err)
+		return
+	}
+	ids := make([]uint64, 0, len(tags))
+	for _, tag := range tags {
+		ids = append(ids, tag.Id)
+	}
+	following, featuring, err := serializer.TagRelationshipFlags(conn, ids, account)
+	if err != nil {
+		unavailable(c, err)
+		return
+	}
+	result := make([]gin.H, 0, len(page))
+	for _, row := range page {
+		id := ""
+		var followingTag, featuringTag bool
+		if tag := tags[models.TagKey(row.Name)]; tag != nil {
+			id = strconv.FormatUint(tag.Id, 10)
+			followingTag, featuringTag = following[tag.Id], featuring[tag.Id]
+		}
+		tag := gin.H{
+			"id": id, "name": row.Name, "url": row.URL, "history": row.History[:min(len(row.History), 7)],
+		}
+		if account != nil {
+			tag["following"] = followingTag
+			tag["featuring"] = featuringTag
+		}
+		result = append(result, tag)
 	}
 	common.SetOffsetLinks(c, offset, len(result), limit)
 	c.JSON(200, result)

@@ -42,7 +42,7 @@ func setupTestDB(t *testing.T) {
 		&models.AccountExtra{},
 		&models.AccountEmoji{},
 		&models.Emoji{},
-		&models.Follow{},
+		&models.Follow{}, &models.Block{}, &models.MuteAccount{}, &models.Endorsement{},
 	); err != nil {
 		t.Fatalf("Failed to migrate: %v", err)
 	}

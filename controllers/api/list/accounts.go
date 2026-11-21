@@ -1,12 +1,12 @@
 package list
 
 import (
-	"github.com/kasuganosora/community/controllers"
-	"github.com/kasuganosora/community/controllers/api/common"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
+	"github.com/kasuganosora/community/controllers"
+	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/db"
 	listfeed "github.com/kasuganosora/community/feed/list"
 	"github.com/kasuganosora/community/log"
@@ -14,6 +14,7 @@ import (
 	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type GetListAccountsRequest struct {
@@ -150,85 +151,55 @@ func AddAccountToList(c *gin.Context) {
 		return
 	}
 
-	uint64AccountIds := make([]uint64, 0, len(req.AccountIds))
-
-	for _, accountId := range req.AccountIds {
-		uint64AccountId, err := strconv.ParseUint(accountId, 10, 64)
-		if err != nil {
-			continue
+	ids := make([]uint64, 0, len(req.AccountIds))
+	for _, raw := range req.AccountIds {
+		if id, err := strconv.ParseUint(raw, 10, 64); err == nil && id != 0 {
+			ids = append(ids, id)
 		}
-
-		uint64AccountIds = append(uint64AccountIds, uint64AccountId)
 	}
-
-	if len(uint64AccountIds) == 0 {
-		c.AbortWithStatusJSON(400, gin.H{
-			"apierrors": "invalid account ids",
-		})
-
+	if len(ids) == 0 {
+		c.AbortWithStatusJSON(400, gin.H{"error": "invalid account ids"})
 		return
 	}
 
-	// 取出已经存在的账号，并且在插入的时候忽略
-	existRecords := make([]*models.ListAccount, 0)
-
-	err := db.GetDB().Model(&models.ListAccount{}).
-		Where("list_id = ?", list.Id).
-		Where("account_id IN ?", uint64AccountIds).
-		Find(&existRecords).Error
+	var added []uint64
+	err := db.GetDB().WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		// Read existing memberships after locking their list, including on
+		// older installations without a unique (list_id, account_id) index.
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").First(&models.List{}, list.Id).Error; err != nil {
+			return err
+		}
+		var existing []uint64
+		if err := tx.Model(&models.ListAccount{}).Where("list_id = ? AND account_id IN ?", list.Id, ids).Pluck("account_id", &existing).Error; err != nil {
+			return err
+		}
+		seen := make(map[uint64]bool, len(ids))
+		for _, id := range existing {
+			seen[id] = true
+		}
+		var rows []models.ListAccount
+		for _, id := range ids {
+			if !seen[id] {
+				seen[id] = true
+				rows = append(rows, models.ListAccount{ListId: list.Id, AccountId: id})
+				added = append(added, id)
+			}
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		return tx.Create(&rows).Error
+	})
 	if err != nil {
-		err = errors.Wrap(err, "AddAccountsToList error")
-		_ = c.Error(err)
-
+		_ = c.Error(errors.Wrap(err, "add accounts to list"))
 		return
 	}
-
-	existAccountIdsMap := make(map[uint64]bool)
-	for _, existRecord := range existRecords {
-		existAccountIdsMap[existRecord.AccountId] = true
+	if len(added) > 0 {
+		listfeed.DropCache(list.Id)
+		go ensureProxyFollowsForList(added, list.Id)
 	}
 
-	unExistAccountIds := make([]uint64, 0, len(uint64AccountIds))
-
-	for _, uint64AccountId := range uint64AccountIds {
-		if _, ok := existAccountIdsMap[uint64AccountId]; !ok {
-			unExistAccountIds = append(unExistAccountIds, uint64AccountId)
-		}
-	}
-
-	if len(unExistAccountIds) == 0 {
-		c.JSON(200, gin.H{
-			"error": "all accounts already exist",
-		})
-
-		return
-	}
-
-	// 插入新的账号
-	listAccounts := make([]*models.ListAccount, 0, len(unExistAccountIds))
-
-	for _, unExistAccountId := range unExistAccountIds {
-		listAccount := &models.ListAccount{
-			ListId:    list.Id,
-			AccountId: unExistAccountId,
-		}
-		listAccounts = append(listAccounts, listAccount)
-	}
-
-	err = db.GetDB().Create(&listAccounts).Error
-	if err != nil {
-		err = errors.Wrap(err, "AddAccountsToList error")
-		_ = c.Error(err)
-
-		return
-	}
-
-	listfeed.DropCache(list.Id)
-
-	// Trigger proxy follow for remote accounts that have no local followers
-	go ensureProxyFollowsForList(unExistAccountIds, list.Id)
-
-	c.Data(200, "application/json", nil)
+	c.JSON(200, gin.H{})
 }
 
 // ensureProxyFollowsForList checks each account and triggers proxy follow if needed.
@@ -268,86 +239,71 @@ func RemoveAccountFromList(c *gin.Context) {
 		return
 	}
 
-	// The route is DELETE /lists/:id/accounts (Mastodon passes account_ids[]
-	// in the query or body); there is no :account_id path param, so reading
-	// only c.Param("account_id") made every removal fail with 400.
-	accountId, err := strconv.ParseUint(removeAccountIdParam(c), 10, 64)
-	if err != nil {
-		c.AbortWithStatusJSON(400, gin.H{
-			"apierrors": "invalid account id",
-		})
-
+	rawIDs := removeAccountIDs(c)
+	if len(rawIDs) == 0 {
+		c.AbortWithStatusJSON(400, gin.H{"error": "account ids required"})
 		return
 	}
-
-	listAccount := &models.ListAccount{}
-
-	err = db.GetDB().Where("list_id = ?", list.Id).
-		Where("account_id = ?", accountId).
-		First(listAccount).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.AbortWithStatusJSON(404, gin.H{
-				"apierrors": "account not found in list",
-			})
-
+	ids := make([]uint64, 0, len(rawIDs))
+	for _, rawID := range rawIDs {
+		id, err := strconv.ParseUint(rawID, 10, 64)
+		if err != nil || id == 0 {
+			c.AbortWithStatusJSON(400, gin.H{"error": "invalid account id"})
 			return
 		}
-
-		err = errors.Wrap(err, "RemoveAccountIdFromList error")
-		_ = c.Error(err)
-
-		return
+		ids = append(ids, id)
 	}
 
-	err = db.GetDB().Delete(listAccount).Error
+	var removed []models.ListAccount
+	var remoteIDs []uint64
+	err := db.GetDB().WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("list_id = ? AND account_id IN ?", list.Id, ids).Find(&removed).Error; err != nil || len(removed) == 0 {
+			return err
+		}
+		removedIDs := make([]uint64, 0, len(removed))
+		for _, row := range removed {
+			removedIDs = append(removedIDs, row.AccountId)
+		}
+		if err := tx.Model(&models.Account{}).Where("id IN ? AND domain IS NOT NULL", removedIDs).Pluck("id", &remoteIDs).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&removed).Error
+	})
 	if err != nil {
-		err = errors.Wrap(err, "RemoveAccountIdFromList error")
-		_ = c.Error(err)
-
+		_ = c.Error(errors.Wrap(err, "remove accounts from list"))
 		return
 	}
-
-	listfeed.DropCache(list.Id)
-
-	// Trigger proxy follow cleanup for remote accounts
-	go func() {
-		var acc models.Account
-		err := db.GetDB().First(&acc, accountId).Error
-		if err != nil {
-			return
-		}
-
-		if acc.Domain != nil {
-			proxyService := activitypub.NewProxyService()
-			err := proxyService.CleanupProxyFollow(acc.Id, models.ProxyFollowReasonList, list.Id)
-			if err != nil {
-				log.Error("Failed to cleanup proxy follow for account %d in list %d: %v", acc.Id, list.Id, err)
-			}
-		}
-	}()
-
-	c.Data(200, "application/json", nil)
+	if len(removed) > 0 {
+		listfeed.DropCache(list.Id)
+	}
+	if len(remoteIDs) > 0 {
+		go cleanupListProxyFollows(remoteIDs, list.Id)
+	}
+	c.JSON(200, gin.H{})
 }
 
-// removeAccountIdParam returns the first account id from account_ids[] /
-// account_ids (query string; net/http does not parse DELETE form bodies), a JSON body {"account_ids": [...]}, or the
-// legacy :account_id path param.
-func removeAccountIdParam(c *gin.Context) string {
-	if id := c.Param("account_id"); id != "" {
-		return id
-	}
-
-	for _, key := range []string{"account_ids[]", "account_ids"} {
-		if ids := c.QueryArray(key); len(ids) > 0 {
-			return ids[0]
+func cleanupListProxyFollows(remoteIDs []uint64, listID uint64) {
+	proxy := activitypub.NewProxyService()
+	for _, id := range remoteIDs {
+		if err := proxy.CleanupProxyFollow(id, models.ProxyFollowReasonList, listID); err != nil {
+			log.Error("Failed to cleanup proxy follow for account %d in list %d: %v", id, listID, err)
 		}
 	}
+}
 
-	var body AddAccountsToListRequest
-	if err := controllers.BindBody(c, &body); err == nil && len(body.AccountIds) > 0 {
-		return body.AccountIds[0]
+func removeAccountIDs(c *gin.Context) []string {
+	if id := c.Param("account_id"); id != "" {
+		return []string{id}
 	}
-
-	return ""
+	for _, key := range []string{"account_ids[]", "account_ids"} {
+		if ids := c.QueryArray(key); len(ids) > 0 {
+			return ids
+		}
+	}
+	var body AddAccountsToListRequest
+	if err := controllers.BindBody(c, &body); err != nil {
+		return nil
+	}
+	return body.AccountIds
 }

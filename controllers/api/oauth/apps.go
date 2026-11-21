@@ -74,9 +74,7 @@ func bindCreateApp(c *gin.Context) (CreateAppRequest, error) {
 	}
 
 	req.RedirectUris = strings.Join(uris, "\n")
-	if req.Scopes == "" {
-		req.Scopes = "read"
-	}
+	req.Scopes = strings.Join(responseScopes(req.Scopes), " ")
 
 	return req, nil
 }

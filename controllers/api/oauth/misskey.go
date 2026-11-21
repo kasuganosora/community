@@ -121,7 +121,7 @@ func MiAuthDecision(c *gin.Context) {
 	}
 
 	scope := misskeyPermissionToScope(permission)
-	access, _, _, _, err := persistTokenPair(db.GetDB(), account.UserId, 0, scope, "miauth:"+session)
+	access, _, _, _, err := persistTokenPair(db.GetDB(), account.UserId, 0, models.ApplicationScope{}, scope, "miauth:"+session)
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "miauth token"))
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
@@ -236,12 +236,13 @@ func MisskeyCreateApp(c *gin.Context) {
 	}
 
 	scope := misskeyPermissionToScope(permission)
+	scopes, _ := models.ParseOAuthScopes(scope)
 	app := &OAuthApplication{
 		Application: models.Application{
 			Name:        name,
 			Website:     description,
 			RedirectUri: callback,
-			Scopes:      parseScopes(scope),
+			Scopes:      scopes,
 			IsEnabled:   true,
 		},
 		ClientId:     utils.GetRandomHex(32),
@@ -368,7 +369,7 @@ func LegacyAuthDecision(c *gin.Context) {
 		scope = app.Scopes.OAuthScopeString()
 	}
 
-	access, _, _, _, err := persistTokenPair(db.GetDB(), account.UserId, app.Id, scope, "")
+	access, _, _, _, err := persistTokenPair(db.GetDB(), account.UserId, app.Id, app.Scopes, scope, "")
 	if err != nil {
 		_ = c.Error(err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "server_error"})

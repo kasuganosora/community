@@ -87,6 +87,7 @@ var ScripsType = []MigrationScript{
 	SuggestionActivityIndexScript{},
 	TimelineQueryIndexesScript{},
 	CommunityEnhancementsScript{},
+	MastodonAPIFieldsScript{},
 }
 
 type MigrationScript interface {

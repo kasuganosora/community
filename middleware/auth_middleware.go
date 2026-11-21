@@ -38,6 +38,16 @@ func abortOnClientCancel(c *gin.Context, err error) bool {
 }
 
 func AuthMiddleware() gin.HandlerFunc {
+	return authMiddleware(false)
+}
+
+// ApplicationAuthMiddleware also accepts client-credentials tokens for the
+// application verification endpoint. These tokens do not identify a user.
+func ApplicationAuthMiddleware() gin.HandlerFunc {
+	return authMiddleware(true)
+}
+
+func authMiddleware(allowApplicationToken bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 尝试从 middleware header 中获取 token
 		authToken := c.GetHeader("Authorization")
@@ -124,19 +134,11 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Personal tokens expose only the two explicitly granted coarse scopes.
-		// Enforce them even on legacy routes without a granular scope guard.
-		if token.ExternalClient == models.PersonalTokenClient {
-			if token.EffectiveScopes != nil {
-				tokenData.Scopes = token.EffectiveScopes
-			}
-			reading := c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead || c.Request.Method == http.MethodOptions
-			s := tokenData.Scopes
-			if s == nil || (reading && s.ReadScope == 0 && s.AdminScope&models.AppScopeAdminRead == 0) || (!reading && !oauthTokenMayWrite(c.Request, tokenData)) {
-				returnInsufficientScope(c)
-				return
-			}
-		} else if !oauthTokenMayWrite(c.Request, tokenData) {
+		// Personal tokens can be downscoped after issuance.
+		if token.ExternalClient == models.PersonalTokenClient && token.EffectiveScopes != nil {
+			tokenData.Scopes = token.EffectiveScopes
+		}
+		if !oauthTokenMayRead(c, tokenData, allowApplicationToken) || !oauthTokenMayWrite(c.Request, tokenData) {
 			returnInsufficientScope(c)
 			return
 		}
@@ -145,10 +147,31 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		conn := db.GetDB().WithContext(c.Request.Context())
+		if allowApplicationToken && tokenData.AuthType == models.AuthTokenTypeOauth && tokenData.UserId == 0 && tokenData.ApplicationId != 0 {
+			var application models.Application
+			err = conn.First(&application, tokenData.ApplicationId).Error
+			if abortOnClientCancel(c, err) {
+				return
+			}
+			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+				_ = c.Error(errors.Wrap(err, "get application for client credentials"))
+				c.Abort()
+				return
+			}
+			if err != nil || !application.IsEnabled {
+				returnUnauthorizedAndRemoveCookie(c)
+				return
+			}
+			c.Set("application", &application)
+			c.Set("token_data", tokenData)
+			touchTokenLastUsed(c.Request.Context(), token, time.Now())
+			c.Next()
+			return
+		}
+
 		// 获取用户信息
 		user := &models.User{}
-		conn := db.GetDB().WithContext(c.Request.Context())
-
 		err = conn.Where("id = ?", tokenData.UserId).First(user).Error
 		if err != nil {
 			if abortOnClientCancel(c, err) {
@@ -226,6 +249,10 @@ func AuthMiddleware() gin.HandlerFunc {
 				return
 			}
 
+			if !application.IsEnabled {
+				returnUnauthorizedAndRemoveCookie(c)
+				return
+			}
 			c.Set("application", application)
 		}
 
@@ -455,6 +482,38 @@ func isStreamingPath(path string) bool {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			return true
 		}
+	}
+	return false
+}
+
+// Some reads use a non-read scope. In particular, profile identifies the
+// owner without granting a session on legacy routes which have no scope guard.
+func oauthTokenMayRead(c *gin.Context, td *models.AuthTokenData, allowApplicationToken bool) bool {
+	if td.AuthType != models.AuthTokenTypeOauth {
+		return true
+	}
+	switch c.Request.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+	default:
+		return true
+	}
+	if allowApplicationToken {
+		return true
+	}
+	s := td.Scopes
+	if s == nil {
+		return false
+	}
+	if s.ReadScope != 0 || s.AdminScope&models.AppScopeAdminRead != 0 {
+		return true
+	}
+	switch c.FullPath() {
+	case "/api/v1/accounts/verify_credentials":
+		return s.HasScope(models.AppScopeTypeOther, models.AppScopeProfile)
+	case "/api/v1/push/subscription":
+		return s.HasScope(models.AppScopeTypeOther, models.AppScopePush)
+	case "/api/v1/media/:id", "/api/v1/media/:id/processing":
+		return s.HasScope(models.AppScopeTypeWrite, models.AppScopeWriteMedia)
 	}
 	return false
 }

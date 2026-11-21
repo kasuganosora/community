@@ -22,6 +22,10 @@ func TestVerifyCredentialsShape(t *testing.T) {
 	created := time.Date(2026, 1, 2, 3, 4, 5, 678901000, time.UTC)
 	acc := &models.Account{Username: "alice", UserId: user.Id, CreatedAt: &created, LastStatusAt: &created}
 	require.NoError(t, conn.Create(acc).Error)
+	for i, requester := range []*models.Account{{Id: 51, Username: "bob"}, {Id: 52, Username: "carol", IsBan: true}} {
+		require.NoError(t, conn.Create(requester).Error)
+		require.NoError(t, conn.Create(&models.Follow{Id: uint64(61 + i), AccountId: requester.Id, FollowId: acc.Id, Status: models.FollowStatusRequested}).Error)
+	}
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -44,11 +48,17 @@ func TestVerifyCredentialsShape(t *testing.T) {
 	assert.Equal(t, "2026-01-02", raw["last_status_at"])
 	assert.Regexp(t, `\.png$`, raw["avatar"])
 	assert.IsType(t, "", raw["id"])
+	assert.Equal(t, "", raw["avatar_description"])
+	assert.Equal(t, "", raw["header_description"])
+	assert.Equal(t, false, raw["noindex"])
 
 	src, _ := raw["source"].(map[string]any)
 	for _, k := range []string{"privacy", "sensitive", "language", "note", "fields", "follow_requests_count"} {
 		assert.Contains(t, src, k)
 	}
+	assert.Equal(t, float64(1), src["follow_requests_count"])
+	assert.Nil(t, src["language"])
+	assert.Equal(t, []any{}, src["fields"])
 
 	role, _ := raw["role"].(map[string]any)
 	assert.IsType(t, "", role["id"])

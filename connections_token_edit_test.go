@@ -77,7 +77,8 @@ func TestLegacyPersonalTokenScopesBackfill(t *testing.T) {
 		return row
 	}
 	require.Nil(t, load().ScopeBits)
-	require.NotEqual(t, 403, f.request("GET", "/api/v1/accounts/verify_credentials", tok.Token, "").Code)
+	require.Equal(t, 200, f.request("GET", "/api/v1/markers", tok.Token, "").Code)
+	require.Equal(t, 403, f.request("GET", "/api/v1/accounts/verify_credentials", tok.Token, "").Code)
 	require.Equal(t, 403, f.request("GET", "/api/v1/notifications", tok.Token, "").Code, "blob scopes exactly: no read:notifications")
 	require.Equal(t, 403, post(tok.Token))
 	row := load()

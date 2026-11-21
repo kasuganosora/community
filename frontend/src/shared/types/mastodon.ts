@@ -71,10 +71,10 @@ export interface MastodonAccount {
   is_cat?: boolean
   location?: string
   birthday?: string
-  language?: string
+  language?: string | null
   followed_message?: string
   reaction_acceptance?: ReactionAcceptance
-  discoverable: boolean
+  discoverable: boolean | null
   indexable: boolean
   group: boolean
   created_at: string
@@ -91,7 +91,7 @@ export interface MastodonAccount {
   following_count: number
   statuses_count: number
   last_status_at: string | null
-  hide_collections: boolean
+  hide_collections: boolean | null
   /** Extension (Misskey speakAsCat): nyaize this cat's posts at display time. */
   speak_as_cat?: boolean
   online_status?: OnlineStatus
@@ -143,9 +143,12 @@ export interface MastodonTagHistory {
 }
 
 export interface MastodonTag {
+  id?: string
   name: string
   url: string
   history?: MastodonTagHistory[]
+  following?: boolean
+  featuring?: boolean
 }
 
 /** Allowed media attachment MIME categories */
@@ -172,7 +175,7 @@ export interface AttachmentMeta {
 export interface MastodonAttachment {
   id: string
   type: AttachmentType
-  url: string
+  url: string | null
   preview_url: string | null
   remote_url: string | null
   text_url: string | null
@@ -262,8 +265,8 @@ export interface MastodonStatus {
   emojis: MastodonEmoji[]
   card: MastodonCard | null
   poll: MastodonPoll | null
-  /** Embedded quote, when the server provides one. Link previews use `card`. */
-  quote?: MastodonStatus | null
+  /** Mastodon quote envelope or a quote from a cached older Community response. */
+  quote?: { state: string; quoted_status?: MastodonStatus | null } | MastodonStatus | null
   quotes_count?: number
   /** Filter actions that matched this status: "warn" and/or "hide". */
   filtered?: Array<string | {
@@ -312,6 +315,7 @@ export interface MastodonList {
   id: string
   title: string
   replies_policy?: 'followed' | 'list' | 'none'
+  exclusive?: boolean
 }
 
 export interface MastodonRelationship {
@@ -321,12 +325,15 @@ export interface MastodonRelationship {
   following: boolean
   showing_reblogs: boolean
   notifying: boolean
+  languages?: string[] | null
   followed_by: boolean
   blocking: boolean
   blocked_by: boolean
   muting: boolean
   muting_notifications: boolean
+  muting_expires_at?: string | null
   requested: boolean
+  requested_by?: boolean
   domain_blocking: boolean
   endorsed: boolean
   note: string
@@ -371,4 +378,5 @@ export interface SearchResult {
   accounts: MastodonAccount[]
   statuses: MastodonStatus[]
   hashtags: MastodonTag[]
+  collections?: unknown[]
 }

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -140,7 +139,8 @@ func acceptAsync(c *gin.Context, accountID uint64, src io.Reader, contentType, d
 	}
 	kickProcessing()
 	if !syncWait {
-		c.JSON(202, gin.H{"id": strconv.FormatUint(row.Id, 10), "type": "unknown", "url": "", "preview_url": "", "description": description, "blurhash": ""})
+		response, _ := serializer.ToMediaAttachment(row)
+		c.JSON(202, response)
 		return
 	}
 	ready, err := waitReady(c.Request.Context(), row.Id)

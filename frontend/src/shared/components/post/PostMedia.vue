@@ -120,10 +120,11 @@ const fileLinks = computed(() => items.value.flatMap((attachment, index) => {
   if (shownInline.value.has(attachment.id)) return []
   // Overflow images (5th+) are reachable via the +N mosaic / viewer.
   if (attachment.type === 'image' && !failedMedia.value.has(attachment.id)) return []
+  const target = attachment.remote_url || attachment.url
+  if (!target) return []
   try {
-    const target = attachment.remote_url || attachment.url
     const url = new URL(target, window.location.origin)
-    if (!target || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) return []
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return []
     let filename = url.pathname.split('/').pop() || t('shared.PostMedia.s10')
     try { filename = decodeURIComponent(filename) } catch { /* Keep the original filename if malformed. */ }
     return [{ id: attachment.id, url: sameOriginMediaUrl(target) || url.href, label: t('shared.PostMedia.s11', [index + 1, attachment.description || filename]) }]

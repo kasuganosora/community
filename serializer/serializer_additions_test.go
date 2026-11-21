@@ -311,7 +311,7 @@ func TestToFollowStatus_NilProperties(t *testing.T) {
 	result := ToFollowStatus(account, follow)
 	require.NotNil(t, result)
 	assert.True(t, result.Following)
-	assert.False(t, result.ShowingReblogs)
+	assert.True(t, result.ShowingReblogs)
 }
 
 func TestToFollowStatus_ReblogsKeyNil(t *testing.T) {
@@ -327,7 +327,7 @@ func TestToFollowStatus_ReblogsKeyNil(t *testing.T) {
 	require.NotNil(t, result)
 	assert.True(t, result.Following)
 	// When reblogs key doesn't exist, isReblog stays false
-	assert.False(t, result.ShowingReblogs)
+	assert.True(t, result.ShowingReblogs)
 }
 
 func TestToFollowStatus_ZeroAccountId(t *testing.T) {
@@ -359,7 +359,8 @@ func TestToScheduledStatus_Basic(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "100", result.Id)
 	assert.Equal(t, "Hello world", result.Params.Text)
-	assert.Equal(t, "warning", result.Params.SpoilerText)
+	require.NotNil(t, result.Params.SpoilerText)
+	assert.Equal(t, "warning", *result.Params.SpoilerText)
 	assert.True(t, result.Params.Sensitive)
 	assert.Equal(t, "public", result.Params.Visibility)
 	require.NotNil(t, result.Params.Language)
@@ -369,8 +370,8 @@ func TestToScheduledStatus_Basic(t *testing.T) {
 	assert.Nil(t, result.Params.InReplyToId)
 	assert.NotNil(t, result.MediaAttachments)
 	assert.Empty(t, result.MediaAttachments)
-	assert.NotNil(t, result.Params.MediaIds)
-	assert.Empty(t, result.Params.MediaIds)
+	assert.Nil(t, result.Params.MediaIds)
+	assert.Equal(t, "public", result.Params.QuoteApprovalPolicy)
 }
 
 func TestToScheduledStatus_WithScheduledAt(t *testing.T) {
@@ -387,9 +388,10 @@ func TestToScheduledStatus_WithScheduledAt(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "200", result.Id)
 	require.NotNil(t, result.ScheduledAt)
-	assert.Equal(t, scheduledAt, *result.ScheduledAt)
-	require.NotNil(t, result.Params.ScheduledAt)
-	assert.Equal(t, "2025-12-25T10:30:00Z", *result.Params.ScheduledAt)
+	assert.Equal(t, scheduledAt, result.ScheduledAt.Time)
+	assert.Nil(t, result.Params.ScheduledAt)
+	assert.Nil(t, result.Params.SpoilerText)
+	assert.Equal(t, "nobody", result.Params.QuoteApprovalPolicy)
 	assert.Equal(t, "private", result.Params.Visibility)
 }
 
@@ -483,12 +485,14 @@ func TestToScheduledStatuses_Multiple(t *testing.T) {
 
 func TestToScheduledStatuses_Empty(t *testing.T) {
 	result := ToScheduledStatuses(nil)
-	require.Nil(t, result)
+	require.NotNil(t, result)
+	require.Empty(t, result)
 }
 
 func TestToScheduledStatuses_Nil(t *testing.T) {
 	result := ToScheduledStatuses([]*models.Status{})
-	require.Nil(t, result)
+	require.NotNil(t, result)
+	require.Empty(t, result)
 }
 
 func TestToScheduledStatus_WithNilPoll(t *testing.T) {
@@ -682,8 +686,10 @@ func TestToMediaAttachment_Image(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "1", result.Id)
 	assert.Equal(t, "image", result.Type)
-	assert.Contains(t, result.Url, "/media/1/photo.jpg")
-	assert.Contains(t, result.PreviewUrl, "/media/1/thumbnail/thumb.jpg")
+	require.NotNil(t, result.Url)
+	require.NotNil(t, result.PreviewUrl)
+	assert.Contains(t, *result.Url, "/media/1/photo.jpg")
+	assert.Contains(t, *result.PreviewUrl, "/media/1/thumbnail/thumb.jpg")
 	require.NotNil(t, result.Description)
 	assert.Equal(t, "A test photo", *result.Description)
 	require.NotNil(t, result.Blurhash)
@@ -905,7 +911,8 @@ func TestToMediaAttachment_VerifyBaseURL(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	// Should contain the base URL from config
-	assert.Contains(t, result.Url, "localhost")
+	require.NotNil(t, result.Url)
+	assert.Contains(t, *result.Url, "localhost")
 }
 
 // =============================================================================

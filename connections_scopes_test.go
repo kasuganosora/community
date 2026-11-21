@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kasuganosora/community/config"
+	"github.com/kasuganosora/community/controllers/api/account"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/stretchr/testify/require"
@@ -76,6 +77,42 @@ func TestPersonalTokenAdminScopes(t *testing.T) {
 	// Demoted: the same token loses admin access at request time.
 	require.NoError(t, f.conn.Model(&models.User{}).Where("id = ?", f.owner.UserId).Update("is_admin", false).Error)
 	require.Equal(t, 403, f.request("GET", "/api/v1/admin/reports/999999", reader.Token, "").Code)
+}
+
+func TestAccountReadScopesAtRouter(t *testing.T) {
+	f, _, _ := newConnectionsFixture(t)
+	require.NoError(t, f.conn.AutoMigrate(&models.Block{}, &models.MuteAccount{}, &models.Role{}, &models.RoleUser{}, &account.PushSubscription{}))
+	for _, tc := range []struct {
+		path    string
+		allowed uint64
+		denied  uint64
+	}{
+		{"/api/v1/accounts/relationships", models.AppScopeReadFollows, models.AppScopeReadStatuses},
+		{"/api/v1/blocks", models.AppScopeReadBlocks, models.AppScopeReadFollows},
+		{"/api/v1/domain_blocks", models.AppScopeReadBlocks, models.AppScopeReadFollows},
+		{"/api/v1/mutes", models.AppScopeReadMutes, models.AppScopeReadFollows},
+		{"/api/v1/preferences", models.AppScopeReadAccounts, models.AppScopeReadStatuses},
+		{"/api/v1/accounts/verify_credentials", models.AppScopeReadAccounts, models.AppScopeReadStatuses},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			ok := f.request("GET", tc.path, f.token(t, f.owner, tc.allowed, 0), "")
+			require.Equal(t, 200, ok.Code, ok.Body.String())
+			denied := f.request("GET", tc.path, f.token(t, f.owner, tc.denied, 0), "")
+			require.Equal(t, 403, denied.Code, denied.Body.String())
+		})
+	}
+
+	require.Equal(t, 403, f.request("GET", "/api/v1/push/subscription", f.token(t, f.owner, models.AppScopeRead, 0), "").Code)
+	row, push := models.NewAuthToken(f.owner.UserId, models.AuthTokenTypeOauth, 0, 0,
+		&models.ApplicationScope{OtherScope: models.AppScopePush}, 0, config.C.EncryptedKey)
+	require.NoError(t, f.conn.Create(row).Error)
+	require.NoError(t, f.conn.Create(&account.PushSubscription{AccountId: f.owner.Id, Endpoint: "https://example.org/push"}).Error)
+	require.Equal(t, 200, f.request("GET", "/api/v1/push/subscription", push, "").Code)
+	row, profile := models.NewAuthToken(f.owner.UserId, models.AuthTokenTypeOauth, 0, 0,
+		&models.ApplicationScope{OtherScope: models.AppScopeProfile}, 0, config.C.EncryptedKey)
+	require.NoError(t, f.conn.Create(row).Error)
+	require.Equal(t, 200, f.request("GET", "/api/v1/accounts/verify_credentials", profile, "").Code)
+	require.Equal(t, 403, f.request("GET", "/api/v1/preferences", profile, "").Code)
 }
 
 func TestTokenLastUsedAndInactivityExpiry(t *testing.T) {

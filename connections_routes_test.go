@@ -15,7 +15,7 @@ import (
 
 func newConnectionsFixture(t *testing.T) (discoveryRouteFixture, string, string) {
 	f := newDiscoveryRouteFixture(t)
-	require.NoError(t, f.conn.AutoMigrate(&models.PersonalAccessToken{}, &models.UserWebhook{}, &models.UserWebhookDelivery{}))
+	require.NoError(t, f.conn.AutoMigrate(&models.Follow{}, &models.Marker{}, &models.PersonalAccessToken{}, &models.UserWebhook{}, &models.UserWebhookDelivery{}))
 	web := func(account models.Account) string {
 		row, token := models.NewAuthToken(account.UserId, models.AuthTokenTypeWeb, 0, 0, nil, 3600, config.C.EncryptedKey)
 		require.NoError(t, f.conn.Create(row).Error)

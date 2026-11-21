@@ -95,7 +95,7 @@ func TestStreamEmbeddedOriginalAndQuoteUseCurrentPermissions(t *testing.T) {
 	require.NotContains(t, out, "do not disclose")
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal([]byte(out), &decoded))
-	require.Nil(t, decoded["quote"])
+	require.Equal(t, map[string]any{"state": "unauthorized", "quoted_status": nil}, decoded["quote"])
 }
 
 func TestNotificationStreamOwnerBlockAndCurrentSQL(t *testing.T) {

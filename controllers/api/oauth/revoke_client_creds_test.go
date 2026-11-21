@@ -24,12 +24,57 @@ func realFlowServer() *gin.Engine {
 	r := gin.New()
 	r.POST("/oauth/token", Token)
 	r.POST("/oauth/revoke", Revoke)
+	r.POST("/api/v1/apps", CreateApp)
+	r.GET("/api/v1/apps/verify_credentials", middleware.ApplicationAuthMiddleware(), middleware.CheckAuthMiddleware(), VerifyCredentials)
 	auth := r.Group("/api/v1", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware())
 	auth.GET("/accounts/verify_credentials", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
 	auth.GET("/accounts/logout", account.Logout)
 	auth.POST("/accounts/logout", account.Logout)
 
 	return r
+}
+
+func TestVerifyCredentialsWithClientCredentialsToken(t *testing.T) {
+	newOAuthTestEnv(t)
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	t.Cleanup(middleware.SetTokenCacheRedisForTest(client))
+	r := realFlowServer()
+	post := func(path string, values url.Values) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(values.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	w := post("/api/v1/apps", url.Values{
+		"client_name": {"Registered app"}, "redirect_uris": {"https://example.com/cb"}, "scopes": {"read write follow push"},
+	})
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var app CreateAppResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &app))
+	w = post("/oauth/token", url.Values{
+		"grant_type": {"client_credentials"}, "client_id": {app.ClientId}, "client_secret": {app.ClientSecret},
+	})
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var token TokenResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &token))
+	verifyApp := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/apps/verify_credentials", nil)
+		req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	w = verifyApp()
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.JSONEq(t, `{"id":"`+app.Id+`","name":"Registered app","website":null,"scopes":["read","write","follow","push"],"redirect_uri":"https://example.com/cb","redirect_uris":["https://example.com/cb"],"vapid_key":null}`, w.Body.String())
+	require.Equal(t, http.StatusUnauthorized, verify(r, token.AccessToken))
+	w = post("/oauth/revoke", url.Values{"token": {token.AccessToken}})
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, http.StatusUnauthorized, verifyApp().Code)
 }
 
 // issueViaTokenEndpoint runs the real authorization_code exchange and

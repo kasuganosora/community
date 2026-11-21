@@ -1,61 +1,59 @@
 package conversation
 
 import (
+	"errors"
+	"net/http"
+	"strconv"
+
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
-	"github.com/pkg/errors"
-	"strconv"
+	"github.com/kasuganosora/community/serializer"
+	"gorm.io/gorm"
 )
 
 func MarkRead(c *gin.Context) {
-	idStr := c.Param("id")
-	if idStr == "" {
-		err := errors.New("id is empty")
-		_ = c.Error(err)
-
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
 		return
 	}
 
-	id, err := strconv.ParseUint(idStr, 10, 64)
+	account := controllers.MustGetAccount(c)
+	conn := db.GetDB().WithContext(c.Request.Context())
+	var membership models.AccountConversation
+	err = conn.Where("account_id = ? AND conversation_id = ?", account.Id, id).First(&membership).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		return
+	}
 	if err != nil {
-		err = errors.Wrap(err, "id must be number")
 		_ = c.Error(err)
-
 		return
 	}
 
-	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
-
-	ac := &models.AccountConversation{}
-
-	err = db.GetDB().Model(ac).Where("account_id = ? AND conversation_id = ?", account.Id, id).First(ac).Error
+	// A thread can contain several audiences. Advance through the exact
+	// message rendered for this account, just as it appeared in the inbox.
+	reply, err := serializer.ToConversation(&models.Conversation{Id: id}, account)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation has no readable messages"})
+		return
+	}
 	if err != nil {
-		err = errors.Wrap(err, "can't find conversation")
 		_ = c.Error(err)
-
 		return
 	}
-
-	// Read-through tracks only messages this account is authorized to read.
-	var maxStatusId uint64
-	err = visibleDirectStatuses(db.GetDB(), account.Id).Where("conversation_id = ?", id).
-		Select("COALESCE(MAX(id), 0)").Scan(&maxStatusId).Error
+	lastID, err := strconv.ParseUint(reply.LastStatus.Id, 10, 64)
 	if err != nil {
-		_ = c.Error(errors.Wrap(err, "can't find readable messages"))
-		return
-	}
-	if maxStatusId == 0 {
-		c.JSON(404, gin.H{"error": "conversation has no readable messages"})
+		_ = c.Error(err)
 		return
 	}
 	// A concurrent read request must never move the cursor backwards.
-	err = db.GetDB().Model(ac).Where("last_status_id < ?", maxStatusId).
-		UpdateColumn("last_status_id", maxStatusId).Error
-	if err != nil {
-		_ = c.Error(errors.Wrap(err, "can't save conversation"))
+	if err := conn.Model(&membership).Where("last_status_id IS NULL OR last_status_id < ?", lastID).UpdateColumn("last_status_id", lastID).Error; err != nil {
+		_ = c.Error(err)
 		return
 	}
-
-	c.JSON(200, gin.H{})
+	reply.Unread = false
+	c.JSON(http.StatusOK, reply)
 }

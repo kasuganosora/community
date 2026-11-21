@@ -23,7 +23,7 @@ func TestLockedAccountFollowApprovalLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	modelList := []any{&models.User{}, &models.UserSetting{}, &models.UserSecretData{}, &models.Account{}, &models.AccountExtra{}, &models.Follow{}}
+	modelList := []any{&models.User{}, &models.UserSetting{}, &models.UserSecretData{}, &models.Account{}, &models.AccountExtra{}, &models.Follow{}, &models.Block{}, &models.MuteAccount{}, &Endorsement{}}
 	for _, model := range modelList {
 		stmt := &gorm.Statement{DB: db}
 		require.NoError(t, stmt.Parse(model))

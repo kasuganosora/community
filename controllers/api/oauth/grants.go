@@ -94,6 +94,9 @@ func resolveTokenClient(req *TokenRequest) (app *OAuthApplication, external stri
 	found := &OAuthApplication{}
 	err := db.GetDB().Where("client_id = ?", req.ClientId).First(found).Error
 	if err == nil {
+		if !found.IsEnabled {
+			return nil, "", false, http.StatusUnauthorized, "invalid_client"
+		}
 		if req.ClientSecret == "" {
 			return found, "", true, 0, ""
 		}
@@ -182,7 +185,11 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, externa
 		}
 
 		scopeStr = codeRow.Scopes
-		access, refresh, aHash, rHash, err := persistTokenPair(tx, account.UserId, appID, scopeStr, codeRow.ExternalClientID)
+		var registered models.ApplicationScope
+		if app != nil {
+			registered = app.Scopes
+		}
+		access, refresh, aHash, rHash, err := persistTokenPair(tx, account.UserId, appID, registered, scopeStr, codeRow.ExternalClientID)
 		if err != nil {
 			return err
 		}
@@ -244,8 +251,15 @@ func handleAuthorizationCodeGrant(c *gin.Context, app *OAuthApplication, externa
 	})
 }
 
-func persistTokenPair(tx *gorm.DB, userID, appID uint64, scopeStr, external string) (access, refresh, accessHash, refreshHash string, err error) {
-	scopes := parseScopes(scopeStr)
+func persistTokenPair(tx *gorm.DB, userID, appID uint64, registered models.ApplicationScope, scopeStr, external string) (access, refresh, accessHash, refreshHash string, err error) {
+	scopes, ok := registered.OAuthGrant(scopeStr)
+	if !ok {
+		return "", "", "", "", errors.New("invalid_scope")
+	}
+	return saveTokenPair(tx, userID, appID, scopes, external)
+}
+
+func saveTokenPair(tx *gorm.DB, userID, appID uint64, scopes models.ApplicationScope, external string) (access, refresh, accessHash, refreshHash string, err error) {
 	accessRow, access := models.NewAuthToken(userID, models.AuthTokenTypeOauth, appID, 0, &scopes, 0, config.C.EncryptedKey)
 	refreshRow, refresh := models.NewAuthToken(userID, models.AuthTokenTypeOauth, appID, 0, &scopes, 0, config.C.EncryptedKey)
 	accessHash = tokenHash(access)
@@ -344,7 +358,12 @@ func handlePasswordGrant(c *gin.Context, app *OAuthApplication, req *TokenReques
 		return
 	}
 
-	access, refresh, _, _, err := persistTokenPair(db.GetDB(), user.Id, app.Id, scope, "")
+	var access, refresh string
+	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		var err error
+		access, refresh, _, _, err = persistTokenPair(tx, user.Id, app.Id, app.Scopes, scope, "")
+		return err
+	})
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "create token error"))
 
@@ -368,7 +387,8 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, external str
 	}
 
 	oldToken, err := models.GetTokenByTokenStr(req.RefreshToken)
-	if err != nil || oldToken.Revoke != nil || oldToken.Type != models.AuthTokenTypeOauth {
+	if err != nil || oldToken.Revoke != nil || oldToken.Type != models.AuthTokenTypeOauth || oldToken.UserId == 0 ||
+		(oldToken.ExpiredAt != nil && !oldToken.ExpiredAt.After(time.Now())) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
 
 		return
@@ -386,57 +406,56 @@ func handleRefreshTokenGrant(c *gin.Context, app *OAuthApplication, external str
 		return
 	}
 
-	stored := ""
-	if data, derr := models.GetAuthTokenData(req.RefreshToken, config.C.EncryptedKey); derr == nil {
-		stored = data.Scope
-	}
-
-	scope := strings.TrimSpace(req.Scope)
-	switch {
-	case scope == "" && stored != "":
-		scope = stored
-	case scope == "":
-		scope = "read"
-	case stored != "" && !scopeStringSubset(stored, scope):
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_scope"})
-
-		return
-	}
-
-	now := time.Now()
-	res := db.GetDB().Model(&models.AuthToken{}).Where("token = ? AND revoke IS NULL", oldToken.Token).Update("revoke", now)
-	if res.Error != nil {
-		_ = c.Error(errors.Wrap(res.Error, "save revoked token error"))
-
-		return
-	}
-
-	if res.RowsAffected == 0 {
+	data, err := models.GetAuthTokenData(req.RefreshToken, config.C.EncryptedKey)
+	if err != nil || data.Scopes == nil || *data.Scopes == (models.ApplicationScope{}) || (data.ExpiredAt > 0 && data.ExpiredAt <= time.Now().Unix()) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
-
 		return
 	}
-
-	middleware.InvalidateTokenCache(req.RefreshToken)
-
-	var appID uint64
-	clientRef := external
-	if app != nil {
-		appID = app.Id
-		clientRef = ""
+	granted := *data.Scopes
+	scope := strings.TrimSpace(req.Scope)
+	if scope == "" || scope == granted.OAuthScopeString() {
+		// Preserve the encoded grant even on old tokens whose "follow" bit
+		// did not include modern implied scopes.
+		scope = granted.OAuthScopeString()
+	} else {
+		requested, valid := models.ParseOAuthScopes(scope)
+		if !valid || !granted.Covers(requested) {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_scope"})
+			return
+		}
+		granted = requested
 	}
 
-	access, refresh, _, _, err := persistTokenPair(db.GetDB(), oldToken.UserId, appID, scope, clientRef)
+	var access, refresh string
+	err = db.GetDB().Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+		result := tx.Model(&models.AuthToken{}).Where("token = ? AND revoke IS NULL", oldToken.Token).Update("revoke", now)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		if oldToken.PairHash != "" {
+			if err := tx.Model(&models.AuthToken{}).Where("token = ? AND revoke IS NULL", oldToken.PairHash).Update("revoke", now).Error; err != nil {
+				return err
+			}
+		}
+		var err error
+		access, refresh, _, _, err = saveTokenPair(tx, oldToken.UserId, oldToken.ApplicationId, granted, oldToken.ExternalClient)
+		return err
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_grant"})
+		return
+	}
 	if err != nil {
-		_ = c.Error(errors.Wrap(err, "create token error"))
+		_ = c.Error(errors.Wrap(err, "rotate token pair"))
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
-
 		return
 	}
-
-	if oldToken.PairHash != "" {
-		revokeByHashes(oldToken.PairHash)
-	}
+	middleware.InvalidateTokenCache(req.RefreshToken)
+	middleware.InvalidateTokenCacheHash(oldToken.PairHash)
 
 	c.JSON(http.StatusOK, TokenResponse{
 		AccessToken:  access,
@@ -453,13 +472,13 @@ func handleClientCredentialsGrant(c *gin.Context, app *OAuthApplication, req *To
 		scope = "read"
 	}
 
-	if !scopeAllowed(app.Scopes, scope) && !(app.Scopes.ReadScope == 0 && app.Scopes.WriteScope == 0 && app.Scopes.AdminScope == 0 && app.Scopes.OtherScope == 0) {
+	scopes, ok := app.Scopes.OAuthGrant(scope)
+	if !ok {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_scope"})
 
 		return
 	}
 
-	scopes := parseScopes(scope)
 	token, tokenStr := models.NewAuthToken(0, models.AuthTokenTypeOauth, app.Id, 0, &scopes, 0, config.C.EncryptedKey)
 	if err := db.GetDB().Create(token).Error; err != nil {
 		_ = c.Error(errors.Wrap(err, "create token error"))

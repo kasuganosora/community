@@ -49,7 +49,7 @@ func TestLegacyProfileImageEchoAndMultipartSave(t *testing.T) {
 	require.NoError(t, conn.AutoMigrate(
 		&models.Account{}, &models.AccountExtra{}, &models.Emoji{}, &models.User{},
 		&models.MediaAttachment{}, &models.MediaProcessTask{}, &models.MediaQueueGate{},
-		&models.DomainBlock{},
+		&models.DomainBlock{}, &models.Follow{}, &models.Role{}, &models.RoleUser{},
 	))
 	previous := database.GetDB()
 	database.SetTestDB(conn)

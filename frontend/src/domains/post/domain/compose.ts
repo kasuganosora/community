@@ -209,7 +209,7 @@ export function buildCreateParams(draft: ComposeDraft, now: Date = new Date()): 
     params.sensitive = true
   }
   if (draft.inReplyToId) params.in_reply_to_id = draft.inReplyToId
-  if (draft.quoteId) params.quote_id = draft.quoteId
+  if (draft.quoteId) params.quoted_status_id = draft.quoteId
   if (draft.mediaIds.length) params.media_ids = draft.mediaIds
   if (draft.poll) {
     params.poll = {

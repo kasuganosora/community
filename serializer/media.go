@@ -16,8 +16,8 @@ type MediaAttachmentSerializer struct{}
 type MediaAttachmentResponse struct {
 	Id               string               `json:"id"`
 	Type             string               `json:"type"`
-	Url              string               `json:"url"`
-	PreviewUrl       string               `json:"preview_url"`
+	Url              *string              `json:"url"`
+	PreviewUrl       *string              `json:"preview_url"`
 	RemoteUrl        *string              `json:"remote_url"`
 	PreviewRemoteUrl *string              `json:"preview_remote_url"`
 	TextUrl          *string              `json:"text_url"`
@@ -135,20 +135,6 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 		meta.Original.Duration = *media.Duration
 	}
 
-	var remoteUrl *string
-	if media.RemoteUrl != "" {
-		remoteUrl = &media.RemoteUrl
-	}
-
-	var description, blurhash *string
-	if media.Description != "" {
-		description = &media.Description
-	}
-
-	if media.Blurhash != "" {
-		blurhash = &media.Blurhash
-	}
-
 	var processing *ProcessingState
 	if !media.ProcessPublishable() {
 		previewUrl = ""
@@ -157,16 +143,23 @@ func ToMediaAttachment(media *models.MediaAttachment) (*MediaAttachmentResponse,
 	return &MediaAttachmentResponse{
 		Id:               strconv.FormatUint(media.Id, 10),
 		Type:             normalizeMediaType(string(media.Type)),
-		Url:              url,
-		PreviewUrl:       previewUrl,
+		Url:              mediaText(url),
+		PreviewUrl:       mediaText(previewUrl),
 		Processing:       processing,
-		RemoteUrl:        remoteUrl,
+		RemoteUrl:        mediaText(media.RemoteUrl),
 		PreviewRemoteUrl: nil,
 		TextUrl:          nil,
 		Meta:             meta,
-		Description:      description,
-		Blurhash:         blurhash,
+		Description:      mediaText(media.Description),
+		Blurhash:         mediaText(media.Blurhash),
 	}, nil
+}
+
+func mediaText(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // ToMediaAttachmentList 转换为 Mastodon 格式的媒体附件列表.

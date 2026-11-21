@@ -50,6 +50,7 @@ func TestAuthorizeRedirectIncludesIssuer(t *testing.T) {
 		ApplicationId: app.Id,
 		UserId:        int64(account.UserId),
 		Scopes:        "read",
+		ScopesExact:   true,
 	}).Error)
 
 	q := url.Values{}
@@ -137,6 +138,7 @@ func TestAuthorizePage_ScopeUpgradeRequiresConsent(t *testing.T) {
 		ApplicationId: app.Id,
 		UserId:        int64(account.UserId),
 		Scopes:        "read",
+		ScopesExact:   true,
 	}).Error)
 
 	q := url.Values{}

@@ -214,8 +214,9 @@ func UpdateAccount(c *gin.Context) {
 
 	if req.Discoverable != nil {
 		account.Discoverable = *req.Discoverable
+		account.DiscoverableConfigured = true
 
-		updateFields = append(updateFields, "discoverable")
+		updateFields = append(updateFields, "discoverable", "discoverable_configured")
 	}
 
 	if req.Indexable != nil {
@@ -230,7 +231,7 @@ func UpdateAccount(c *gin.Context) {
 		}
 		account.SetCollectionVisibility(visibility, visibility)
 
-		updateFields = append(updateFields, "hide_collections", "following_visibility", "followers_visibility")
+		updateFields = append(updateFields, "hide_collections", "following_visibility", "followers_visibility", "collections_configured")
 	}
 
 	err = db.GetDB().Transaction(func(tx *gorm.DB) (err error) {

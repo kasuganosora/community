@@ -2,13 +2,14 @@ package serializer
 
 import (
 	"errors"
+	"strconv"
+
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/mediaproxy"
 	"github.com/kasuganosora/community/models"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils"
 	"gorm.io/gorm"
-	"strconv"
 )
 
 type Notification struct {
@@ -16,10 +17,44 @@ type Notification struct {
 	Id            string    `json:"id"`
 	Type          string    `json:"type"`
 	CreatedAt     *APITime  `json:"created_at"`
+	GroupKey      string    `json:"group_key"`
 	Account       *Account  `json:"account,omitempty"`
 	Status        *Status   `json:"status,omitempty"`
 	Report        *Report   `json:"report,omitempty"`
 	List          *List     `json:"list,omitempty"`
+}
+
+func notificationMetadata(n *models.Notification) *Notification {
+	id := strconv.FormatUint(n.Id, 10)
+	return &Notification{Id: id, Type: n.GetTypeString(), CreatedAt: NewAPITime(n.CreatedAt), GroupKey: "ungrouped-" + id}
+}
+
+// A mute can hide the sender's notifications independently of their posts.
+func notificationSenders(conn *gorm.DB, viewer *models.Account) *gorm.DB {
+	query := conn.Model(&models.Account{})
+	if viewer == nil {
+		return query
+	}
+	return query.Where("accounts.id NOT IN (?)", models.NotificationMutedSenders(conn, viewer.Id))
+}
+
+// Resolve a request to its newest notification, including on pages that only
+// contain older notifications from a withdrawn or rejected request.
+func pendingRequestIDs(conn *gorm.DB, recipient uint64, senders []uint64) (map[uint64]bool, error) {
+	var ids []uint64
+	err := conn.Model(&models.Notification{}).
+		Joins("JOIN follows ON follows.account_id = notifications.from_account_id AND follows.follow_id = notifications.account_id").
+		Where("notifications.account_id = ? AND notifications.type = ? AND notifications.from_account_id IN ?", recipient, models.NotificationTypeFollowRequest, senders).
+		Where("follows.status = ? AND (follows.created_at IS NULL OR notifications.created_at >= follows.created_at)", models.FollowStatusRequested).
+		Group("notifications.from_account_id").Pluck("MAX(notifications.id)", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[uint64]bool, len(ids))
+	for _, id := range ids {
+		result[id] = true
+	}
+	return result, nil
 }
 
 // NotificationVisible rechecks current authorization even for historical rows.
@@ -40,9 +75,15 @@ func NotificationVisible(n *models.Notification, currentAccount *models.Account)
 	if conn == nil {
 		return true, nil
 	}
+	if n.Type == models.NotificationTypeFollowRequest {
+		pending, err := pendingRequestIDs(conn, n.AccountId, []uint64{n.FromAccountId})
+		if err != nil || !pending[n.Id] {
+			return false, err
+		}
+	}
 	if n.FromAccountId != 0 {
 		var sender models.Account
-		if err := conn.First(&sender, n.FromAccountId).Error; err != nil {
+		if err := notificationSenders(conn, currentAccount).First(&sender, n.FromAccountId).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return false, nil
 			}
@@ -89,10 +130,7 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 	if err != nil || !visible {
 		return nil, err
 	}
-	ret = &Notification{}
-	ret.Id = strconv.FormatUint(n.Id, 10)
-	ret.Type = n.GetTypeString()
-	ret.CreatedAt = NewAPITime(n.CreatedAt)
+	ret = notificationMetadata(n)
 	if n.Type == models.NotificationTypeEmojiReaction {
 		ret.EmojiReaction, err = notificationReaction(n)
 		if err != nil {
@@ -203,6 +241,7 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 	rawAccountIDs := make([]uint64, 0, len(ns))
 	rawStatusIDs := make([]uint64, 0, len(ns))
 	rawListIDs := make([]uint64, 0)
+	var requestSenders []uint64
 	for _, n := range ns {
 		if n.FromAccountId != 0 {
 			rawAccountIDs = append(rawAccountIDs, n.FromAccountId)
@@ -213,15 +252,26 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 		if n.ListId != 0 {
 			rawListIDs = append(rawListIDs, n.ListId)
 		}
+		if n.Type == models.NotificationTypeFollowRequest {
+			requestSenders = append(requestSenders, n.FromAccountId)
+		}
 	}
 	rawAccountIDs = utils.UniqueSlice(rawAccountIDs)
 	rawStatusIDs = utils.UniqueSlice(rawStatusIDs)
 	rawListIDs = utils.UniqueSlice(rawListIDs)
 
+	var pendingRequests map[uint64]bool
+	if currentAccount != nil && len(requestSenders) > 0 {
+		pendingRequests, err = pendingRequestIDs(conn, currentAccount.Id, utils.UniqueSlice(requestSenders))
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	allowedAccountIDs := make(map[uint64]bool, len(rawAccountIDs))
 	if len(rawAccountIDs) > 0 {
 		var senders models.Accounts
-		if err = conn.Model(&models.Account{}).Where("id IN ?", rawAccountIDs).Find(&senders).Error; err != nil {
+		if err = notificationSenders(conn, currentAccount).Where("id IN ?", rawAccountIDs).Find(&senders).Error; err != nil {
 			return nil, err
 		}
 		senders, err = models.FilterVisibleAccounts(conn, currentAccount, senders)
@@ -267,6 +317,9 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 
 	visibleNotifications := make([]*models.Notification, 0, len(ns))
 	for _, n := range ns {
+		if n.Type == models.NotificationTypeFollowRequest && pendingRequests != nil && !pendingRequests[n.Id] {
+			continue
+		}
 		if n.FromAccountId != 0 && !allowedAccountIDs[n.FromAccountId] {
 			continue
 		}
@@ -411,10 +464,7 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 	ret = make([]*Notification, 0, len(ns))
 
 	for _, n := range ns {
-		nf := &Notification{}
-		nf.Id = strconv.FormatUint(n.Id, 10)
-		nf.Type = n.GetTypeString()
-		nf.CreatedAt = NewAPITime(n.CreatedAt)
+		nf := notificationMetadata(n)
 		if n.Type == models.NotificationTypeEmojiReaction {
 			nf.EmojiReaction = reactionsMap[reactionKey{statusID: n.StatusId, accountID: n.FromAccountId}]
 			if nf.EmojiReaction == nil {
@@ -476,6 +526,8 @@ func notificationComplete(n *Notification) bool {
 	}
 
 	switch n.Type {
+	case "admin.report":
+		return n.Report != nil
 	case "mention", "status", "reblog", "favourite", "poll", "update", "emoji_reaction":
 		return n.Status != nil
 	}

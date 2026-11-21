@@ -26,7 +26,7 @@ func relationListsDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	modelList := []any{&models.User{}, &models.UserSetting{}, &models.UserSecretData{}, &models.Account{}, &models.AccountExtra{}, &models.Follow{}, &models.Block{}, &models.MuteAccount{}}
+	modelList := []any{&models.User{}, &models.UserSetting{}, &models.UserSecretData{}, &models.Account{}, &models.AccountExtra{}, &models.Follow{}, &models.Block{}, &models.MuteAccount{}, &Endorsement{}}
 	for _, model := range modelList {
 		stmt := &gorm.Statement{DB: db}
 		require.NoError(t, stmt.Parse(model))
@@ -160,9 +160,12 @@ func TestFollowReblogsToggleAndHiddenReblogsList(t *testing.T) {
 	_, items := callList(t, HiddenReblogsList, me, "/api/v1/hidden_reblogs")
 	assert.Equal(t, []string{"quiet"}, usernames(items))
 
-	rel := buildRelationship(me, quiet)
-	assert.Equal(t, false, rel["showing_reblogs"])
-	assert.Equal(t, true, buildRelationship(me, loud)["showing_reblogs"])
+	_, relations := callList(t, Relationships, me, "/api/v1/accounts/relationships?id[]=2&id[]=3")
+	require.Len(t, relations, 2)
+	assert.Equal(t, false, relations[0]["showing_reblogs"])
+	assert.Equal(t, true, relations[1]["showing_reblogs"])
+	assert.Contains(t, relations[0], "muting_expires_at")
+	assert.Nil(t, relations[0]["muting_expires_at"])
 
 	assert.Equal(t, true, follow("2", `{"reblogs":true}`)["showing_reblogs"])
 	_, items = callList(t, HiddenReblogsList, me, "/api/v1/hidden_reblogs")

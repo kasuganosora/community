@@ -60,7 +60,8 @@ func TestCollectionVisibilityMastodonAPI(t *testing.T) {
 	// hide_collections reads true if either list is not public.
 	var acc models.Account
 	require.NoError(t, f.conn.First(&acc, f.owner.Id).Error)
-	require.True(t, serializer.ToAccount(&acc).HideCollections)
+	require.NotNil(t, serializer.ToAccount(&acc).HideCollections)
+	require.True(t, *serializer.ToAccount(&acc).HideCollections)
 	require.Equal(t, models.CollectionPrivate, serializer.ToAccount(&acc).FollowersVisibility)
 }
 

@@ -56,6 +56,21 @@ describe('optimistic status actions', () => {
     scope.stop()
   })
 
+  it('reads the confirmed boost state from the status inside the boost response', async () => {
+    const target = mk({ id: 'boost-target' })
+    const list = [target]
+    vi.mocked(postApi.reblog).mockResolvedValueOnce(mk({
+      id: 'boost', reblogged: false, reblogs_count: 0,
+      reblog: mk({ id: target.id, reblogged: true, reblogs_count: 4 }),
+    }))
+    const scope = effectScope()
+    const { toggleReblog } = scope.run(() => useStatusActions((id, updates) => applyStatusUpdate(list, id, updates)))!
+    await toggleReblog(target)
+    expect(target.reblogged).toBe(true)
+    expect(target.reblogs_count).toBe(4)
+    scope.stop()
+  })
+
   it('serializes rapid toggles and ends in the last requested state', async () => {
     const first = deferred<MastodonStatus>()
     vi.mocked(postApi.favourite).mockReturnValueOnce(first.promise)

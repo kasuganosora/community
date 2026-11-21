@@ -58,7 +58,7 @@ func priorGrantCovers(appID, userID uint64, requested string) bool {
 	}
 
 	stored := strings.TrimSpace(row.Scopes)
-	if stored == "" {
+	if stored == "" || !row.ScopesExact {
 		return false
 	}
 
@@ -76,17 +76,19 @@ func rememberGrant(appID, userID uint64, scope string) error {
 		return db.GetDB().Create(&models.ApplicationUserAuth{
 			ApplicationId: appID,
 			UserId:        int64(userID), //nolint:gosec // G115: reviewed and safe
-			Scopes:        mergeScopeStrings(scope),
+			Scopes:        scope,
+			ScopesExact:   true,
 		}).Error
 	}
 
-	return db.GetDB().Model(&row).Update("scopes", mergeScopeStrings(row.Scopes, scope)).Error
-}
-
-func mergeScopeStrings(parts ...string) string {
-	scopes := parseScopes(strings.Join(parts, " "))
-
-	return scopes.OAuthScopeString()
+	if row.ScopesExact {
+		scope = row.Scopes + " " + scope
+	}
+	granted, ok := models.ParseOAuthScopes(scope)
+	if !ok {
+		return errors.New("invalid scopes in grant")
+	}
+	return db.GetDB().Model(&row).Updates(map[string]any{"scopes": granted.OAuthScopeString(), "scopes_exact": true}).Error
 }
 
 func showConsent(c *gin.Context, view consentView) {

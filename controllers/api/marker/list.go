@@ -12,7 +12,8 @@ import (
 )
 
 type ListRequest struct {
-	Timelines []string `form:"timelines[]"`
+	Timelines       []string `form:"timeline[]"`
+	LegacyTimelines []string `form:"timelines[]"`
 }
 
 func List(c *gin.Context) {
@@ -44,7 +45,7 @@ func List(c *gin.Context) {
 	// {last_read_id: "<id>", version: int, updated_at: ISO8601 .000Z}.
 	ret := make(map[string]gin.H)
 
-	for _, timeline := range req.Timelines {
+	for _, timeline := range append(req.Timelines, req.LegacyTimelines...) {
 		if item, ok := marker.Timelines[timeline]; ok && item != nil {
 			ret[timeline] = markerJSON(item)
 		}

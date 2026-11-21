@@ -31,9 +31,9 @@ func KeywordDelete(c *gin.Context) {
 	keywordId = strings.Join(idParts[1:], "-")
 
 	filter := &models.Filter{}
-	currentUser := c.MustGet("user").(*models.User) //nolint:forcetypeassert
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
-	err = db.GetDB().Where("id = ? and account_id = ?", filterId, currentUser.Id).First(filter).Error
+	err = db.GetDB().Where("id = ? and account_id = ?", filterId, account.Id).First(filter).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{"error": "filter not found"}) //nolint:goconst
@@ -49,7 +49,7 @@ func KeywordDelete(c *gin.Context) {
 	newKeywords := make([]*models.FilterKeyword, 0, len(filter.Keywords)) // never nil: "null" would be stored as "" (invalid JSON)
 
 	for _, k := range filter.Keywords {
-		if k.KeyID() == keywordId || k.Keyword == keywordId {
+		if k != nil && (k.KeyID() == keywordId || k.Keyword == keywordId) {
 			continue
 		}
 

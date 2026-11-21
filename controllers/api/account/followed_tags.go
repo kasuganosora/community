@@ -1,14 +1,18 @@
 package account
 
 import (
-	"github.com/kasuganosora/community/controllers/api/common"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kasuganosora/community/controllers"
+	"github.com/kasuganosora/community/controllers/api/common"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/serializer"
 	"github.com/pkg/errors"
-	"strconv"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // FollowedTag represents a tag follow relationship.
@@ -37,9 +41,10 @@ func ListFollowedTags(c *gin.Context) {
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
 	// Query followed tags
-	query := db.GetDB().Table("followed_tags").
-		Select("followed_tags.*, tags.name, tags.status_count, tags.account_count").
-		Joins("LEFT JOIN tags ON tags.id = followed_tags.tag_id").
+	conn := db.GetDB().WithContext(c.Request.Context())
+	query := conn.Table("followed_tags").
+		Select("followed_tags.id, followed_tags.tag_id, tags.name").
+		Joins("JOIN tags ON tags.id = followed_tags.tag_id").
 		Where("followed_tags.account_id = ?", account.Id).
 		Order("followed_tags.id DESC")
 
@@ -57,13 +62,9 @@ func ListFollowedTags(c *gin.Context) {
 	}
 
 	type FollowedTagResult struct {
-		Id           uint64
-		AccountId    uint64
-		TagId        uint64
-		CreatedAt    *time.Time
-		Name         string
-		StatusCount  uint64
-		AccountCount uint64
+		Id    uint64
+		TagId uint64
+		Name  string
 	}
 
 	followedTags := make([]FollowedTagResult, 0)
@@ -75,29 +76,15 @@ func ListFollowedTags(c *gin.Context) {
 		return
 	}
 
-	// Build response
-	result := make([]gin.H, 0, len(followedTags))
-
+	tags := make([]*models.Tag, 0, len(followedTags))
 	for _, ft := range followedTags {
-		var history []gin.H
-		if ft.CreatedAt != nil {
-			history = []gin.H{
-				{
-					"day":      strconv.FormatInt(ft.CreatedAt.Unix(), 10),
-					"uses":     strconv.FormatUint(ft.StatusCount, 10),
-					"accounts": strconv.FormatUint(ft.AccountCount, 10), //nolint:goconst
-				},
-			}
-		}
-
-		result = append(result, gin.H{
-			"name":      ft.Name,                                          //nolint:goconst
-			"url":       "https://" + c.Request.Host + "/tags/" + ft.Name, //nolint:goconst
-			"history":   history,
-			"following": true, //nolint:goconst
-		})
+		tags = append(tags, &models.Tag{Id: ft.TagId, Name: ft.Name})
 	}
-
+	result, err := serializer.ToDetailedTags(conn, tags, account)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
 	if len(followedTags) > 0 {
 		common.SetPageLinksUint(c, followedTags[0].Id, followedTags[len(followedTags)-1].Id, true)
 	}
@@ -107,151 +94,76 @@ func ListFollowedTags(c *gin.Context) {
 
 // GetTag handles GET /api/v1/tags/:id.
 func GetTag(c *gin.Context) {
-	tagName := c.Param("id")
-	if tagName == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "tag name required"})
-
-		return
-	}
-
-	// Find tag
-	tag, err := models.FindTagByName(db.GetDB(), tagName)
+	conn := db.GetDB().WithContext(c.Request.Context())
+	tag, err := tagForRead(conn, c.Param("id"))
 	if err != nil {
-		c.AbortWithStatusJSON(404, gin.H{"error": "tag not found"})
-
+		writeTagError(c, err)
 		return
 	}
-
-	// Check if current account follows this tag
-	following := false
-
-	if c.GetBool("authenticated") {
-		account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
-
-		var count int64
-
-		db.GetDB().Table("followed_tags").
-			Where("account_id = ? AND tag_id = ?", account.Id, tag.Id).
-			Count(&count)
-
-		following = count > 0
-	}
-
-	// Build response
-	var history []gin.H
-	if tag.LastStatusUsedAt != nil {
-		history = []gin.H{
-			{
-				"day":      strconv.FormatInt(tag.LastStatusUsedAt.Unix(), 10),
-				"uses":     strconv.FormatUint(tag.StatusCount, 10),
-				"accounts": strconv.FormatUint(tag.AccountCount, 10),
-			},
-		}
-	}
-
-	c.JSON(200, gin.H{
-		"name":      tag.Name,
-		"url":       "https://" + c.Request.Host + "/tags/" + tag.Name,
-		"history":   history,
-		"following": following,
-	})
+	renderTag(c, conn, tag, controllers.GetAccount(c))
 }
 
 // FollowTag handles POST /api/v1/tags/:id/follow.
 func FollowTag(c *gin.Context) {
-	tagName := models.NormalizeTagName(c.Param("id"))
-	if tagName == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "tag name required"})
-
+	name := models.NormalizeTagName(c.Param("id"))
+	if !models.ValidTagName(name) {
+		writeTagError(c, gorm.ErrRecordNotFound)
 		return
 	}
-	if !models.ValidTagName(tagName) {
-		c.AbortWithStatusJSON(422, gin.H{"error": "invalid tag name"})
-
-		return
+	conn := db.GetDB().WithContext(c.Request.Context())
+	account := controllers.MustGetAccount(c)
+	tag, err := models.FindOrCreateTag(conn, name)
+	if err == nil {
+		err = conn.Clauses(clause.OnConflict{DoNothing: true}).
+			Create(&FollowedTag{AccountId: account.Id, TagId: tag.Id}).Error
 	}
-
-	// Get current account
-	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
-
-	// Find or create tag
-	// Case-insensitive: following #OSINT follows the existing #osint.
-	tag, err := models.FindOrCreateTag(db.GetDB(), tagName)
 	if err != nil {
-		_ = c.Error(errors.Wrap(err, "create tag error"))
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
+		writeTagError(c, err)
 		return
 	}
-
-	// Check if already following
-	var count int64
-
-	db.GetDB().Table("followed_tags").
-		Where("account_id = ? AND tag_id = ?", account.Id, tag.Id).
-		Count(&count)
-
-	if count > 0 {
-		// Already following, return tag info
-		c.JSON(200, gin.H{
-			"name":      tag.Name,
-			"url":       "https://" + c.Request.Host + "/tags/" + tag.Name,
-			"following": true,
-		})
-
-		return
-	}
-
-	// Create follow
-	now := time.Now()
-
-	followedTag := &FollowedTag{
-		AccountId: account.Id,
-		TagId:     tag.Id,
-		CreatedAt: &now,
-	}
-	if err := db.GetDB().Create(followedTag).Error; err != nil {
-		_ = c.Error(errors.Wrap(err, "follow tag error"))
-		c.AbortWithStatusJSON(500, gin.H{"error": "internal error"})
-
-		return
-	}
-
-	c.JSON(200, gin.H{
-		"name":      tag.Name,
-		"url":       "https://" + c.Request.Host + "/tags/" + tag.Name,
-		"following": true,
-	})
+	renderTag(c, conn, tag, account)
 }
 
 // UnfollowTag handles POST /api/v1/tags/:id/unfollow.
 func UnfollowTag(c *gin.Context) {
-	tagName := c.Param("id")
-	if tagName == "" {
-		c.AbortWithStatusJSON(400, gin.H{"error": "tag name required"})
-
-		return
+	conn := db.GetDB().WithContext(c.Request.Context())
+	account := controllers.MustGetAccount(c)
+	tag, err := tagForRead(conn, c.Param("id"))
+	if err == nil && tag.Id != 0 {
+		err = conn.Where("account_id = ? AND tag_id = ?", account.Id, tag.Id).Delete(&FollowedTag{}).Error
 	}
-
-	// Get current account
-	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
-
-	// Find tag
-	tag, err := models.FindTagByName(db.GetDB(), tagName)
 	if err != nil {
-		c.AbortWithStatusJSON(404, gin.H{"error": "tag not found"})
-
+		writeTagError(c, err)
 		return
 	}
+	renderTag(c, conn, tag, account)
+}
 
-	// Delete follow
-	db.GetDB().Table("followed_tags").
-		Where("account_id = ? AND tag_id = ?", account.Id, tag.Id).
-		Delete(&FollowedTag{})
+func tagForRead(conn *gorm.DB, raw string) (*models.Tag, error) {
+	name := models.NormalizeTagName(raw)
+	if !models.ValidTagName(name) {
+		return nil, gorm.ErrRecordNotFound
+	}
+	tag, err := models.FindTagByName(conn, name)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return &models.Tag{Name: name}, nil
+	}
+	return tag, err
+}
 
-	c.JSON(200, gin.H{
-		"name":      tag.Name,
-		"url":       "https://" + c.Request.Host + "/tags/" + tag.Name,
-		"following": false,
-	})
+func renderTag(c *gin.Context, conn *gorm.DB, tag *models.Tag, viewer *models.Account) {
+	tags, err := serializer.ToDetailedTags(conn, []*models.Tag{tag}, viewer)
+	if err != nil {
+		writeTagError(c, err)
+		return
+	}
+	c.JSON(200, tags[0])
+}
+
+func writeTagError(c *gin.Context, err error) {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(404, gin.H{"error": "Record not found"})
+		return
+	}
+	_ = c.Error(err)
 }

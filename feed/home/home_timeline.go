@@ -398,12 +398,17 @@ func homeCandidates(tx *gorm.DB, accountID uint64) *gorm.DB {
 	following := tx.Session(&gorm.Session{NewDB: true}).Model(&models.Follow{}).Where("account_id = ? AND status = ?", accountID, models.FollowStatusFollowed).Select("follow_id")
 	mentions := tx.Session(&gorm.Session{NewDB: true}).Model(&models.StatusToAccount{}).Where("account_id = ?", accountID).Select("status_id")
 	hiddenReblogs := tx.Session(&gorm.Session{NewDB: true}).Model(&models.Follow{}).Where("follows.account_id = ?", accountID).Where(models.HiddenReblogsCondition(tx)).Select("follows.follow_id")
+	exclusiveMembers := tx.Session(&gorm.Session{NewDB: true}).Model(&models.ListAccount{}).
+		Joins("JOIN lists ON lists.id = list_accounts.list_id").
+		Where("lists.account_id = ? AND lists.exclusive = ? AND lists.deleted_at IS NULL", accountID, true).
+		Select("list_accounts.account_id")
 	profileBackfill := dialect.JSONText(tx, "statuses.properties", models.StatusPropProfileBackfill)
 	return feed.EligibleTimelineStatuses(tx.Model(&models.Status{})).
 		Where("(statuses.reblog_id IS NULL OR statuses.reblog_id = 0 OR statuses.account_id NOT IN (?))", hiddenReblogs).
 		Where("COALESCE("+profileBackfill+", '') <> '1'").
 		Where("(COALESCE("+dialect.JSONText(tx, "statuses.properties", models.StatusPropBackfilled)+", '') <> '1' OR statuses.account_id = ? OR statuses.id IN (?))", accountID, mentions).
 		Where("(statuses.account_id = ? OR statuses.account_id IN (?) OR statuses.id IN (?))", accountID, following, mentions).
+		Where("(statuses.account_id = ? OR statuses.account_id NOT IN (?))", accountID, exclusiveMembers).
 		Where("(statuses.visibility <> ? OR statuses.account_id = ? OR statuses.id IN (?))", models.StatusVisibilityDirect, accountID, mentions)
 }
 

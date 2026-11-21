@@ -24,15 +24,18 @@ import (
 // {"status":"test upload","in_reply_to_id":null,"media_ids":["110738601623414564"],"sensitive":false,"spoiler_text":"","visibility":"public","poll":null,"language":"zh"}
 
 type CreateStatusRequest struct {
-	Status      string             `json:"status"`
-	InReplyToId string             `binding:"omitempty,numeric"                             json:"in_reply_to_id"`
-	MediaIds    []string           `json:"media_ids"`
-	Sensitive   bool               `json:"sensitive"`
-	SpoilerText string             `json:"spoiler_text"`
-	Visibility  string             `binding:"omitempty,oneof=public unlisted private direct" json:"visibility"`
-	Poll        *CreatePollContent `json:"poll"`
-	Language    string             `json:"language"`
-	QuoteId     string             `binding:"omitempty,numeric"                             json:"quote_id"`
+	Status              string             `json:"status"`
+	InReplyToId         string             `binding:"omitempty,numeric"                             json:"in_reply_to_id"`
+	MediaIds            []string           `json:"media_ids"`
+	Sensitive           bool               `json:"sensitive"`
+	SpoilerText         string             `json:"spoiler_text"`
+	Visibility          string             `binding:"omitempty,oneof=public unlisted private direct" json:"visibility"`
+	Poll                *CreatePollContent `json:"poll"`
+	Language            string             `json:"language"`
+	QuoteId             string             `binding:"omitempty,numeric"                             json:"quote_id"`
+	QuotedStatusId      string             `binding:"omitempty,numeric" json:"quoted_status_id"`
+	QuoteApprovalPolicy string             `json:"quote_approval_policy"`
+	ScheduledAt         string             `json:"scheduled_at"`
 }
 
 type CreatePollContent struct {
@@ -82,6 +85,21 @@ func Create(c *gin.Context) {
 		return
 	}
 
+	if req.ScheduledAt != "" {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Scheduled posting is unavailable"})
+		return
+	}
+
+	// Older Community clients use quote_id. Normalize both names before
+	// validating quote-only posts or checking visibility of the target.
+	if req.QuotedStatusId != "" {
+		if req.QuoteId != "" && req.QuoteId != req.QuotedStatusId {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Conflicting quote target IDs"})
+			return
+		}
+		req.QuoteId = req.QuotedStatusId
+	}
+
 	if msg := validateCreateStatusRequest(&req); msg != "" {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": msg})
 
@@ -122,6 +140,12 @@ func Create(c *gin.Context) {
 		return
 	}
 	status.Visibility = visibility
+	// Public and unlisted Community posts allow public quotes. Reject more
+	// restrictive policies before publishing so the author's choice is honored.
+	if req.QuoteApprovalPolicy != "" && req.QuoteApprovalPolicy != "public" && (visibility == models.StatusVisibilityPublic || visibility == models.StatusVisibilityUnlisted) {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "This quote approval policy is unavailable"})
+		return
+	}
 
 	if req.InReplyToId != "" {
 		var inReplyToId uint64
@@ -163,6 +187,7 @@ func Create(c *gin.Context) {
 		}
 		if quoted.ReblogId != nil && *quoted.ReblogId > 0 {
 			quoteId = *quoted.ReblogId
+			quoted = models.Status{}
 			if err := db.GetDB().First(&quoted, quoteId).Error; err != nil {
 				c.JSON(http.StatusNotFound, gin.H{"error": "quote target not found"})
 				return

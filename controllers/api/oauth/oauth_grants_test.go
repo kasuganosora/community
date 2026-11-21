@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kasuganosora/community/config"
 	"github.com/kasuganosora/community/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -209,13 +210,9 @@ func TestToken_RefreshTokenGrant_Success(t *testing.T) {
 	app := createTestApp(t, env, "TestApp", "https://example.com/cb")
 	account := createAccountInContext(t, env).(*models.Account)
 
-	// Create a valid OAuth refresh token directly. We cannot rely on the
-	// authorization_code grant to produce a token with a persisted
-	// ApplicationId (NewAuthToken omits it), so we build the token and set
-	// ApplicationId manually before saving.
-	tokenRow, tokenStr := models.NewAuthToken(
-		account.UserId, models.AuthTokenTypeOauth, app.Id, 0, nil, 0, "")
-	tokenRow.ApplicationId = app.Id
+	scopes, ok := models.ParseOAuthScopes("read")
+	require.True(t, ok)
+	tokenRow, tokenStr := models.NewAuthToken(account.UserId, models.AuthTokenTypeOauth, app.Id, 0, &scopes, 0, config.C.EncryptedKey)
 	require.NoError(t, env.gdb.Create(tokenRow).Error)
 
 	refreshForm := url.Values{}
@@ -444,6 +441,7 @@ func TestAuthorizePage_AlreadyAuthorizedRedirects(t *testing.T) {
 		ApplicationId: app.Id,
 		UserId:        int64(account.UserId), //nolint:gosec // G115: reviewed and safe
 		Scopes:        "read",
+		ScopesExact:   true,
 	}
 	require.NoError(t, env.gdb.Create(userAuth).Error)
 
@@ -475,6 +473,7 @@ func TestAuthorizePage_ForceLoginSkipsAlreadyAuthorized(t *testing.T) {
 		ApplicationId: app.Id,
 		UserId:        int64(account.UserId), //nolint:gosec // G115: reviewed and safe
 		Scopes:        "read",
+		ScopesExact:   true,
 	}
 	require.NoError(t, env.gdb.Create(userAuth).Error)
 

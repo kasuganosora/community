@@ -30,7 +30,7 @@ func TestUpdateCredentialsDisplayNameJSONAndFormPersist(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.AccountExtra{}, &models.Emoji{}))
+	require.NoError(t, conn.AutoMigrate(&models.Account{}, &models.Follow{}, &models.AccountExtra{}, &models.Emoji{}))
 	previousDB := database.GetDB()
 	database.SetTestDB(conn)
 	t.Cleanup(func() { database.SetTestDB(previousDB) })

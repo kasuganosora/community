@@ -63,6 +63,8 @@ type Account struct { //nolint:recvcheck
 	Group                      bool                       `gorm:"default:false"                             json:"group"`
 	NoIndex                    bool                       `gorm:"default:false"                             json:"noindex"`
 	HideCollections            bool                       `gorm:"default:false"                             json:"hide_collections"`
+	DiscoverableConfigured     bool                       `gorm:"not null;default:false"                    json:"-"`
+	CollectionsConfigured      bool                       `gorm:"not null;default:false"                    json:"-"`
 	// FollowingVisibility / FollowersVisibility are Misskey's per-list
 	// visibility: public, followers or private. HideCollections is kept in
 	// sync as "either list is not public" for Mastodon compatibility.

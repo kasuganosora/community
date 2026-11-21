@@ -29,6 +29,7 @@ import (
 
 // integrationModels 是 notification 时间线相关数据模型，用于自动迁移。
 var integrationModels = []any{
+	&models.MuteAccount{},
 	&models.Notification{},
 	&models.Account{},
 	&models.AccountExtra{},

@@ -30,10 +30,10 @@ func KeywordCreate(c *gin.Context) {
 		return
 	}
 
-	currentUser := c.MustGet("user").(*models.User) //nolint:forcetypeassert
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	filter := &models.Filter{}
 
-	err = db.GetDB().Where("id = ? and account_id = ?", filterId, currentUser.Id).First(filter).Error
+	err = db.GetDB().Where("id = ? and account_id = ?", filterId, account.Id).First(filter).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{"error": "filter not found"}) //nolint:goconst
@@ -46,14 +46,24 @@ func KeywordCreate(c *gin.Context) {
 		return
 	}
 
-	req := &CreateKeywordRequest{}
+	req := &CreateKeywordRequest{FilterKeyword: models.FilterKeyword{WholeWord: true}}
 	if err = controllers.BindBody(c, req); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
 
 		return
 	}
 
+	if len(filter.Keywords) >= maxKeywordsPerList {
+		fail(c, 422, ErrCodeFilterTooManyKeywords, "Too many keywords")
+		return
+	}
+	text, invalid := validKeyword(req.Keyword)
+	if invalid != nil {
+		fail(c, invalid.status, invalid.code, invalid.msg)
+		return
+	}
 	keyword := req.FilterKeyword
+	keyword.Keyword = text
 	keyword.Uuid = uuid.NewString()
 
 	filter.Keywords = append(filter.Keywords, &keyword)

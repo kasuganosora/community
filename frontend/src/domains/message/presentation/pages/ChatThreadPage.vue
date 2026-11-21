@@ -213,7 +213,7 @@ async function invite(members: ChatMemberInput[]) { if (await thread.addMembers(
           <textarea id="chat-message-input" v-model="draft" rows="2" :placeholder="$t('message.ChatThreadPage.s21')" :disabled="busy" @keydown="onSendKeydown" />
           <ul v-if="attachments.length" class="chat-compose__attachments">
             <li v-for="file in attachments" :key="file.id">
-            <img v-if="file.type === 'image' && (file.preview_url || file.url)" :src="file.preview_url || file.url" alt="" />
+            <img v-if="file.type === 'image' && (file.preview_url || file.url)" :src="file.preview_url || file.url || undefined" alt="" />
             <t-icon v-else name="file" :size="22" />
             <span>{{ file.description || file.uploadName || $t('message.ChatThreadPage.s22') }}</span>
             <button type="button" class="btn btn--ghost btn--sm" :disabled="busy || uploading" :aria-label="$t('message.ConversationMembersForm.s9', [file.uploadName || file.description || $t('message.ChatThreadPage.s22')])" @click="attachments = attachments.filter(item => item.id !== file.id)"><t-icon name="close" :size="16" /></button>

@@ -44,17 +44,17 @@ func Reblog(c *gin.Context) {
 	}
 
 	// 判断当前用户有没有转发过这条 status
-	isRelogged, err := status.IsReblogged(dbConn, currentAccount)
-	controllers.AbortIfError(c, err)
-
-	// Mastodon: reblogging again is idempotent and returns the status.
-	if isRelogged {
-		returnFullSingleStatus(c, status, currentAccount)
-
+	reblog := &models.Status{}
+	err = dbConn.Where("account_id = ? AND reblog_id = ?", currentAccount.Id, status.Id).First(reblog).Error
+	if err == nil {
+		returnFullSingleStatus(c, reblog, currentAccount)
 		return
 	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		controllers.AbortIfError(c, err)
+	}
 
-	reblog := &models.Status{}
+	reblog = &models.Status{}
 	reblog.ReblogId = &status.Id
 	reblog.AccountId = currentAccount.Id
 
@@ -94,7 +94,7 @@ func Reblog(c *gin.Context) {
 	controllers.AbortIfError(c, err)
 
 	// 重新获取转发的 status
-	returnFullSingleStatus(c, status, currentAccount)
+	returnFullSingleStatus(c, reblog, currentAccount)
 }
 
 func Unreblog(c *gin.Context) {

@@ -2,7 +2,13 @@ package models
 
 import "time"
 
-const MaxProfileFields = 16
+const (
+	MaxProfileFields           = 16
+	MaxProfileFieldNameLength  = 255
+	MaxProfileFieldValueLength = 2048
+	MaxDisplayNameLength       = 64
+	MaxProfileNoteLength       = 500
+)
 
 var ReactionAcceptances = []string{"all", "likeOnlyForRemote", "nonSensitiveOnly", "nonSensitiveOnlyForLocalLikeOnlyForRemote", "likeOnly"}
 

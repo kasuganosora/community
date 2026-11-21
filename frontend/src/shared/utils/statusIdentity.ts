@@ -1,3 +1,5 @@
+import type { MastodonStatus } from '@/shared/types/mastodon'
+
 /** Identity of a timeline row. Optional fields are absent on non-status lists. */
 export interface StatusIdentity {
   id: string
@@ -131,4 +133,9 @@ export function sharesStatusIdentity(row: { id: string }, incoming: StreamedStat
   const keys = new Set(identityKeys(identity))
   if (identityKeys(incoming).some(key => keys.has(key))) return true
   return !!incoming.reblogId && incoming.reblogId === identity.id && isLocalAcct(identity) && isRemoteSelf(incoming.acct, identity.account?.acct)
+}
+
+export function quotedStatus(quote: MastodonStatus['quote']): MastodonStatus | null {
+  if (!quote || typeof quote !== 'object') return null
+  return 'state' in quote ? quote.quoted_status ?? null : quote
 }

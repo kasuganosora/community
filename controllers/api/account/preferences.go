@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	expandMediaKey = "reading_expand_media"
-	uiLocaleKey    = "interface_locale"
+	expandMediaKey     = "reading_expand_media"
+	uiLocaleKey        = "interface_locale"
+	defaultQuotePolicy = "public"
 )
 
 // validUILocale lists the web UI languages; mirrors frontend/src/shared/i18n.
@@ -118,12 +119,14 @@ func GetPreferences(c *gin.Context) {
 			}
 			if v, ok := setting.Data[uiLocaleKey].(string); ok && validUILocale(v) {
 				uiLocale = v
+				defaultPostingLanguage = v
 			}
-			// Users who protect their posts default to private posting.
-			if protect, ok := setting.Data["post_protect"].(bool); ok && protect {
-				defaultPostingVisibility = "private"
-			}
+			defaultPostingVisibility = postingVisibility(&setting)
 		}
+	}
+
+	if account.Language != "" {
+		defaultPostingLanguage = account.Language
 	}
 
 	// Build response
@@ -131,6 +134,7 @@ func GetPreferences(c *gin.Context) {
 		"posting:default:visibility":   defaultPostingVisibility,
 		"posting:default:sensitive":    defaultPostingSensitive,
 		"posting:default:language":     defaultPostingLanguage,
+		"posting:default:quote_policy": defaultQuotePolicy,
 		"posting:default:content_type": defaultPostingContentType,
 		"reading:expand:spoilers":      defaultExpandSpoilers,
 		"reading:expand:media":         defaultExpandMedia,

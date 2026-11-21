@@ -230,8 +230,10 @@ func assertIndependentMedia(t *testing.T, a, b models.MediaAttachment) {
 	require.NoError(t, err)
 	require.NotEqual(t, aView.Url, bView.Url)
 	require.NotEqual(t, aView.PreviewUrl, bView.PreviewUrl)
-	require.Contains(t, aView.PreviewUrl, "/media/"+aView.Id+"/thumbnail/"+a.ThumbPath())
-	require.Contains(t, bView.PreviewUrl, "/media/"+bView.Id+"/thumbnail/"+b.ThumbPath())
+	require.NotNil(t, aView.PreviewUrl)
+	require.NotNil(t, bView.PreviewUrl)
+	require.Contains(t, *aView.PreviewUrl, "/media/"+aView.Id+"/thumbnail/"+a.ThumbPath())
+	require.Contains(t, *bView.PreviewUrl, "/media/"+bView.Id+"/thumbnail/"+b.ThumbPath())
 }
 
 func TestUpload_FocusParsingInvalid(t *testing.T) {
@@ -295,6 +297,11 @@ func TestUploadAsync_Accepted(t *testing.T) {
 
 	require.Equal(t, http.StatusAccepted, w.Code, "body: %s", w.Body.String())
 	assert.Contains(t, w.Body.String(), "async clip")
+	var pending map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &pending))
+	for _, key := range []string{"url", "preview_url", "remote_url", "preview_remote_url", "text_url", "blurhash"} {
+		assert.Equal(t, "null", string(pending[key]), key)
+	}
 
 	var final models.MediaAttachment
 	require.Eventually(t, func() bool {

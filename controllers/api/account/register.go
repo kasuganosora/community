@@ -472,8 +472,6 @@ func checkExists(username string, email string) (existsFieldName string, err err
 	return "", nil
 }
 
-const maxDisplayNameLen = 64
-
 // validateRegisterRequest validates the user supplied registration fields
 // and returns an error message, or "" when they are acceptable.
 func validateRegisterRequest(req *RegisterRequest) string {
@@ -481,7 +479,7 @@ func validateRegisterRequest(req *RegisterRequest) string {
 		return err.Error()
 	}
 
-	if utf8.RuneCountInString(req.DisplayName) > maxDisplayNameLen {
+	if utf8.RuneCountInString(req.DisplayName) > models.MaxDisplayNameLength {
 		return "display name is too long (max 64 characters)"
 	}
 

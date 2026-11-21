@@ -2,6 +2,7 @@ package status
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
@@ -57,7 +58,23 @@ func TestStatusActionsAreIdempotent(t *testing.T) {
 			// Undo before anything was done: no-op, 200.
 			assertIdempotentStatus(t, call(a.undo), ts.status.Id, a.field, false)
 			for i := 0; i < 2; i++ {
-				assertIdempotentStatus(t, call(a.do), ts.status.Id, a.field, true)
+				response := call(a.do)
+				if a.name != "reblog" {
+					assertIdempotentStatus(t, response, ts.status.Id, a.field, true)
+					continue
+				}
+				require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+				var boost struct {
+					Id     string `json:"id"`
+					Reblog struct {
+						Id        string `json:"id"`
+						Reblogged bool   `json:"reblogged"`
+					} `json:"reblog"`
+				}
+				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &boost))
+				require.NotEqual(t, strconv.FormatUint(ts.status.Id, 10), boost.Id)
+				require.Equal(t, strconv.FormatUint(ts.status.Id, 10), boost.Reblog.Id)
+				require.True(t, boost.Reblog.Reblogged)
 			}
 			st := statusCounts(t, ts)
 			switch a.name {

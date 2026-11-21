@@ -107,7 +107,7 @@ func TestList_TimelinesNotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers?timelines[]=home&timelines[]=notifications", nil) //nolint:noctx
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/markers?timeline[]=home&timeline[]=notifications", nil) //nolint:noctx
 	c.Set("account", createTestAccount(t, "testuser"))
 
 	callHandler(List, c)

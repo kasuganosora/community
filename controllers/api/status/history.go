@@ -17,12 +17,11 @@ func GetHistory(c *gin.Context) {
 	abortUnlessVisible(c, dbConn, status, currentAccount)
 
 	history := []*models.StatusHistory{}
-	err := dbConn.Model(&models.StatusHistory{}).Preload("Account").Where("status_id = ?", status.Id).Order("id desc").Find(&history).Error
+	err := dbConn.Model(&models.StatusHistory{}).Preload("Account").Where("status_id = ?", status.Id).Order("id ASC").Find(&history).Error
 
 	controllers.AbortIfError(c, err)
 
-	historyStatus := make([]*models.StatusHistory, 0, len(history)+1)
-	historyStatus = append(historyStatus, &models.StatusHistory{
+	current := &models.StatusHistory{
 		StatusId:            status.Id,
 		AccountId:           status.AccountId,
 		Account:             status.Account,
@@ -32,11 +31,15 @@ func GetHistory(c *gin.Context) {
 		MediaAttachmentsIds: status.Attachments.GetIds(),
 		EmojisIds:           status.Emojis.GetIds(),
 		CreatedAt:           status.CreatedAt,
-	})
+	}
+	if status.Poll != nil {
+		current.PollOptions = status.Poll.Options.GetNames()
+	}
+	if len(history) > 0 && status.UpdatedAt != nil {
+		current.CreatedAt = status.UpdatedAt
+	}
 
-	historyStatus = append(historyStatus, history...)
-
-	ret, err := serializer.ToHistoryStatuses(dbConn, historyStatus)
+	ret, err := serializer.ToHistoryStatuses(dbConn, append(history, current))
 
 	controllers.AbortIfError(c, err)
 

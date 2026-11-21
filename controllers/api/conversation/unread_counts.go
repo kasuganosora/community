@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,7 @@ func UnreadCounts(c *gin.Context) {
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 	conn := db.GetDB().WithContext(c.Request.Context())
 
-	notifications, err := unreadNotifications(conn, account)
+	notifications, err := unreadNotifications(conn, account, UnreadCap, nil, nil)
 	if err == nil {
 		var announcements, conversations int
 		announcements, err = unreadAnnouncements(conn, account.Id, time.Now())
@@ -39,9 +40,28 @@ func UnreadCounts(c *gin.Context) {
 	c.AbortWithStatusJSON(500, gin.H{"error": "internal error", "code": "INTERNAL_ERROR"})
 }
 
+func UnreadNotificationCount(c *gin.Context) {
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
+	limit := 100
+	if raw, ok := c.Request.URL.Query()["limit"]; ok {
+		requested, _ := strconv.Atoi(raw[0])
+		limit = min(max(requested, -1000), 1000)
+		if limit < 0 {
+			limit = -limit
+		}
+	}
+	count, err := unreadNotifications(db.GetDB().WithContext(c.Request.Context()), account, limit,
+		c.QueryArray("types[]"), c.QueryArray("exclude_types[]"))
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	c.JSON(200, gin.H{"count": count})
+}
+
 // unreadNotifications counts visible notifications newer than the
 // notifications marker, exactly like the notifications list would show them.
-func unreadNotifications(conn *gorm.DB, account *models.Account) (int, error) {
+func unreadNotifications(conn *gorm.DB, account *models.Account, limit int, include, exclude []string) (int, error) {
 	var lastRead uint64
 	marker := &models.Marker{}
 	if err := conn.Where("account_id = ?", account.Id).Limit(1).Find(marker).Error; err != nil {
@@ -50,20 +70,34 @@ func unreadNotifications(conn *gorm.DB, account *models.Account) (int, error) {
 	if item := marker.Timelines["notifications"]; item != nil {
 		lastRead = item.LastReadId
 	}
-	rows := make(models.Notifications, 0, UnreadCap)
-	if err := conn.Model(&models.Notification{}).Where("account_id = ? AND id > ?", account.Id, lastRead).
-		Order("id DESC").Limit(UnreadCap).Find(&rows).Error; err != nil {
-		return 0, err
+	base := models.NotificationInbox(conn, account.Id).Where("id > ?", lastRead)
+	base = models.FilterNotificationTypes(base, include, exclude)
+	var count int
+	var cursor uint64
+	for count < limit {
+		batchSize := min(100, max(20, limit-count))
+		query := base.Session(&gorm.Session{})
+		if cursor != 0 {
+			query = query.Where("id < ?", cursor)
+		}
+		var rows models.Notifications
+		if err := query.Order("id DESC").Limit(batchSize).Find(&rows).Error; err != nil {
+			return 0, err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		visible, err := serializer.ToNotifications(rows, account)
+		if err != nil {
+			return 0, err
+		}
+		count += len(visible)
+		cursor = rows[len(rows)-1].Id
+		if len(rows) < batchSize {
+			break
+		}
 	}
-	if len(rows) == 0 {
-		return 0, nil
-	}
-	visible, err := serializer.ToNotifications(rows, account)
-	if err != nil {
-		return 0, err
-	}
-
-	return len(visible), nil
+	return min(count, limit), nil
 }
 
 // unreadAnnouncements counts active announcements not read since their last edit.

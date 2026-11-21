@@ -40,6 +40,12 @@ func BindBody(c *gin.Context, obj any) error {
 	var values url.Values
 	switch mediaType {
 	case "application/x-www-form-urlencoded":
+		if req.Method == http.MethodDelete {
+			// ParseForm only reads POST/PUT/PATCH bodies. Clients also send
+			// Rails-style arrays in the body of DELETE /lists/:id/accounts.
+			req = req.Clone(req.Context())
+			req.Method = http.MethodPost
+		}
 		if err := req.ParseForm(); err != nil {
 			return err
 		}

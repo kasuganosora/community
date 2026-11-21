@@ -11,6 +11,7 @@ import (
 	mediamanagement "github.com/kasuganosora/community/controllers/api/media"
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/moderation"
 	"github.com/kasuganosora/community/serializer"
 	"github.com/kasuganosora/community/systemsettings"
 	"github.com/kasuganosora/community/utils/translation"
@@ -41,15 +42,25 @@ type InstanceResponse struct {
 	DefaultLocale string `json:"default_locale,omitempty"`
 	Configuration struct {
 		Urls struct {
-			Streaming string  `json:"streaming"`
-			Status    *string `json:"status"`
+			Streaming      string  `json:"streaming"`
+			Status         *string `json:"status"`
+			About          string  `json:"about"`
+			PrivacyPolicy  *string `json:"privacy_policy"`
+			TermsOfService *string `json:"terms_of_service"`
 		} `json:"urls"`
 		Vapid struct {
-			PublicKey string `json:"public_key"`
+			PublicKey *string `json:"public_key"`
 		} `json:"vapid"`
 		Accounts struct {
-			MaxFeaturedTags   int `json:"max_featured_tags"`
-			MaxPinnedStatuses int `json:"max_pinned_statuses"`
+			MaxFeaturedTags            int `json:"max_featured_tags"`
+			MaxPinnedStatuses          int `json:"max_pinned_statuses"`
+			MaxDisplayNameLength       int `json:"max_display_name_length"`
+			MaxNoteLength              int `json:"max_note_length"`
+			MaxProfileFields           int `json:"max_profile_fields"`
+			ProfileFieldNameLimit      int `json:"profile_field_name_limit"`
+			ProfileFieldValueLimit     int `json:"profile_field_value_limit"`
+			MaxAvatarDescriptionLength int `json:"max_avatar_description_length"`
+			MaxHeaderDescriptionLength int `json:"max_header_description_length"`
 		} `json:"accounts"`
 
 		Statuses         InstanceStatusesConfig `json:"statuses"`
@@ -63,7 +74,8 @@ type InstanceResponse struct {
 			// GroupMessages: group chat messages can be translated.
 			GroupMessages bool `json:"group_messages"`
 		} `json:"translation"`
-		TimelinesAccess map[string]map[string]string `json:"timelines_access"`
+		TimelinesAccess   map[string]map[string]string `json:"timelines_access"`
+		LimitedFederation bool                         `json:"limited_federation"`
 	} `json:"configuration"`
 
 	Registrations struct {
@@ -71,6 +83,7 @@ type InstanceResponse struct {
 		Enabled          bool    `json:"enabled"`
 		ApprovalRequired bool    `json:"approval_required"`
 		InviteRequired   bool    `json:"invite_required"`
+		ReasonRequired   bool    `json:"reason_required"`
 		Message          *string `json:"message"`
 		Url              *string `json:"url"`
 	} `json:"registrations"`
@@ -84,7 +97,8 @@ type InstanceResponse struct {
 		Account *serializer.Account `json:"account"`
 	} `json:"contact"`
 
-	Rules []InstanceRule `json:"rules"`
+	Rules      []InstanceRule `json:"rules"`
+	Wrapstodon *struct{}      `json:"wrapstodon"`
 
 	// Branding is a non-Mastodon extension carrying Misskey's branding meta
 	// (iconUrl, themeColor, entrancePageStyle, ...); clients ignore it.
@@ -93,9 +107,10 @@ type InstanceResponse struct {
 
 // InstanceThumbnail is the v2 thumbnail object.
 type InstanceThumbnail struct {
-	Url      string            `json:"url"`
-	Blurhash string            `json:"blurhash,omitempty"`
-	Versions map[string]string `json:"versions,omitempty"`
+	Url         string            `json:"url"`
+	Description string            `json:"description"`
+	Blurhash    string            `json:"blurhash,omitempty"`
+	Versions    map[string]string `json:"versions,omitempty"`
 }
 
 // InstanceIcon is one entry of the v2 icon array.
@@ -272,13 +287,14 @@ func thumbnailURL() string {
 	return serializer.DefaultAssetURL("thumbnail@2x.png")
 }
 
-func instanceThumbnail() InstanceThumbnail {
+func instanceThumbnail(description string) InstanceThumbnail {
 	if t := customThumbnail(); t != "" {
-		return InstanceThumbnail{Url: t}
+		return InstanceThumbnail{Url: t, Description: description}
 	}
 
 	return InstanceThumbnail{
-		Url: serializer.DefaultAssetURL("thumbnail@2x.png"),
+		Url:         serializer.DefaultAssetURL("thumbnail@2x.png"),
+		Description: description,
 		Versions: map[string]string{
 			"@1x": serializer.DefaultAssetURL("thumbnail.png"),
 			"@2x": serializer.DefaultAssetURL("thumbnail@2x.png"),
@@ -337,15 +353,19 @@ func GetInstanceDetail(c *gin.Context) {
 	resp.Description = cleanText(systemsettings.GetString(systemsettings.KeyDescription, ""))
 	resp.Usage.Users.ActiveMonth = getActiveUsersCount()
 	resp.Stats = getInstanceStats()
-	resp.Thumbnail = instanceThumbnail()
+	resp.Thumbnail = instanceThumbnail(resp.Title)
 	resp.Icon = instanceIcons()
 	resp.Languages = nonNilStrings(systemsettings.GetStrings(systemsettings.KeyLanguages, []string{"zh-CN", "en-US"}))
 	resp.DefaultLocale = systemsettings.GetString(systemsettings.KeyDefaultLocale, "")
 	resp.Configuration.Urls.Streaming = StreamingURL()
-	resp.Configuration.Urls.Status = nil
-	resp.Configuration.Vapid.PublicKey = ""
+	resp.Configuration.Urls.About = strings.TrimRight(systemsettings.GetBaseURL(), "/") + "/about"
 	resp.Configuration.Accounts.MaxFeaturedTags = systemsettings.GetInt(systemsettings.KeyAccountMaxFeaturedTags, nil)
 	resp.Configuration.Accounts.MaxPinnedStatuses = 5
+	resp.Configuration.Accounts.MaxDisplayNameLength = models.MaxDisplayNameLength
+	resp.Configuration.Accounts.MaxNoteLength = models.MaxProfileNoteLength
+	resp.Configuration.Accounts.MaxProfileFields = models.MaxProfileFields
+	resp.Configuration.Accounts.ProfileFieldNameLimit = models.MaxProfileFieldNameLength
+	resp.Configuration.Accounts.ProfileFieldValueLimit = models.MaxProfileFieldValueLength
 	fillStatuses(&resp.Configuration.Statuses)
 	fillMedia(&resp.Configuration.MediaAttachments)
 	fillPolls(&resp.Configuration.Polls)
@@ -451,11 +471,19 @@ func getInstanceStats() InstanceStats {
 }
 
 func timelinesAccess() map[string]map[string]string {
-	pub := map[string]string{"local": "public", "remote": "public"}
+	access := map[string]string{"local": "public", "remote": "public"}
+	switch moderation.Current().UGCVisibilityForVisitor {
+	case moderation.UGCNone:
+		access["local"] = "authenticated"
+		access["remote"] = "authenticated"
+	case moderation.UGCLocal:
+		access["remote"] = "authenticated"
+	}
 
 	return map[string]map[string]string{
-		"live_feeds":     pub,
-		"hashtag_feeds":  pub,
-		"trending_links": pub,
+		"live_feeds":          access,
+		"hashtag_feeds":       access,
+		"trending_link_feeds": access,
+		"trending_links":      access,
 	}
 }

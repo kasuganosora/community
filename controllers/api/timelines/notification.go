@@ -23,45 +23,31 @@ type NotificationTimelineRequest struct {
 	SinceId      uint64   `form:"since_id"`
 	Limit        int      `form:"limit"`
 	AccountId    string   `form:"account_id"`
+	Expand       string   `form:"expand_accounts"`
 }
 
 func NotificationTimeline(c *gin.Context) {
+	notificationTimeline(c, false)
+}
+
+func GroupedNotificationTimeline(c *gin.Context) {
+	notificationTimeline(c, true)
+}
+
+func notificationTimeline(c *gin.Context, grouped bool) {
 	req := NotificationTimelineRequest{}
 	err := c.ShouldBindQuery(&req)
 	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err}) //nolint:goconst
+	if grouped && c.Request.URL.Query().Has("expand_accounts") && req.Expand != "full" && req.Expand != "partial_avatars" {
+		c.JSON(400, gin.H{"error": "expand_accounts must be full or partial_avatars"})
+		return
+	}
+	partialAvatars := req.Expand == "partial_avatars"
 
 	account := controllers.MustGetAccount(c)
 
-	query := db.GetDB().WithContext(c.Request.Context()).Model(&models.Notification{}).Where("account_id = ?", account.Id)
-	// Status edits are not notifications. Drop them in the query as well as in
-	// the serializer so an all-edit page cannot end the timeline early.
-	query = query.Where("type <> ?", models.NotificationTypeStatusUpdate)
-
-	if len(req.ExcludeTypes) > 0 {
-		typeIds := make([]int, 0, len(req.ExcludeTypes))
-		for _, t := range req.ExcludeTypes {
-			if id := models.NotificationTypeFromString(t); id >= 0 {
-				typeIds = append(typeIds, id)
-			}
-		}
-		if len(typeIds) > 0 {
-			query = query.Where("type not in ?", typeIds)
-		}
-	}
-
-	if len(req.Types) > 0 {
-		typeIds := make([]int, 0, len(req.Types))
-		for _, t := range req.Types {
-			if id := models.NotificationTypeFromString(t); id >= 0 {
-				typeIds = append(typeIds, id)
-			}
-		}
-		if len(typeIds) == 0 {
-			c.JSON(200, []*serializer.Notification{})
-			return
-		}
-		query = query.Where("type in ?", typeIds)
-	}
+	query := models.NotificationInbox(db.GetDB().WithContext(c.Request.Context()), account.Id)
+	query = models.FilterNotificationTypes(query, req.Types, req.ExcludeTypes)
 
 	if req.AccountId != "" {
 		filterAccountId, err := strconv.ParseUint(req.AccountId, 10, 64)
@@ -88,6 +74,9 @@ func NotificationTimeline(c *gin.Context) {
 
 	if req.Limit <= 0 {
 		req.Limit = 20
+		if grouped {
+			req.Limit = 40
+		}
 	}
 
 	// Authorization can hide an entire batch after a block or recipient change.
@@ -182,5 +171,13 @@ func NotificationTimeline(c *gin.Context) {
 			common.SetPageLinksUint(c, first, cursor, true)
 		}
 	}
-	c.JSON(200, ret)
+	writeNotifications(c, ret, grouped, partialAvatars)
+}
+
+func writeNotifications(c *gin.Context, notifications []*serializer.Notification, grouped, partialAvatars bool) {
+	if grouped {
+		c.JSON(200, serializer.ToNotificationGroups(notifications, partialAvatars))
+		return
+	}
+	c.JSON(200, notifications)
 }

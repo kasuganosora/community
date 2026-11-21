@@ -9,7 +9,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 	"reflect"
-	"strings"
 	"time"
 )
 
@@ -31,6 +30,7 @@ const (
 	AppScopeReadNotifications = 1 << 8  // 查看你的通知
 	AppScopeReadSearch        = 1 << 9  // 以你的身份搜索
 	AppScopeReadStatuses      = 1 << 10 // 查看所有嘟文
+	AppScopeReadCollections   = 1 << 11
 
 	// 写权限.
 	AppScopeWrite              = 0xFFFFFFFFFFFFFFFF // 写入你的账户数据
@@ -47,6 +47,7 @@ const (
 	AppScopeWriteNotifications = 1 << 10            // 清除你的通知
 	AppScopeWriteReports       = 1 << 11            // 举报他人
 	AppScopeWriteStatuses      = 1 << 12            // 发表嘟文
+	AppScopeWriteCollections   = 1 << 13
 
 	// 管理权限: read bits in the low 32 bits, write bits in the high 32.
 	AppScopeAdmin                          = 0xFFFFFFFFFFFFFFFF // 管理服务器上的所有数据
@@ -78,6 +79,7 @@ const (
 	// "other" group so the read/write umbrellas never imply them.
 	AppScopeReadMatrix  = 0x8
 	AppScopeWriteMatrix = 0x10
+	AppScopeProfile     = 0x20
 
 	// 权限类型.
 	AppScopeTypeRead  = 0
@@ -91,6 +93,14 @@ type ApplicationScope struct {
 	WriteScope uint64 `json:"write_scope"`
 	AdminScope uint64 `json:"admin_scope"`
 	OtherScope uint64 `json:"other_scope"`
+}
+
+func (s ApplicationScope) Covers(requested ApplicationScope) bool {
+	return requested != (ApplicationScope{}) &&
+		requested.ReadScope&^s.ReadScope == 0 &&
+		requested.WriteScope&^s.WriteScope == 0 &&
+		requested.AdminScope&^s.AdminScope == 0 &&
+		requested.OtherScope&^s.OtherScope == 0
 }
 
 func (s *ApplicationScope) HasScope(scopeType uint8, scope uint64) bool {
@@ -110,46 +120,6 @@ func (s *ApplicationScope) HasScope(scopeType uint8, scope uint64) bool {
 	}
 
 	return (sc & scope) == scope
-}
-
-// OAuthScopeString renders the coarse Mastodon scope tokens stored in this set.
-// Granular scopes collapse to their parent (read:accounts → read), which is
-// what Mastodon clients send back on refresh.
-func (s *ApplicationScope) OAuthScopeString() string {
-	if s == nil {
-		return ""
-	}
-
-	parts := make([]string, 0, 5)
-	if s.ReadScope != 0 {
-		parts = append(parts, "read")
-	}
-
-	if s.WriteScope != 0 {
-		parts = append(parts, "write")
-	}
-
-	if s.AdminScope != 0 {
-		parts = append(parts, "admin")
-	}
-
-	if s.OtherScope&AppScopeFollow != 0 {
-		parts = append(parts, "follow")
-	}
-
-	if s.OtherScope&AppScopePush != 0 {
-		parts = append(parts, "push")
-	}
-
-	if s.OtherScope&AppScopeReadMatrix != 0 {
-		parts = append(parts, "read:matrix")
-	}
-
-	if s.OtherScope&AppScopeWriteMatrix != 0 {
-		parts = append(parts, "write:matrix")
-	}
-
-	return strings.Join(parts, " ")
 }
 
 func (s *ApplicationScope) AddScope(scopeType uint8, scope uint64) {
@@ -244,22 +214,32 @@ func (s *ApplicationScope) Scan(ctx context.Context, field *schema.Field, dst re
 	return s.UnmarshalJSON(vBytes)
 }
 
-func (s *ApplicationScope) Value(ctx context.Context, field *schema.Field, dst reflect.Value, fieldValue any) (ret any, err error) {
-	return s.MarshalJSON()
+func (s *ApplicationScope) Value(_ context.Context, field *schema.Field, _ reflect.Value, fieldValue any) (any, error) {
+	if field == nil {
+		return s.MarshalJSON()
+	}
+	// GORM calls Value on a zero-value serializer and passes the actual
+	// application field separately as fieldValue.
+	scopes, ok := fieldValue.(ApplicationScope)
+	if !ok {
+		return nil, errors.Errorf("invalid application scope value %T", fieldValue)
+	}
+	return scopes.MarshalJSON()
 }
 
 type Application struct {
-	Id          uint64           `gorm:"primary_key;autoIncrement"          json:"id"`
-	Uuid        *uuid.UUID       `gorm:"type:char(36);uniqueIndex;not null" json:"uuid"`
-	UserId      int64            `gorm:"index"                              json:"user_id"`
-	Name        string           `gorm:"type:varchar(128);not null"         json:"name"`
-	Website     string           `gorm:"type:varchar(255);not null"         json:"website"`
-	RedirectUri string           `gorm:"type:text;not null"                 json:"redirect_uri"`
-	Scopes      ApplicationScope `gorm:"type:varchar(255);not null"         json:"scopes"`
-	IsEnabled   bool             `gorm:"not null;default:true"              json:"is_enabled"`
-	CreatedAt   *time.Time       `gorm:"autoCreateTime"                     json:"created_at"`
-	UpdatedAt   *time.Time       `gorm:"autoUpdateTime"                     json:"updated_at"`
-	DeletedAt   gorm.DeletedAt   `gorm:"index"                              json:"deleted_at"`
+	Id               uint64           `gorm:"primary_key;autoIncrement"          json:"id"`
+	Uuid             *uuid.UUID       `gorm:"type:char(36);uniqueIndex;not null" json:"uuid"`
+	UserId           int64            `gorm:"index"                              json:"user_id"`
+	Name             string           `gorm:"type:varchar(128);not null"         json:"name"`
+	Website          string           `gorm:"type:varchar(255);not null"         json:"website"`
+	RedirectUri      string           `gorm:"type:text;not null"                 json:"redirect_uri"`
+	Scopes           ApplicationScope `gorm:"type:varchar(255);not null"         json:"scopes"`
+	RegisteredScopes string           `gorm:"type:text" json:"-"`
+	IsEnabled        bool             `gorm:"not null;default:true"              json:"is_enabled"`
+	CreatedAt        *time.Time       `gorm:"autoCreateTime"                     json:"created_at"`
+	UpdatedAt        *time.Time       `gorm:"autoUpdateTime"                     json:"updated_at"`
+	DeletedAt        gorm.DeletedAt   `gorm:"index"                              json:"deleted_at"`
 }
 
 func (a *Application) BeforeCreate(tx *gorm.DB) (err error) {
@@ -281,11 +261,12 @@ type ApplicationUserAuth struct {
 	ApplicationId uint64 `gorm:"index" json:"application_id"`
 	// 用户ID
 	UserId int64 `gorm:"index" json:"user_id"`
-	// Scopes is the coarse set the user actually granted. An empty value is a
-	// legacy row and must not skip the consent screen.
-	Scopes    string     `gorm:"type:varchar(1024)" json:"scopes,omitempty"`
-	CreatedAt *time.Time `gorm:"autoCreateTime"    json:"created_at"`
-	UpdatedAt *time.Time `gorm:"autoUpdateTime"    json:"updated_at"`
+	// ScopesExact distinguishes current consent from legacy rows which widened
+	// granular grants to their parents. Those rows require fresh consent.
+	ScopesExact bool       `gorm:"not null;default:false" json:"-"`
+	Scopes      string     `gorm:"type:varchar(1024)" json:"scopes,omitempty"`
+	CreatedAt   *time.Time `gorm:"autoCreateTime"    json:"created_at"`
+	UpdatedAt   *time.Time `gorm:"autoUpdateTime"    json:"updated_at"`
 }
 
 func (a *ApplicationUserAuth) TableName() string {

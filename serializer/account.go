@@ -44,7 +44,7 @@ type Account struct {
 	Language            string             `json:"language"`
 	ReactionAcceptance  string             `json:"reaction_acceptance"`
 	FollowedMessage     string             `json:"followed_message,omitempty"`
-	Discoverable        bool               `json:"discoverable"`
+	Discoverable        *bool              `json:"discoverable"`
 	Indexable           bool               `json:"indexable"`
 	Group               bool               `json:"group"`
 	CreatedAt           *APITime           `json:"created_at"`
@@ -54,18 +54,22 @@ type Account struct {
 	Avatar              string             `json:"avatar"`
 	AvatarDefault       string             `json:"avatar_default"`
 	AvatarStatic        string             `json:"avatar_static"`
-	AvatarDescription   string             `json:"avatar_description,omitempty"`
+	AvatarDescription   string             `json:"avatar_description"`
 	Header              string             `json:"header"`
 	HeaderStatic        string             `json:"header_static"`
-	HeaderDescription   string             `json:"header_description,omitempty"`
+	HeaderDescription   string             `json:"header_description"`
 	FollowersCount      int                `json:"followers_count"`
 	FollowingCount      int                `json:"following_count"`
 	StatusesCount       int                `json:"statuses_count"`
 	LastStatusAt        *APIDate           `json:"last_status_at"`
-	HideCollections     bool               `json:"hide_collections"`
+	HideCollections     *bool              `json:"hide_collections"`
+	ShowFeatured        bool               `json:"show_featured"`
+	ShowMedia           bool               `json:"show_media"`
+	ShowMediaReplies    bool               `json:"show_media_replies"`
+	FeatureApproval     Approval           `json:"feature_approval"`
 	Emoji               []*Emoji           `json:"emojis"`
 	Fields              []Field            `json:"fields"`
-	NoIndex             bool               `json:"noindex,omitempty"`
+	NoIndex             bool               `json:"noindex"`
 	// RequireSigninToView (extension, Misskey requireSigninToViewContents):
 	// logged-out visitors see the profile but not its posts.
 	RequireSigninToView bool `json:"require_signin_to_view,omitempty"`
@@ -85,6 +89,29 @@ type Account struct {
 	Roles []any `json:"roles"`
 
 	intId uint64 `json:"-"`
+}
+
+func discoverablePreference(account *models.Account) *bool {
+	if account.DeletionRequestedAt != nil {
+		return new(false)
+	}
+	if !account.IsLocal() {
+		return account.RemoteDiscoverable
+	}
+	if account.Discoverable || account.DiscoverableConfigured {
+		return new(account.Discoverable)
+	}
+	return nil
+}
+
+func collectionVisibilityPreference(account *models.Account) *bool {
+	if account.FollowingVisibilityValue() != models.CollectionPublic || account.FollowersVisibilityValue() != models.CollectionPublic {
+		return new(true)
+	}
+	if account.CollectionsConfigured {
+		return new(false)
+	}
+	return account.RemoteHideCollections
 }
 
 // AccountAvailability is the machine-readable profile restriction.
@@ -172,7 +199,7 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 		Birthday:            account.Birthday,
 		Language:            account.Language,
 		ReactionAcceptance:  account.ReactionAcceptance,
-		Discoverable:        account.Discoverable,
+		Discoverable:        discoverablePreference(account),
 		Indexable:           !account.NoIndex,
 		Group:               account.Group,
 		CreatedAt:           newAPIDayTime(account.CreatedAt),
@@ -186,7 +213,11 @@ func toAccount(account *models.Account, options htmlsafe.RenderOptions, emojis [
 		HeaderStatic:        mediaOrDefault(proxiedAccountMedia(account, mediaproxy.KindHeader, account.HeaderStatic), "header.png"),
 		LastStatusAt:        newAPIDate(account.LastStatusAt),
 		Roles:               []any{},
-		HideCollections:     account.FollowingVisibilityValue() != models.CollectionPublic || account.FollowersVisibilityValue() != models.CollectionPublic,
+		HideCollections:     collectionVisibilityPreference(account),
+		ShowFeatured:        true,
+		ShowMedia:           true,
+		ShowMediaReplies:    true,
+		FeatureApproval:     deniedApproval(),
 		SpeakAsCat:          account.SpeakAsCat,
 		OnlineStatus:        account.OnlineStatus(time.Now()),
 		FollowingVisibility: account.FollowingVisibilityValue(),

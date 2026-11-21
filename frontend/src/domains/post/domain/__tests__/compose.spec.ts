@@ -55,7 +55,7 @@ describe('buildCreateParams', () => {
   it('omits optional fields that are not in use', () => {
     expect(buildCreateParams(draft({ spoilerText: 'ignored' }))).toEqual({ status: 'hello', visibility: 'public' })
     expect(buildCreateParams(draft({ mediaIds: ['4', '5'] })).media_ids).toEqual(['4', '5'])
-    expect(buildCreateParams(draft({ quoteId: '8' })).quote_id).toBe('8')
+    expect(buildCreateParams(draft({ quoteId: '8' })).quoted_status_id).toBe('8')
   })
 })
 

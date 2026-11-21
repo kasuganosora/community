@@ -54,15 +54,17 @@ func (a *Account) FollowersVisibilityValue() string {
 func (a *Account) SetCollectionVisibility(following, followers string) {
 	a.FollowingVisibility, a.FollowersVisibility = following, followers
 	a.HideCollections = following != CollectionPublic || followers != CollectionPublic
+	a.CollectionsConfigured = true
 }
 
 // CollectionVisibilityUpdates returns the column updates for the given
 // visibilities, including the derived hide_collections flag.
 func CollectionVisibilityUpdates(following, followers string) map[string]any {
 	return map[string]any{
-		"following_visibility": following,
-		"followers_visibility": followers,
-		"hide_collections":     following != CollectionPublic || followers != CollectionPublic,
+		"following_visibility":   following,
+		"followers_visibility":   followers,
+		"hide_collections":       following != CollectionPublic || followers != CollectionPublic,
+		"collections_configured": true,
 	}
 }
 

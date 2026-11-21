@@ -150,7 +150,7 @@ describe('ranked discovery pagination', () => {
 
   it.each(['hide_status', 'hide_author'] as const)('immediately removes quoted and reblogged hidden targets for %s', async action => {
     const target = status('hidden', 'hidden-author')
-    const quote = { ...status('quote', 'another'), quote: target }
+    const quote = { ...status('quote', 'another'), quote: { state: 'accepted', quoted_status: target } }
     const nested = { ...status('outer', 'third'), quote: { ...status('inner', 'fourth'), reblog: target } }
     const cycle = status('cycle', 'fifth'); cycle.quote = cycle
     vi.spyOn(discoveryApi, 'statuses').mockResolvedValue({ ...page([], 'next'), items: [target, quote, nested, cycle, status('allowed', 'allowed-author')].map(value => ({ status: value })) })

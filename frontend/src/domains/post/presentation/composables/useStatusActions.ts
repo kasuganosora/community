@@ -205,7 +205,8 @@ export function useStatusActions(updateStatus: StatusUpdater) {
       while (state.desired !== state.confirmed) {
         const target = state.desired
         try {
-          const updated = await (target ? spec.on(id) : spec.off(id))
+          const response = await (target ? spec.on(id) : spec.off(id))
+          const updated = kind === 'reblog' && response?.reblog?.id === id ? response.reblog : response
           if (sessionEpoch.value !== epoch) return
           const fallbackCount = shownCount(target)
           state.confirmed = updated?.[spec.flag] ?? target

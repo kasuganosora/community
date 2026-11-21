@@ -36,9 +36,9 @@ func KeywordUpdate(c *gin.Context) {
 	keywordId = strings.Join(idParts[1:], "-")
 
 	filter := &models.Filter{}
-	currentUser := c.MustGet("user").(*models.User) //nolint:forcetypeassert
+	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
-	err = db.GetDB().Where("id = ? and account_id = ?", filterId, currentUser.Id).First(filter).Error
+	err = db.GetDB().Where("id = ? and account_id = ?", filterId, account.Id).First(filter).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.AbortWithStatusJSON(404, gin.H{"error": "filter not found"}) //nolint:goconst
@@ -54,7 +54,7 @@ func KeywordUpdate(c *gin.Context) {
 	var keyword *models.FilterKeyword
 
 	for _, k := range filter.Keywords {
-		if k.KeyID() == keywordId || k.Keyword == keywordId {
+		if k != nil && (k.KeyID() == keywordId || k.Keyword == keywordId) {
 			keyword = k
 
 			break
@@ -67,14 +67,20 @@ func KeywordUpdate(c *gin.Context) {
 		return
 	}
 
-	keywordUpdateRequest := &KeywordUpdateRequest{}
+	keywordUpdateRequest := &KeywordUpdateRequest{FilterKeyword: *keyword}
 	if err = controllers.BindBody(c, keywordUpdateRequest); err != nil {
 		c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
 
 		return
 	}
 
-	keyword.Keyword = keywordUpdateRequest.Keyword
+	text, invalid := validKeyword(keywordUpdateRequest.Keyword)
+	if invalid != nil {
+		fail(c, invalid.status, invalid.code, invalid.msg)
+		return
+	}
+	keyword.Uuid = keyword.KeyID()
+	keyword.Keyword = text
 	keyword.WholeWord = keywordUpdateRequest.WholeWord
 
 	if err = db.GetDB().Select("keywords").Save(filter).Error; err != nil {
