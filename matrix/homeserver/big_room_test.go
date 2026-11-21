@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -262,20 +263,21 @@ func TestTopOriginsSummary(t *testing.T) {
 
 func TestCPUThrottleOnlyAffectsBackgroundContexts(t *testing.T) {
 	t.Setenv("MATRIX_JOIN_BG_CPU_DUTY_PERCENT", "50")
-	spin := func(ctx context.Context) time.Duration {
-		start := time.Now()
-		for i := 0; i < 5; i++ {
-			until := time.Now().Add(25 * time.Millisecond)
-			for time.Now().Before(until) {
-			}
-			throttleTick(ctx)
-		}
-		return time.Since(start)
-	}
 	plain := context.Background()
-	require.Less(t, spin(plain), 150*time.Millisecond, "no throttle without a throttled context")
-	// 125 ms of work at 50% duty adds about as much sleep.
-	require.GreaterOrEqual(t, spin(withCPUThrottle(plain)), 200*time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		// Model elapsed work on the fake clock, then measure only the pause.
+		tick := func(ctx context.Context) time.Duration {
+			time.Sleep(25 * time.Millisecond)
+			start := time.Now()
+			throttleTick(ctx)
+			return time.Since(start)
+		}
+		require.Zero(t, tick(plain))
+		background := withCPUThrottle(plain)
+		for range 5 {
+			require.Equal(t, 25*time.Millisecond, tick(background))
+		}
+	})
 	t.Setenv("MATRIX_JOIN_BG_CPU_DUTY_PERCENT", "100")
 	require.Equal(t, plain, withCPUThrottle(plain), "duty 100 disables throttling")
 }
