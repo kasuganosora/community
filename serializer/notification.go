@@ -33,8 +33,14 @@ func NotificationVisible(n *models.Notification, currentAccount *models.Account)
 	if n.Type == models.NotificationTypeStatusUpdate {
 		return false, nil
 	}
+	if n.FromAccount != nil && n.FromAccount.IsBan {
+		return false, nil
+	}
 	conn := db.GetDB()
-	if currentAccount != nil && n.FromAccountId != 0 {
+	if conn == nil {
+		return true, nil
+	}
+	if n.FromAccountId != 0 {
 		var sender models.Account
 		if err := conn.First(&sender, n.FromAccountId).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -42,8 +48,26 @@ func NotificationVisible(n *models.Notification, currentAccount *models.Account)
 			}
 			return false, err
 		}
-		blocked, err := models.AccountsBlocked(conn, currentAccount, &sender)
-		if err != nil || blocked {
+		if sender.IsBan {
+			return false, nil
+		}
+		if currentAccount != nil {
+			blocked, err := models.AccountsBlocked(conn, currentAccount, &sender)
+			if err != nil || blocked {
+				return false, err
+			}
+		}
+	}
+	if n.ListId != 0 {
+		var list models.List
+		if err := conn.First(&list, n.ListId).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return false, nil
+			}
+			return false, err
+		}
+		allowed, err := models.ListCanView(&list, currentAccount)
+		if err != nil || !allowed {
 			return false, err
 		}
 	}
@@ -93,12 +117,16 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 	}
 
 	if n.StatusId > 0 && n.Status == nil {
-		n.Status = &models.Status{}
+		status := &models.Status{}
 
-		err = db.GetDB().Model(&models.Status{}).Find(n.Status, n.StatusId).Error
+		err = db.GetDB().Model(&models.Status{}).First(status, n.StatusId).Error
 		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, nil
+			}
 			return ret, err
 		}
+		n.Status = status
 	}
 
 	if n.Status != nil {
@@ -116,12 +144,16 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 	}
 
 	if n.ReportId > 0 && n.Report == nil {
-		n.Report = &models.Report{}
+		report := &models.Report{}
 
-		err = db.GetDB().Model(&models.Report{}).Find(n.Report, n.ReportId).Error
+		err = db.GetDB().Model(&models.Report{}).First(report, n.ReportId).Error
 		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, nil
+			}
 			return ret, err
 		}
+		n.Report = report
 	}
 
 	if n.ReportId > 0 {
@@ -132,12 +164,19 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 	}
 
 	if n.ListId > 0 && n.List == nil {
-		n.List = &models.List{}
+		list := &models.List{}
 
-		err = db.GetDB().Model(&models.List{}).Preload("Creator").Find(n.List, n.ListId).Error
+		err = db.GetDB().Model(&models.List{}).Preload("Creator").First(list, n.ListId).Error
 		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, nil
+			}
 			return ret, err
 		}
+		n.List = list
+	}
+	if n.List != nil {
+		ret.List = ToList(n.List)
 	}
 
 	if !notificationComplete(ret) {
@@ -148,141 +187,228 @@ func ToNotification(n *models.Notification, currentAccount *models.Account) (ret
 }
 
 func ToNotifications(ns []*models.Notification, currentAccount *models.Account) (ret []*Notification, err error) {
-	visibleNotifications := make([]*models.Notification, 0, len(ns))
+	candidates := make([]*models.Notification, 0, len(ns))
 	for _, n := range ns {
-		visible, err := NotificationVisible(n, currentAccount)
+		if n == nil || n.Type == models.NotificationTypeStatusUpdate {
+			continue
+		}
+		candidates = append(candidates, n)
+	}
+	ns = candidates
+	if len(ns) == 0 {
+		return []*Notification{}, nil
+	}
+
+	conn := db.GetDB()
+	rawAccountIDs := make([]uint64, 0, len(ns))
+	rawStatusIDs := make([]uint64, 0, len(ns))
+	rawListIDs := make([]uint64, 0)
+	for _, n := range ns {
+		if n.FromAccountId != 0 {
+			rawAccountIDs = append(rawAccountIDs, n.FromAccountId)
+		}
+		if n.StatusId != 0 {
+			rawStatusIDs = append(rawStatusIDs, n.StatusId)
+		}
+		if n.ListId != 0 {
+			rawListIDs = append(rawListIDs, n.ListId)
+		}
+	}
+	rawAccountIDs = utils.UniqueSlice(rawAccountIDs)
+	rawStatusIDs = utils.UniqueSlice(rawStatusIDs)
+	rawListIDs = utils.UniqueSlice(rawListIDs)
+
+	allowedAccountIDs := make(map[uint64]bool, len(rawAccountIDs))
+	if len(rawAccountIDs) > 0 {
+		var senders models.Accounts
+		if err = conn.Model(&models.Account{}).Where("id IN ?", rawAccountIDs).Find(&senders).Error; err != nil {
+			return nil, err
+		}
+		senders, err = models.FilterVisibleAccounts(conn, currentAccount, senders)
 		if err != nil {
 			return nil, err
 		}
-		if visible {
-			visibleNotifications = append(visibleNotifications, n)
+		for _, a := range senders {
+			allowedAccountIDs[a.Id] = true
 		}
+	}
+
+	allowedStatusIDs := make(map[uint64]bool, len(rawStatusIDs))
+	if len(rawStatusIDs) > 0 {
+		var statusHeaders models.Statuses
+		if err = conn.Model(&models.Status{}).Preload("ToAccounts").Preload("Account").Preload("Reblog").Preload("Reblog.ToAccounts").Preload("Reblog.Account").Where("id IN ?", rawStatusIDs).Find(&statusHeaders).Error; err != nil {
+			return nil, err
+		}
+		statusHeaders, err = models.FilterVisibleStatuses(conn, currentAccount, statusHeaders)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range statusHeaders {
+			allowedStatusIDs[s.Id] = true
+		}
+	}
+
+	allowedLists := make(map[uint64]*models.List, len(rawListIDs))
+	if len(rawListIDs) > 0 {
+		var fetchedLists []*models.List
+		if err = conn.Model(&models.List{}).Preload("Creator").Where("id IN ?", rawListIDs).Find(&fetchedLists).Error; err != nil {
+			return nil, err
+		}
+		for _, item := range fetchedLists {
+			allowed, viewErr := models.ListCanView(item, currentAccount)
+			if viewErr != nil {
+				return nil, viewErr
+			}
+			if allowed {
+				allowedLists[item.Id] = item
+			}
+		}
+	}
+
+	visibleNotifications := make([]*models.Notification, 0, len(ns))
+	for _, n := range ns {
+		if n.FromAccountId != 0 && !allowedAccountIDs[n.FromAccountId] {
+			continue
+		}
+		if n.StatusId != 0 && !allowedStatusIDs[n.StatusId] {
+			continue
+		}
+		if n.ListId != 0 && allowedLists[n.ListId] == nil {
+			continue
+		}
+		visibleNotifications = append(visibleNotifications, n)
 	}
 	ns = visibleNotifications
 	if len(ns) == 0 {
 		return []*Notification{}, nil
 	}
 
-	accountIds := make([]uint64, 0)
-	statusIds := make([]uint64, 0)
+	accountIds := make([]uint64, 0, len(ns))
+	statusIds := make([]uint64, 0, len(ns))
 	reportsIds := make([]uint64, 0)
-	listsIds := make([]uint64, 0)
+	reactionStatusIds := make([]uint64, 0)
+	reactionAccountIds := make([]uint64, 0)
 
 	for _, n := range ns {
 		if n.FromAccountId != 0 {
 			accountIds = append(accountIds, n.FromAccountId)
 		}
-
 		if n.StatusId != 0 {
 			statusIds = append(statusIds, n.StatusId)
 		}
-
 		if n.ReportId != 0 {
 			reportsIds = append(reportsIds, n.ReportId)
 		}
-
-		if n.ListId != 0 {
-			listsIds = append(listsIds, n.ListId)
+		if n.Type == models.NotificationTypeEmojiReaction && n.StatusId != 0 && n.FromAccountId != 0 {
+			reactionStatusIds = append(reactionStatusIds, n.StatusId)
+			reactionAccountIds = append(reactionAccountIds, n.FromAccountId)
 		}
 	}
+	accountIds = utils.UniqueSlice(accountIds)
+	statusIds = utils.UniqueSlice(statusIds)
+	reportsIds = utils.UniqueSlice(reportsIds)
 
 	var accounts []*Account
-
-	_accounts := make(models.Accounts, 0)
-
-	err = db.GetDB().Model(&models.Account{}).Preload("Emojis").Preload("Extra").Where("id in ?", accountIds).Find(&_accounts).Error
-	if err != nil {
-		return ret, err
+	if len(accountIds) > 0 {
+		_accounts := make(models.Accounts, 0, len(accountIds))
+		err = conn.Model(&models.Account{}).Preload("Emojis").Preload("Extra").Where("id in ?", accountIds).Find(&_accounts).Error
+		if err != nil {
+			return ret, err
+		}
+		accounts = ToAccounts(_accounts)
 	}
 
-	accounts = ToAccounts(_accounts)
-
 	statuses := make([]*Status, 0)
-
 	if len(statusIds) > 0 {
-		_statuses := make(models.Statuses, 0)
-
-		err = models.StatusLoadAllQuery(db.GetDB().Model(&models.Status{})).
+		_statuses := make(models.Statuses, 0, len(statusIds))
+		err = models.StatusLoadAllQuery(conn.Model(&models.Status{})).
 			Where("id in ?", statusIds).Find(&_statuses).Error
 		if err != nil {
 			return ret, err
 		}
-
-		if err = models.LinkStoredReplyParents(db.GetDB(), _statuses, systemsettings.GetBaseURL()); err != nil {
-			return ret, err
-		}
-		statuses, err = ToStatuses(_statuses, currentAccount)
-		if err != nil {
-			return ret, err
+		if len(_statuses) > 0 {
+			if err = models.LinkStoredReplyParents(conn, _statuses, systemsettings.GetBaseURL()); err != nil {
+				return ret, err
+			}
+			statuses, err = ToStatuses(_statuses, currentAccount)
+			if err != nil {
+				return ret, err
+			}
 		}
 	}
 
 	reports := make([]*Report, 0)
-
 	if len(reportsIds) > 0 {
-		_reports := make(models.Reports, 0)
-
-		err = db.GetDB().Model(&models.Report{}).Where("id in ?", reportsIds).Find(&_reports).Error
+		_reports := make(models.Reports, 0, len(reportsIds))
+		err = conn.Model(&models.Report{}).Where("id in ?", reportsIds).Find(&_reports).Error
 		if err != nil {
 			return ret, err
 		}
-
 		reports, err = ToReports(_reports, currentAccount)
 		if err != nil {
 			return ret, err
 		}
 	}
 
-	lists := make([]*List, 0)
+	listsMap := make(map[uint64]*List, len(allowedLists))
+	for id, item := range allowedLists {
+		listsMap[id] = ToList(item)
+	}
 
-	if len(listsIds) > 0 {
-		_lists := make([]*models.List, 0)
-
-		err = db.GetDB().Model(&models.List{}).Preload("Creator").Where("id in ?", listsIds).Find(&_lists).Error
+	type reactionKey struct {
+		statusID  uint64
+		accountID uint64
+	}
+	reactionsMap := make(map[reactionKey]*Reaction)
+	if len(reactionStatusIds) > 0 {
+		var rows []models.StatusReaction
+		err = conn.Where("status_id IN ? AND account_id IN ?", utils.UniqueSlice(reactionStatusIds), utils.UniqueSlice(reactionAccountIds)).Find(&rows).Error
 		if err != nil {
-			return ret, err
+			return nil, err
 		}
-
-		lists = ToLists(_lists)
-
-		if err != nil {
-			return ret, err
+		emojiIDs := make([]uint64, 0)
+		for _, row := range rows {
+			if row.EmojiID != 0 {
+				emojiIDs = append(emojiIDs, row.EmojiID)
+			}
+		}
+		emojisByID := make(map[uint64]models.Emoji)
+		if len(emojiIDs) > 0 {
+			var emojis []models.Emoji
+			if err := conn.Where("id IN ?", utils.UniqueSlice(emojiIDs)).Find(&emojis).Error; err != nil {
+				return nil, err
+			}
+			for _, e := range emojis {
+				if !e.Disabled {
+					emojisByID[e.Id] = e
+				}
+			}
+		}
+		for _, row := range rows {
+			r := &Reaction{Name: row.Name, Count: 1}
+			if e, ok := emojisByID[row.EmojiID]; ok {
+				r.URL = mediaproxy.URL(mediaproxy.KindEmoji, e.Url)
+				r.StaticURL = mediaproxy.URL(mediaproxy.KindEmoji, e.StaticUrl)
+				r.IsSensitive = e.IsSensitive
+			}
+			reactionsMap[reactionKey{statusID: row.StatusID, accountID: row.AccountID}] = r
 		}
 	}
 
 	accountsMap := utils.MapByAnyFiled(accounts, func(t *Account) uint64 {
-		var id uint64
-
-		id, _ = strconv.ParseUint(t.Id, 10, 64)
-
+		id, _ := strconv.ParseUint(t.Id, 10, 64)
 		return id
 	})
-
 	statusesMap := utils.MapByAnyFiled(statuses, func(t *Status) uint64 {
-		var id uint64
-
-		id, _ = strconv.ParseUint(t.Id, 10, 64)
-
+		id, _ := strconv.ParseUint(t.Id, 10, 64)
 		return id
 	})
-
 	reportsMap := utils.MapByAnyFiled(reports, func(t *Report) uint64 {
-		var id uint64
-
-		id, _ = strconv.ParseUint(t.Id, 10, 64)
-
+		id, _ := strconv.ParseUint(t.Id, 10, 64)
 		return id
 	})
 
-	listsMap := utils.MapByAnyFiled(lists, func(t *List) uint64 {
-		var id uint64
-
-		id, _ = strconv.ParseUint(t.Id, 10, 64)
-
-		return id
-	})
-
-	ret = make([]*Notification, 0)
+	ret = make([]*Notification, 0, len(ns))
 
 	for _, n := range ns {
 		nf := &Notification{}
@@ -290,37 +416,23 @@ func ToNotifications(ns []*models.Notification, currentAccount *models.Account) 
 		nf.Type = n.GetTypeString()
 		nf.CreatedAt = NewAPITime(n.CreatedAt)
 		if n.Type == models.NotificationTypeEmojiReaction {
-			nf.EmojiReaction, err = notificationReaction(n)
-			if err != nil {
-				return nil, err
-			}
+			nf.EmojiReaction = reactionsMap[reactionKey{statusID: n.StatusId, accountID: n.FromAccountId}]
 			if nf.EmojiReaction == nil {
 				continue
 			}
 		}
 
 		if n.FromAccountId != 0 {
-			if account, ok := accountsMap[n.FromAccountId]; ok {
-				nf.Account = account
-			}
+			nf.Account = accountsMap[n.FromAccountId]
 		}
-
 		if n.StatusId != 0 {
-			if status, ok := statusesMap[n.StatusId]; ok {
-				nf.Status = status
-			}
+			nf.Status = statusesMap[n.StatusId]
 		}
-
 		if n.ReportId != 0 {
-			if report, ok := reportsMap[n.ReportId]; ok {
-				nf.Report = report
-			}
+			nf.Report = reportsMap[n.ReportId]
 		}
-
 		if n.ListId != 0 {
-			if list, ok := listsMap[n.ListId]; ok {
-				nf.List = list
-			}
+			nf.List = listsMap[n.ListId]
 		}
 
 		if !notificationComplete(nf) {

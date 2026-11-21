@@ -68,9 +68,5 @@ func UnmuteStatus(c *gin.Context) {
 	err = dbConn.Delete(&models.MuteStatus{}, "account_id = ? AND status_id = ?", currentAccount.Id, status.Id).Error
 	controllers.AbortIfError(c, err)
 
-	// 同时删除对这个账号的mute
-	err = dbConn.Delete(&models.MuteAccount{}, "account_id = ? AND target_id = ?", currentAccount.Id, status.AccountId).Error
-	controllers.AbortIfError(c, err)
-
 	returnFullSingleStatus(c, status, currentAccount)
 }

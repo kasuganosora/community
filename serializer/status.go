@@ -251,7 +251,7 @@ func ToStatusesContext(ctx context.Context, statuses models.Statuses, currentAcc
 	}
 	conn := db.GetDB()
 	if conn != nil {
-		conn = conn.WithContext(ctx)
+		conn = conn.WithContext(models.WithDomainSeveritiesMemo(ctx))
 	}
 	return toStatusesWithDB(conn, statuses, currentAccount)
 }
@@ -259,6 +259,9 @@ func toStatusesWithDB(conn *gorm.DB, statuses models.Statuses, currentAccount *m
 	ret = make([]*Status, 0, len(statuses))
 	if len(statuses) == 0 {
 		return ret, nil
+	}
+	if conn != nil && conn.Statement != nil {
+		conn = conn.WithContext(models.WithDomainSeveritiesMemo(conn.Statement.Context))
 	}
 	statuses, err = models.FilterVisibleStatuses(conn, currentAccount, statuses)
 	if err != nil {
@@ -413,7 +416,7 @@ UNION ALL SELECT 'muted_author', target_id FROM mute_accounts WHERE account_id =
 		apply(s, out)
 		ret = append(ret, out)
 	}
-	if err := attachReplyPreviews(conn, ret, currentAccount); err != nil {
+	if err := attachReplyPreviews(conn, ret, currentAccount, filters); err != nil {
 		return nil, err
 	}
 	return ret, nil

@@ -22,12 +22,12 @@ func init() {
 			return true
 		}
 		if event.Data == nil {
-			return false
+			return true
 		}
 
-		notification := event.Data.(*models.Notification) //nolint:forcetypeassert
-		if notification == nil {
-			return false
+		notification, ok := event.Data.(*models.Notification)
+		if !ok || notification == nil {
+			return true
 		}
 
 		// 如果是新增的事件
@@ -67,7 +67,7 @@ func (timeline *NotificationTimeline) RebuildContext(ctx context.Context) error 
 	}
 	defer feed.ReleaseRebuild(ctx, timeline, lease)
 	var ids []uint64
-	if err = db.GetDB().WithContext(ctx).Model(&models.Notification{}).Where("account_id = ?", timeline.Account.Id).Order("id desc").Limit(feed.MAX_ITEMS).Pluck("id", &ids).Error; err != nil {
+	if err = db.GetDB().WithContext(ctx).Model(&models.Notification{}).Where("account_id = ? AND type <> ?", timeline.Account.Id, models.NotificationTypeStatusUpdate).Order("id desc").Limit(feed.MAX_ITEMS).Pluck("id", &ids).Error; err != nil {
 		return err
 	}
 	entries := make(models.Statuses, 0, len(ids))
@@ -79,7 +79,7 @@ func (timeline *NotificationTimeline) RebuildContext(ctx context.Context) error 
 
 func (timeline *NotificationTimeline) push(notification *models.Notification, pushToClient bool, trim bool) (err error) {
 	ctx := context.Background()
-	err = db.GetRedis().ZAdd(ctx, fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId()), redis.Z{
+	err = db.GetUniversalRedis().ZAdd(ctx, fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId()), redis.Z{
 		Score:  float64(notification.Id),
 		Member: notification.Id,
 	}).Err()
@@ -114,7 +114,7 @@ func (timeline *NotificationTimeline) push(notification *models.Notification, pu
 
 func (timeline *NotificationTimeline) trim() {
 	ctx := context.Background()
-	_ = db.GetRedis().ZRemRangeByRank(ctx, fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId()), 0, -feed.MAX_ITEMS).Err()
+	_ = db.GetUniversalRedis().ZRemRangeByRank(ctx, fmt.Sprintf(timeline.GetKeyFormat(), timeline.GetTimelineId()), 0, -feed.MAX_ITEMS).Err()
 }
 
 func Push(notification *models.Notification, pushToClient bool, trim bool) (err error) {

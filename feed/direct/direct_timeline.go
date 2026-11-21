@@ -17,12 +17,12 @@ func init() {
 			return true
 		}
 		if event.Data == nil {
-			return false
+			return true
 		}
 
-		status := event.Data.(*models.Status) //nolint:forcetypeassert
-		if status == nil {
-			return false
+		status, ok := event.Data.(*models.Status)
+		if !ok || status == nil {
+			return true
 		}
 
 		// 只处理 私信
@@ -40,8 +40,8 @@ func init() {
 				}
 			}()
 		case "before_update":
-			go func() { // 更新之前，先删除
-				err := Unpush(status, true)
+			go func() { // 更新之前不向客户端发送 delete
+				err := Unpush(status, false)
 				if err != nil {
 					log.Printf("direct_timeline: Unpush failed: %v", err)
 				}
@@ -84,6 +84,9 @@ func (timeline *DirectTimeline) Rebuild() (err error) {
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
+	if status == nil || db.GetDB() == nil {
+		return nil
+	}
 	if status.Visibility != models.StatusVisibilityDirect || !pushToClient {
 		return err
 	}
@@ -92,6 +95,8 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 		return err
 	}
 
+	cloned := *status
+	status = &cloned
 	if status.ToAccounts == nil {
 		status.ToAccounts = make([]*models.Account, 0)
 
@@ -122,10 +127,15 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
+	if status == nil || db.GetDB() == nil {
+		return nil
+	}
 	if status.Visibility != models.StatusVisibilityDirect || !pushToClient {
 		return
 	}
 
+	cloned := *status
+	status = &cloned
 	if status.ToAccounts == nil {
 		status.ToAccounts = make([]*models.Account, 0)
 

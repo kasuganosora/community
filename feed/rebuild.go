@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"hash/fnv"
 	"sort"
 	"strconv"
 	"sync"
@@ -16,8 +17,26 @@ type rebuildCall struct {
 	err  error
 }
 
-var rebuildMu sync.Mutex
-var rebuildCalls = map[string]*rebuildCall{}
+type rebuildBucket struct {
+	mu    sync.Mutex
+	calls map[string]*rebuildCall
+}
+
+var rebuildBuckets [64]rebuildBucket
+
+func rebuildBucketFor(key string) *rebuildBucket {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	return &rebuildBuckets[h.Sum32()&63]
+}
+
+func hasRebuildCall(key string) bool {
+	b := rebuildBucketFor(key)
+	b.mu.Lock()
+	_, exists := b.calls[key]
+	b.mu.Unlock()
+	return exists
+}
 
 // Concurrent misses for the same feed share one rebuild, not one per request.
 // This only coordinates in-flight work; it does not cache authorization/results.
@@ -25,9 +44,13 @@ func coalesceRebuild(key string, rebuild func() error) error {
 	return coalesceRebuildContext(context.Background(), key, rebuild)
 }
 func coalesceRebuildContext(ctx context.Context, key string, rebuild func() error) error {
-	rebuildMu.Lock()
-	if call := rebuildCalls[key]; call != nil {
-		rebuildMu.Unlock()
+	b := rebuildBucketFor(key)
+	b.mu.Lock()
+	if b.calls == nil {
+		b.calls = make(map[string]*rebuildCall)
+	}
+	if call := b.calls[key]; call != nil {
+		b.mu.Unlock()
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -39,9 +62,9 @@ func coalesceRebuildContext(ctx context.Context, key string, rebuild func() erro
 		return call.err
 	}
 	call := &rebuildCall{done: make(chan struct{})}
-	rebuildCalls[key] = call
-	rebuildMu.Unlock()
-	defer func() { rebuildMu.Lock(); delete(rebuildCalls, key); close(call.done); rebuildMu.Unlock() }()
+	b.calls[key] = call
+	b.mu.Unlock()
+	defer func() { b.mu.Lock(); delete(b.calls, key); close(call.done); b.mu.Unlock() }()
 	call.err = rebuild()
 	if call.err == nil {
 		rebuildOutcomes.WithLabelValues("success").Inc()
@@ -149,7 +172,7 @@ for original,ids in pairs(snapshot.duplicates) do
  redis.call('EXPIRE',k..':reblogs:'..original,604800)
 end
 local now=redis.call('TIME')
-redis.call('HSET',m,'ready',1,'checked_at',now[1],'count',#snapshot.items,'rank','ca1')
+redis.call('HSET',m,'ready',1,'checked_at',now[1],'count',#snapshot.items,'complete',ARGV[5],'rank','ca1')
 redis.call('DEL',k..':rebuild')
 redis.call('EXPIRE',k,604800)
 redis.call('EXPIRE',k..':reblogs',604800)
@@ -163,6 +186,10 @@ func PublishRebuild(ctx context.Context, timeline Timeline, lease RebuildLease, 
 }
 func (s *FeedService) PublishRebuild(ctx context.Context, timeline Timeline, lease RebuildLease, statuses models.Statuses, aggregate bool) error {
 	defer releaseRebuildSlot(lease)
+	complete := 0
+	if len(statuses) < MAX_ITEMS {
+		complete = 1
+	}
 	snapshot := buildTimelineSnapshot(statuses, aggregate)
 	items := make([]struct {
 		ID    string `json:"id"`
@@ -192,7 +219,7 @@ func (s *FeedService) PublishRebuild(ctx context.Context, timeline Timeline, lea
 	if err != nil {
 		return err
 	}
-	result, err := s.eval(ctx, rebuildTimelineScript, []string{TimelineKey(timeline)}, lease.Epoch, lease.Generation, lease.Token, string(data))
+	result, err := s.eval(ctx, rebuildTimelineScript, []string{TimelineKey(timeline)}, lease.Epoch, lease.Generation, lease.Token, string(data), complete)
 	if err != nil {
 		return err
 	}

@@ -3,11 +3,13 @@ package streaming
 import (
 	"context"
 	"encoding/json"
+	"hash/fnv"
 	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +24,48 @@ import (
 	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
+
+type anonSerializeCall struct {
+	done      chan struct{}
+	eventType string
+	payload   string
+	err       error
+}
+
+type anonSerializeShard struct {
+	mu    sync.Mutex
+	calls map[string]*anonSerializeCall
+}
+
+var anonSerializeShards [32]anonSerializeShard
+
+func coalesceAnonStatusEvent(key string, fn func() (string, string, error)) (string, string, error) {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	shard := &anonSerializeShards[h.Sum32()&31]
+
+	shard.mu.Lock()
+	if shard.calls == nil {
+		shard.calls = make(map[string]*anonSerializeCall)
+	}
+	if c, ok := shard.calls[key]; ok {
+		shard.mu.Unlock()
+		<-c.done
+		return c.eventType, c.payload, c.err
+	}
+	c := &anonSerializeCall{done: make(chan struct{})}
+	shard.calls[key] = c
+	shard.mu.Unlock()
+
+	defer func() {
+		shard.mu.Lock()
+		delete(shard.calls, key)
+		shard.mu.Unlock()
+		close(c.done)
+	}()
+	c.eventType, c.payload, c.err = fn()
+	return c.eventType, c.payload, c.err
+}
 
 var upgrade = websocket.Upgrader{
 	CheckOrigin: checkOrigin,
@@ -68,6 +112,15 @@ func parseAllowedOrigins(s string) []string {
 }
 
 func serializerStatusEvent(account *models.Account, payload string, channel ...string) (eventType string, payloadStr string, err error) {
+	if account == nil && len(channel) > 0 {
+		return coalesceAnonStatusEvent(channel[0]+"\x00"+payload, func() (string, string, error) {
+			return serializerStatusEventUncached(nil, payload, channel...)
+		})
+	}
+	return serializerStatusEventUncached(account, payload, channel...)
+}
+
+func serializerStatusEventUncached(account *models.Account, payload string, channel ...string) (eventType string, payloadStr string, err error) {
 	type statusEvent struct {
 		Type    string         `json:"type"`
 		Payload *models.Status `json:"payload"`
@@ -184,6 +237,16 @@ func currentStreamingAccount(account *models.Account) (*models.Account, error) {
 	return &current, nil
 }
 
+func revalidateStreamConnection(c *gin.Context, account *models.Account) (*models.Account, error) {
+	if account == nil || c == nil {
+		return account, nil
+	}
+	if _, hasToken := c.Get("token_data"); hasToken {
+		return revalidateFeedStreamingAccount(c, account)
+	}
+	return account, nil
+}
+
 func serializerNotificationEvent(account *models.Account, payload string) (string, string, error) {
 	var event struct {
 		Payload *serializer.Notification `json:"payload"`
@@ -238,13 +301,15 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 	}
 
 	ctx := c.Request.Context()
+	shutdown := currentStreamShutdown()
 	value, _ := c.Get("account")
 	viewer, _ := value.(*models.Account)
-	topicChan := db.GetRedis().Subscribe(ctx, channelName...)
-
-	defer func() {
-		_ = topicChan.Close()
-	}()
+	rawSub, stopSub, subErr := subscribeRawChannels(ctx, channelName)
+	if subErr != nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "stream temporarily unavailable"})
+		return
+	}
+	defer stopSub()
 
 	setSSEHeaders(c.Writer.Header())
 	flusher, ok := c.Writer.(http.Flusher)
@@ -253,11 +318,20 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 
 		return
 	}
+	controller := http.NewResponseController(c.Writer)
+	defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
+	writeSSE := func(frame []byte) error {
+		_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if _, err := c.Writer.Write(frame); err != nil {
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
 
-	if _, err := c.Writer.Write(sseInitialPadding); err != nil {
+	if writeSSE(sseInitialPadding) != nil {
 		return
 	}
-	flusher.Flush()
 	heartbeat := time.NewTicker(sseHeartbeatInterval)
 	defer heartbeat.Stop()
 
@@ -265,14 +339,28 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 		select {
 		case <-ctx.Done():
 			return
+		case <-shutdown:
+			return
+		case <-rawSub.closed:
+			return
 		case <-heartbeat.C:
-			if _, err := c.Writer.Write(sseHeartbeat); err != nil {
+			if viewer != nil {
+				current, err := revalidateStreamConnection(c, viewer)
+				if err != nil {
+					return
+				}
+				viewer = current
+			}
+			if writeSSE(sseHeartbeat) != nil {
 				return
 			}
-			flusher.Flush()
-		case msg, open := <-topicChan.Channel():
-			if !open || msg == nil {
-				return
+		case msg := <-rawSub.ch:
+			if viewer != nil {
+				current, err := revalidateStreamConnection(c, viewer)
+				if err != nil {
+					return
+				}
+				viewer = current
 			}
 			// List ownership/following can be revoked while this SSE connection is open.
 			if _, _, err := streamForChannel(viewer, msg.Channel); err != nil {
@@ -295,9 +383,9 @@ func startSseService(c *gin.Context, procDataHandle func(data any) (event, paylo
 			// 清理 payload 中的 \r 和 \n，防止 SSE 帧被拆分
 			safeEvent := strings.ReplaceAll(strings.ReplaceAll(event, "\r", " "), "\n", " ")
 			safePayload := strings.ReplaceAll(strings.ReplaceAll(payload, "\r", " "), "\n", " ")
-			_, _ = c.Writer.Write([]byte("event: " + safeEvent + "\n" + "data: " + safePayload + "\n\n"))
-
-			flusher.Flush()
+			if writeSSE([]byte("event: "+safeEvent+"\n"+"data: "+safePayload+"\n\n")) != nil {
+				return
+			}
 		}
 	}
 }

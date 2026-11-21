@@ -181,12 +181,13 @@ func (w *Worker) deliver(ctx context.Context, event *models.FeedEvent, batch *mo
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		if err == nil && s.DeletedAt == nil && s.ScheduledAt == nil && !feed.SkipsTimelines(s) {
+		if err == nil && s.DeletedAt == nil && s.ScheduledAt == nil && (!feed.SkipsTimelines(s) || (batch.TargetKind == "mention" && !s.IsProfileBackfill())) {
 			status = s
 			version = max(version, s.FeedRevision)
 		}
 	}
 	followers := map[uint64]bool{}
+	hiddenReblogs := map[uint64]bool{}
 	if status != nil && (batch.TargetKind == "home" || status.Visibility == models.StatusVisibilityPrivate) {
 		ids := []uint64{}
 		for _, target := range targets {
@@ -202,6 +203,23 @@ func (w *Worker) deliver(ctx context.Context, event *models.FeedEvent, batch *mo
 			for _, id := range accepted {
 				followers[id] = true
 			}
+			if batch.TargetKind == "home" && status.ReblogId != nil && *status.ReblogId > 0 && (models.FeedOutboxRequired() || conn.Migrator().HasColumn(&models.Follow{}, "properties")) {
+				var hidden []uint64
+				if err := conn.Model(&models.Follow{}).Where("follows.account_id IN ? AND follows.follow_id = ? AND follows.status = ?", ids, status.AccountId, models.FollowStatusFollowed).Where(models.HiddenReblogsCondition(conn)).Pluck("follows.account_id", &hidden).Error; err != nil {
+					return err
+				}
+				for _, id := range hidden {
+					hiddenReblogs[id] = true
+				}
+			}
+		}
+	}
+	eligibleLists := map[uint64]bool{}
+	if status != nil && batch.TargetKind == "list" {
+		var err error
+		eligibleLists, err = resolveEligibleLists(conn, targets, status)
+		if err != nil {
+			return err
 		}
 	}
 	hasMedia := false
@@ -226,7 +244,7 @@ func (w *Worker) deliver(ctx context.Context, event *models.FeedEvent, batch *mo
 	projectionTargetIndexes := []int{}
 	superseded := map[int]bool{}
 	for i, target := range targets {
-		allowed := eligible(target, status, followers, hasMedia)
+		allowed := eligible(target, status, followers, hiddenReblogs, eligibleLists, hasMedia)
 		if notice != nil {
 			allowed = target.account != nil && notice.AccountId == target.account.Id
 		}
@@ -284,9 +302,130 @@ func (w *Worker) deliver(ctx context.Context, event *models.FeedEvent, batch *mo
 	return w.publish(ctx, targets, epochs, visible, event, status)
 }
 
+func resolveEligibleLists(conn *gorm.DB, targets []deliveryTarget, status *models.Status) (map[uint64]bool, error) {
+	listsByID := map[uint64]*models.List{}
+	listIDs := []uint64{}
+	for _, target := range targets {
+		if target.list != nil && listsByID[target.list.Id] == nil {
+			listsByID[target.list.Id] = target.list
+			listIDs = append(listIDs, target.list.Id)
+		}
+	}
+	if len(listIDs) == 0 {
+		return nil, nil
+	}
+	var memberListIDs []uint64
+	if err := conn.Model(&models.ListAccount{}).Where("list_id IN ? AND account_id = ?", listIDs, status.AccountId).Pluck("list_id", &memberListIDs).Error; err != nil {
+		return nil, err
+	}
+	memberOf := map[uint64]bool{}
+	for _, id := range memberListIDs {
+		memberOf[id] = true
+	}
+	isReply := status.InReplyToId != nil && *status.InReplyToId != 0
+	replyToAccount := uint64(0)
+	if status.InReplyToAccountId != nil {
+		replyToAccount = *status.InReplyToAccountId
+	}
+	replyTargetMemberOf := map[uint64]bool{}
+	ownerFollowsReplyTarget := map[uint64]bool{}
+	if isReply && replyToAccount != 0 && len(memberOf) > 0 {
+		var replyMemberLists []uint64
+		if err := conn.Model(&models.ListAccount{}).Where("list_id IN ? AND account_id = ?", memberListIDs, replyToAccount).Pluck("list_id", &replyMemberLists).Error; err != nil {
+			return nil, err
+		}
+		for _, id := range replyMemberLists {
+			replyTargetMemberOf[id] = true
+		}
+		ownerIDs := []uint64{}
+		for _, id := range memberListIDs {
+			if l := listsByID[id]; l != nil && l.RepliesPolicy == models.ListRepliesPolicyFollowed {
+				ownerIDs = append(ownerIDs, l.AccountId)
+			}
+		}
+		if len(ownerIDs) > 0 {
+			var followedOwners []uint64
+			if err := conn.Model(&models.Follow{}).Where("account_id IN ? AND follow_id = ? AND status = ?", ownerIDs, replyToAccount, models.FollowStatusFollowed).Pluck("account_id", &followedOwners).Error; err != nil {
+				return nil, err
+			}
+			for _, id := range followedOwners {
+				ownerFollowsReplyTarget[id] = true
+			}
+		}
+	}
+	taggedListOf := map[uint64]bool{}
+	blockedOwners := map[uint64]bool{}
+	if len(status.Tags) > 0 {
+		tagIDs := make([]uint64, 0, len(status.Tags))
+		for _, item := range status.Tags {
+			if item.Id != 0 {
+				tagIDs = append(tagIDs, item.Id)
+			}
+		}
+		if len(tagIDs) > 0 {
+			var matched []uint64
+			if err := conn.Model(&models.ListHashtag{}).Where("list_id IN ? AND tag_id IN ?", listIDs, tagIDs).Pluck("list_id", &matched).Error; err != nil {
+				return nil, err
+			}
+			ownerIDs := []uint64{}
+			for _, id := range matched {
+				taggedListOf[id] = true
+				if l := listsByID[id]; l != nil {
+					ownerIDs = append(ownerIDs, l.AccountId)
+				}
+			}
+			if len(ownerIDs) > 0 {
+				var blocked []uint64
+				q := conn.Model(&models.Block{}).Where(
+					"(type = ? AND ((account_id IN ? AND target_account_id = ?) OR (account_id = ? AND target_account_id IN ?)))",
+					models.BlockTypeAccount, ownerIDs, status.AccountId, status.AccountId, ownerIDs,
+				)
+				if err := q.Select("CASE WHEN account_id = ? THEN target_account_id ELSE account_id END", status.AccountId).Pluck("owner_id", &blocked).Error; err != nil {
+					return nil, err
+				}
+				for _, id := range blocked {
+					blockedOwners[id] = true
+				}
+				if status.Domain != nil && *status.Domain != "" {
+					var domainBlocked []uint64
+					if err := conn.Model(&models.Block{}).Where("type = ? AND account_id IN ? AND target_domain = ?", models.BlockTypeDomain, ownerIDs, *status.Domain).Pluck("account_id", &domainBlocked).Error; err != nil {
+						return nil, err
+					}
+					for _, id := range domainBlocked {
+						blockedOwners[id] = true
+					}
+				}
+			}
+		}
+	}
+	out := make(map[uint64]bool, len(listIDs))
+	for id, l := range listsByID {
+		if memberOf[id] {
+			switch l.RepliesPolicy {
+			case models.ListRepliesPolicyNone:
+				if !isReply {
+					out[id] = true
+				}
+			case models.ListRepliesPolicyFollowed:
+				if !isReply || ownerFollowsReplyTarget[l.AccountId] {
+					out[id] = true
+				}
+			default:
+				if !isReply || replyTargetMemberOf[id] {
+					out[id] = true
+				}
+			}
+		}
+		if !out[id] && taggedListOf[id] && !blockedOwners[l.AccountId] && (l.RepliesPolicy != models.ListRepliesPolicyNone || !isReply) {
+			out[id] = true
+		}
+	}
+	return out, nil
+}
+
 // This is candidate membership, not the final authorization check. HTTP and
 // streaming reload SQL and apply blocks, bans, quotes and reblog authorization.
-func eligible(target deliveryTarget, status *models.Status, followers map[uint64]bool, hasMedia bool) bool {
+func eligible(target deliveryTarget, status *models.Status, followers, hiddenReblogs, eligibleLists map[uint64]bool, hasMedia bool) bool {
 	if status == nil || status.Account == nil || status.Account.IsBan {
 		return false
 	}
@@ -306,6 +445,9 @@ func eligible(target deliveryTarget, status *models.Status, followers map[uint64
 		}
 		if target.account.Id == status.AccountId {
 			return true
+		}
+		if status.ReblogId != nil && *status.ReblogId > 0 && hiddenReblogs[target.account.Id] {
+			return false
 		}
 		if status.Visibility == models.StatusVisibilityDirect {
 			return mentioned
@@ -327,9 +469,12 @@ func eligible(target deliveryTarget, status *models.Status, followers map[uint64
 				break
 			}
 		}
-		return found && status.Visibility == models.StatusVisibilityPublic && (!t.OnlyLocal || status.Domain == nil) && (!t.OnlyRemote || status.Domain != nil) && (!t.OnlyMedia || hasMedia)
+		return found && (!t.OnlyLocal || status.Domain == nil) && (!t.OnlyRemote || status.Domain != nil) && (!t.OnlyMedia || hasMedia)
 	case "list":
 		t := target.timeline.(*list.ListTimeline)
+		if target.list == nil || !eligibleLists[target.list.Id] {
+			return false
+		}
 		return (status.Visibility == models.StatusVisibilityPublic || status.Visibility == models.StatusVisibilityUnlisted) && (!t.OnlyLocal || status.Domain == nil) && (!t.OnlyRemote || status.Domain != nil) && (!t.OnlyMedia || hasMedia)
 	}
 	return false
@@ -344,6 +489,9 @@ func (w *Worker) publish(ctx context.Context, targets []deliveryTarget, epochs [
 	client := db.GetUniversalRedis()
 	_, err := client.Pipelined(ctx, func(pipe redis.Pipeliner) error {
 		for i, target := range targets {
+			if event.Kind == models.FeedStatusCreate && i < len(visible) && !visible[i] {
+				continue
+			}
 			epoch := ""
 			if i < len(epochs) {
 				epoch = epochs[i]
@@ -369,14 +517,28 @@ func (w *Worker) publish(ctx context.Context, targets []deliveryTarget, epochs [
 				payload = map[string]any{"id": strconv.FormatUint(event.Metadata.NotificationID, 10)}
 			}
 			if target.kind == "direct" {
-				if !visible[i] || status == nil || status.ConversationId == nil {
+				if event.Kind == models.FeedStatusDelete {
+					kind = "delete"
+					payload = map[string]any{"id": event.ObjectID}
+				} else {
+					if !visible[i] || status == nil || status.ConversationId == nil {
+						continue
+					}
+					kind = "conversation"
+					payload = map[string]any{"id": *status.ConversationId}
+				}
+			}
+			// Private/unlisted/deleted payload identifiers never go to a public/hashtag channel.
+			if target.kind == "public" || target.kind == "tag" {
+				if kind == "delete" {
+					if event.Metadata.Visibility != models.StatusVisibilityPublic {
+						continue
+					}
+				} else if status == nil || status.Visibility != models.StatusVisibilityPublic {
 					continue
 				}
-				kind = "conversation"
-				payload = map[string]any{"id": *status.ConversationId}
 			}
-			// Private/deleted payload identifiers never go to a public channel.
-			if (target.kind == "public" || target.kind == "tag" || target.kind == "list") && kind == "delete" && event.Metadata.Visibility != models.StatusVisibilityPublic && event.Metadata.Visibility != models.StatusVisibilityUnlisted {
+			if target.kind == "list" && kind == "delete" && event.Metadata.Visibility != models.StatusVisibilityPublic && event.Metadata.Visibility != models.StatusVisibilityUnlisted {
 				continue
 			}
 			wire, _ := json.Marshal(map[string]any{"type": kind, "payload": payload})

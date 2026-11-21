@@ -4,13 +4,16 @@ import (
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/controllers"
+	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/feed/home"
+	"github.com/kasuganosora/community/feed/notification"
 	"github.com/kasuganosora/community/log"
 )
 
 func UserStreaming(c *gin.Context) {
 	account := controllers.MustGetAccount(c)
 	timeline := &home.HomeTimeline{Account: account}
+	notificationTimeline := &notification.NotificationTimeline{Account: account}
 
 	procHandle := func(data any) (event, payload string, err error) {
 		type RedisChannelEvent struct {
@@ -50,5 +53,5 @@ func UserStreaming(c *gin.Context) {
 		}
 	}
 
-	startSseService(c, procHandle, timeline)
+	startSseService(c, procHandle, timeline, notificationTimeline, feed.AnnouncementsChannel{})
 }

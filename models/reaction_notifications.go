@@ -49,6 +49,9 @@ func createReactionNotification(tx *gorm.DB, row *StatusReaction, status *Status
 	if err := tx.Session(&gorm.Session{SkipHooks: true}).Create(notification).Error; err != nil {
 		return err
 	}
+	if err := QueueFeedNotification(tx, notification); err != nil {
+		return err
+	}
 	if buffer, ok := tx.Statement.Context.Value(reactionNotificationsKey{}).(*reactionNotifications); ok {
 		buffer.created = append(buffer.created, notification)
 	}

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"errors"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -194,6 +195,63 @@ func (lfa *ListFollowAccount) BeforeDelete(tx *gorm.DB) error {
 	}
 	for _, row := range rows {
 		if err := QueueFeedInvalidation(tx, FeedEventMetadata{ActorID: row.AccountId, RecipientIDs: []uint64{row.AccountId}, ListIDs: []uint64{row.ListId}, Reason: "list_subscription_changed"}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func queueFeedListHashtag(tx *gorm.DB, lh *ListHashtag) error {
+	if skipFeedHooks(tx) {
+		return nil
+	}
+	var list List
+	var actorID uint64
+	var recipients []uint64
+	if err := tx.Session(&gorm.Session{NewDB: true}).First(&list, lh.ListId).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+	} else {
+		actorID = list.AccountId
+		recipients = []uint64{list.AccountId}
+	}
+	return QueueFeedInvalidation(tx, FeedEventMetadata{ActorID: actorID, RecipientIDs: recipients, ListIDs: []uint64{lh.ListId}, Reason: "list_changed"})
+}
+
+func (lh *ListHashtag) AfterCreate(tx *gorm.DB) error {
+	return queueFeedListHashtag(tx, lh)
+}
+
+func (lh *ListHashtag) BeforeDelete(tx *gorm.DB) error {
+	if skipFeedHooks(tx) {
+		return nil
+	}
+	var rows []ListHashtag
+	q := tx.Session(&gorm.Session{NewDB: true}).Model(&ListHashtag{}).Clauses(clause.Locking{Strength: "UPDATE"})
+	if lh.Id > 0 {
+		q = q.Where("id = ?", lh.Id)
+	} else {
+		if lh.ListId > 0 {
+			q = q.Where("list_id = ?", lh.ListId)
+		}
+		if lh.TagId > 0 {
+			q = q.Where("tag_id = ?", lh.TagId)
+		}
+		if where, ok := tx.Statement.Clauses["WHERE"]; ok {
+			q = q.Where(where.Expression)
+		}
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		return err
+	}
+	seen := map[uint64]bool{}
+	for _, row := range rows {
+		if seen[row.ListId] {
+			continue
+		}
+		seen[row.ListId] = true
+		if err := queueFeedListHashtag(tx, &row); err != nil {
 			return err
 		}
 	}

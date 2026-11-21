@@ -84,10 +84,7 @@ func TestFeedPendingSubscriptionDoesNotBlockCleanupOrCanceledWaiter(t *testing.T
 	case <-time.After(4 * time.Second):
 		t.Fatal("initializer did not stop")
 	}
-	feedTopics.Lock()
-	remaining := len(feedTopics.entries)
-	feedTopics.Unlock()
-	require.Zero(t, remaining)
+	require.Zero(t, activeTopicCount())
 }
 
 func TestFeedShutdownEndsActiveHTTPStream(t *testing.T) {

@@ -5,19 +5,28 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kasuganosora/community/config"
 	"github.com/redis/go-redis/v9"
 )
 
-var redises []*redis.Client
+var (
+	redisMu sync.RWMutex
+	redises []*redis.Client
+)
 
 func init() { Init() }
 
 // Init (re)creates the clients from config.C, e.g. after the setup wizard
 // wrote a new configuration. Existing clients are closed.
 func Init() {
+	redisMu.Lock()
+	defer redisMu.Unlock()
+	if universal != nil {
+		_ = universal.Close()
+	}
 	for _, c := range redises {
 		_ = c.Close()
 	}
@@ -81,6 +90,8 @@ func Init() {
 }
 
 func GetRedis(connNum ...int) *redis.Client {
+	redisMu.RLock()
+	defer redisMu.RUnlock()
 	// 未配置任何 redis
 	if len(redises) == 0 {
 		panic("no redis config")
@@ -99,7 +110,11 @@ func GetRedis(connNum ...int) *redis.Client {
 }
 
 func GetRedises() []*redis.Client {
-	return redises
+	redisMu.RLock()
+	defer redisMu.RUnlock()
+	out := make([]*redis.Client, len(redises))
+	copy(out, redises)
+	return out
 }
 
 // Universal client is shared by v3 feed workers, readers and stream subscribers.
@@ -107,14 +122,26 @@ func GetRedises() []*redis.Client {
 var universal redis.UniversalClient
 
 func GetUniversalRedis() redis.UniversalClient {
-	if universal != nil {
-		return universal
+	redisMu.RLock()
+	u := universal
+	redisMu.RUnlock()
+	if u != nil {
+		return u
 	}
 	return GetRedis()
 }
-func SetUniversalRedis(client redis.UniversalClient) { universal = client }
 
-func HasUniversalRedis() bool { return universal != nil }
+func SetUniversalRedis(client redis.UniversalClient) {
+	redisMu.Lock()
+	universal = client
+	redisMu.Unlock()
+}
+
+func HasUniversalRedis() bool {
+	redisMu.RLock()
+	defer redisMu.RUnlock()
+	return universal != nil
+}
 
 // Environment overrides the parsed .env configuration, including an explicit
 // empty value used to disable the optional Cluster connection.

@@ -113,7 +113,7 @@ func Favourites(c *gin.Context) {
 	}
 
 	// Convert to serializer
-	serializedStatuses, err := serializer.ToStatuses(statuses, currentAccount)
+	serializedStatuses, err := serializer.ToStatusesContext(c.Request.Context(), statuses, currentAccount)
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "serialize statuses error"))
 
@@ -132,8 +132,11 @@ func Bookmarks(c *gin.Context) {
 		return
 	}
 
-	if req.Limit == 0 {
+	if req.Limit <= 0 {
 		req.Limit = 20
+	}
+	if req.Limit > 80 {
+		req.Limit = 80
 	}
 
 	// Get current account
@@ -218,7 +221,7 @@ func Bookmarks(c *gin.Context) {
 	}
 
 	// Convert to serializer
-	serializedStatuses, err := serializer.ToStatuses(statuses, currentAccount)
+	serializedStatuses, err := serializer.ToStatusesContext(c.Request.Context(), statuses, currentAccount)
 	if err != nil {
 		_ = c.Error(errors.Wrap(err, "serialize statuses error"))
 

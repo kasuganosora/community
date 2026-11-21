@@ -104,9 +104,11 @@ func Streaming(c *gin.Context) {
 		return
 	}
 	defer func() { _ = ws.Close() }()
+	ws.SetReadLimit(4096)
 
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	defer cancel()
+	shutdown := currentStreamShutdown()
 
 	closeChan := make(chan bool, 1)
 	readChan := make(chan []byte)
@@ -133,6 +135,7 @@ func Streaming(c *gin.Context) {
 	}()
 
 	var redisPubSub *redis.PubSub
+	activeStreams := map[string]bool{}
 
 	redisMsgChan := make(<-chan *redis.Message)
 
@@ -142,16 +145,22 @@ func Streaming(c *gin.Context) {
 		}
 	}()
 
+	writeWSJSON := func(v any) error {
+		_ = ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		return ws.WriteJSON(v)
+	}
+
 	if initial != nil {
 		redisPubSub, err = subscribe(nil, account, initial)
 		if err != nil {
 			if streamErr, ok := err.(*StreamingErrorResponse); ok { //nolint:errorlint
-				_ = ws.WriteJSON(streamErr)
+				_ = writeWSJSON(streamErr)
 			} else {
-				_ = ws.WriteJSON(&StreamingErrorResponse{Err: "subscribe failed"})
+				_ = writeWSJSON(&StreamingErrorResponse{Err: "subscribe failed"})
 			}
 			return
 		}
+		activeStreams[initial.Stream] = true
 		redisMsgChan = redisPubSub.Channel()
 	}
 
@@ -161,7 +170,18 @@ func Streaming(c *gin.Context) {
 
 	for {
 		select {
+		case <-ctx.Done():
+			return
+		case <-shutdown:
+			return
 		case <-ping.C:
+			if account != nil {
+				current, err := revalidateStreamConnection(c, account)
+				if err != nil {
+					return
+				}
+				account = current
+			}
 			if ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)) != nil {
 				return
 			}
@@ -173,10 +193,27 @@ func Streaming(c *gin.Context) {
 			if !ok {
 				return
 			}
+			if account != nil {
+				current, err := revalidateStreamConnection(c, account)
+				if err != nil {
+					return
+				}
+				account = current
+			}
 
+			var parsed StreamingRequest
+			parsedOK := json.Unmarshal(msg, &parsed) == nil
 			redisPubSub, err = processUserMsg(ws, msg, account, redisPubSub)
 			if err != nil {
 				continue
+			}
+			if parsedOK {
+				switch parsed.Type {
+				case "subscribe":
+					activeStreams[parsed.Stream] = true
+				case "unsubscribe":
+					delete(activeStreams, parsed.Stream)
+				}
 			}
 
 			if redisPubSub != nil {
@@ -187,54 +224,87 @@ func Streaming(c *gin.Context) {
 			if !open || msg == nil {
 				return
 			}
-			if err := processRedisMsg(ws, account, msg); err != nil {
+			if account != nil {
+				current, err := revalidateStreamConnection(c, account)
+				if err != nil {
+					return
+				}
+				account = current
+			}
+			if err := processRedisMsgWithStreams(ws, account, msg, activeStreams); err != nil {
 				logEventError(err)
 			}
 		}
 	}
 }
 
+func safeStreamingError(err error, fallback string) *StreamingErrorResponse {
+	if streamErr, ok := err.(*StreamingErrorResponse); ok { //nolint:errorlint
+		return streamErr
+	}
+	return &StreamingErrorResponse{Err: fallback}
+}
+
 func processUserMsg(ws *websocket.Conn, msg []byte, account *models.Account, redisPub *redis.PubSub) (ret *redis.PubSub, err error) {
+	// Always preserve the existing PubSub by default so malformed JSON or
+	// rejected stream requests never leak the active Redis subscription.
+	ret = redisPub
 	req := &StreamingRequest{}
 	if err = json.Unmarshal(msg, req); err != nil {
-		return
+		return ret, err
 	}
 
 	if req.Type == "subscribe" { //nolint:goconst
-		ret, err = subscribe(redisPub, account, req)
-		if err != nil {
-			// Keep the existing subscriptions; a rejected stream must not drop them.
-			ret = redisPub
-			_ = ws.WriteJSON(err)
+		sub, subErr := subscribe(redisPub, account, req)
+		if subErr != nil {
+			_ = ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			_ = ws.WriteJSON(safeStreamingError(subErr, "subscribe failed"))
+			return redisPub, subErr
 		}
 
-		return
+		return sub, nil
 	}
 
 	if req.Type == "unsubscribe" { //nolint:goconst
-		ret, err = unsubscribe(redisPub, account, req)
-		if err != nil {
-			ret = redisPub
-			_ = ws.WriteJSON(err)
+		sub, unsubErr := unsubscribe(redisPub, account, req)
+		if unsubErr != nil {
+			_ = ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			_ = ws.WriteJSON(safeStreamingError(unsubErr, "unsubscribe failed"))
+			return redisPub, unsubErr
 		}
 
-		return
+		return sub, nil
 	}
 
-	ret = redisPub
+	_ = ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	_ = ws.WriteJSON(&StreamingErrorResponse{Err: "unknown type"})
 
-	return
+	return redisPub, nil
+}
+
+func getChannelNames(account *models.Account, s *StreamingRequest) ([]string, error) {
+	primary, err := getChannelName(account, s)
+	if err != nil {
+		return nil, err
+	}
+	if s.Stream == "user" && account != nil {
+		return []string{
+			primary,
+			feed.GetRedisChannelName(&notification.NotificationTimeline{Account: account}),
+			feed.GetRedisChannelName(feed.AnnouncementsChannel{}),
+		}, nil
+	}
+	return []string{primary}, nil
 }
 
 func subscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest) (ret *redis.PubSub, err error) {
-	channelName, err := getChannelName(account, s)
+	channels, err := getChannelNames(account, s)
 	if err != nil {
 		return
 	}
 
 	if pub != nil {
-		err = pub.Subscribe(context.Background(), channelName)
+		err = pub.Subscribe(context.Background(), channels...)
 		if err != nil {
 			return
 		}
@@ -244,13 +314,13 @@ func subscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest) 
 		return
 	}
 
-	ret = db.GetRedis().Subscribe(context.Background(), channelName)
+	ret = db.GetUniversalRedis().Subscribe(context.Background(), channels...)
 
 	return
 }
 
 func unsubscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest) (ret *redis.PubSub, err error) {
-	channelName, err := getChannelName(account, s)
+	channels, err := getChannelNames(account, s)
 	if err != nil {
 		return
 	}
@@ -263,7 +333,7 @@ func unsubscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest
 		return
 	}
 
-	err = pub.Unsubscribe(context.Background(), channelName)
+	err = pub.Unsubscribe(context.Background(), channels...)
 	if err != nil {
 		err = errors.Wrap(err, "[unsubscribe] unsubscribe failed")
 		log.ErrorV(err)
@@ -341,18 +411,14 @@ func getChannelName(account *models.Account, s *StreamingRequest) (channelName s
 			}
 		}
 
-		// Check ownership or follow relationship
-		if account == nil {
-			err = &StreamingErrorResponse{Err: "need login"}
-
-			return channelName, err
-		}
-
 		allowed, permissionErr := models.ListCanView(ls, account)
 		if permissionErr != nil {
 			return "", permissionErr
 		}
 		if !allowed {
+			if account == nil {
+				return "", &StreamingErrorResponse{Err: "need login"}
+			}
 			return "", &StreamingErrorResponse{Err: "forbidden"}
 		}
 
@@ -380,6 +446,12 @@ func streamForChannel(account *models.Account, raw string) ([]string, string, er
 	parts := strings.Split(channel, ":")
 	if len(parts) < 2 {
 		return nil, "", &StreamingErrorResponse{Err: "unknown channel"}
+	}
+	if parts[0] == "announcements" {
+		if account == nil {
+			return nil, "", errEventNotVisible
+		}
+		return []string{"user"}, "announcements", nil
 	}
 	if parts[0] == "direct" {
 		parts = append([]string{"feed"}, parts...)
@@ -414,9 +486,6 @@ func streamForChannel(account *models.Account, raw string) ([]string, string, er
 		}
 		return []string{name, last}, kind, nil
 	case "list":
-		if account == nil {
-			return nil, "", errEventNotVisible
-		}
 		id, err := strconv.ParseUint(last, 10, 64)
 		if err != nil || id == 0 {
 			return nil, "", errEventNotVisible
@@ -439,6 +508,10 @@ func streamForChannel(account *models.Account, raw string) ([]string, string, er
 }
 
 func processRedisMsg(ws *websocket.Conn, account *models.Account, msg *redis.Message) error {
+	return processRedisMsgWithStreams(ws, account, msg, nil)
+}
+
+func processRedisMsgWithStreams(ws *websocket.Conn, account *models.Account, msg *redis.Message, activeStreams map[string]bool) error {
 	if msg == nil {
 		return errEventNotVisible
 	}
@@ -454,13 +527,46 @@ func processRedisMsg(ws *websocket.Conn, account *models.Account, msg *redis.Mes
 	switch kind {
 	case "notification":
 		eventType, payload, err = serializerNotificationEvent(account, msg.Payload)
+	case "announcements":
+		var ev struct {
+			Type    string          `json:"type"`
+			Payload json.RawMessage `json:"payload"`
+		}
+		if err = json.Unmarshal([]byte(msg.Payload), &ev); err != nil {
+			return err
+		}
+		switch ev.Type {
+		case "announcement":
+			eventType, payload, err = serializerAnnouncementEvent(ev.Payload)
+		case "announcement.delete":
+			eventType, payload, err = serializerAnnouncementDeleteEvent(ev.Payload)
+		case "announcement.reaction":
+			eventType, payload, err = serializerAnnouncementReactionEvent(ev.Payload)
+		default:
+			return errEventNotVisible
+		}
 	case "direct":
-		eventType, payload, err = serializerConversationEvent(account, msg.Payload)
+		if isStatusStreamEvent(msg.Payload) {
+			eventType, payload, err = serializerStatusEvent(account, msg.Payload, msg.Channel)
+		} else {
+			eventType, payload, err = serializerConversationEvent(account, msg.Payload)
+		}
 	default:
 		eventType, payload, err = serializerStatusEvent(account, msg.Payload, msg.Channel)
 	}
 	if err != nil {
 		return err
+	}
+	if kind == "notification" && activeStreams != nil && activeStreams["user"] && !activeStreams["user:notification"] {
+		stream = []string{"user"}
+	}
+	_ = ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if kind == "notification" && activeStreams != nil && activeStreams["user"] && activeStreams["user:notification"] {
+		if err := ws.WriteJSON(StreamingResponse{Stream: []string{"user"}, Event: eventType, Payload: payload}); err != nil {
+			return err
+		}
+		_ = ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		return ws.WriteJSON(StreamingResponse{Stream: []string{"user:notification"}, Event: eventType, Payload: payload})
 	}
 	return ws.WriteJSON(StreamingResponse{Stream: stream, Event: eventType, Payload: payload})
 }

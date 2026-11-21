@@ -109,9 +109,11 @@ func ApplySuspend(ctx context.Context, conn *gorm.DB, statusID, accountID uint64
 					return err
 				}
 			}
-			_ = models.QueueFeedInvalidation(tx, models.FeedEventMetadata{
+			if err := models.QueueFeedInvalidation(tx, models.FeedEventMetadata{
 				ActorID: account.Id, TargetAccountID: account.Id, Reason: "account_policy_changed",
-			})
+			}); err != nil {
+				return err
+			}
 		}
 		return finishJob(tx, statusID, token, "suspend", reason)
 	})

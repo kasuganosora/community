@@ -3,10 +3,12 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -52,18 +54,35 @@ func DefaultRateLimiterConfig() RateLimiterConfig {
 	}
 }
 
+func rateForKey(cfg RateLimiterConfig, key string) (float64, int) {
+	if strings.HasPrefix(key, "ip:") && cfg.PerIPRPM > 0 {
+		return float64(cfg.PerIPRPM) / 60.0, max(1, cfg.PerIPRPM/6)
+	}
+	if strings.HasPrefix(key, "user:") && cfg.PerUserRPM > 0 {
+		return float64(cfg.PerUserRPM) / 60.0, max(1, cfg.PerUserRPM/6)
+	}
+	return cfg.GlobalRPS, cfg.GlobalBurst
+}
+
 // RateLimiter 限流器接口.
 type RateLimiter interface {
 	Allow(key string) bool
 	AllowN(key string, n int) bool
 }
 
-// MemoryRateLimiter 内存限流器（单机使用）.
+const numRateLimiterShards = 64
+
+type memoryLimiterShard struct {
+	mu          sync.RWMutex
+	limiters    map[string]*limiterEntry
+	lastCleanup int64
+}
+
+// MemoryRateLimiter 内存限流器（单机使用，64 分片读写锁消除全局锁竞争）.
 type MemoryRateLimiter struct {
-	limiters        map[string]*limiterEntry
+	limiters        map[string]*limiterEntry // 保留兼容字段供测试断言
+	shards          [numRateLimiterShards]memoryLimiterShard
 	config          RateLimiterConfig
-	mu              sync.RWMutex
-	lastCleanup     time.Time
 	cleanupInterval time.Duration
 	maxIdle         time.Duration // limiter 最大空闲时间，超过则被清理
 }
@@ -71,18 +90,29 @@ type MemoryRateLimiter struct {
 // limiterEntry 包装 rate.Limiter 并记录最后访问时间.
 type limiterEntry struct {
 	limiter  *rate.Limiter
-	lastSeen time.Time
+	lastSeen atomic.Int64
 }
 
 // NewMemoryRateLimiter 创建内存限流器.
 func NewMemoryRateLimiter(config RateLimiterConfig) *MemoryRateLimiter {
-	return &MemoryRateLimiter{
+	now := time.Now().UnixNano()
+	m := &MemoryRateLimiter{
 		limiters:        make(map[string]*limiterEntry),
 		config:          config,
-		lastCleanup:     time.Now(),
 		cleanupInterval: 5 * time.Minute,
 		maxIdle:         10 * time.Minute,
 	}
+	for i := range m.shards {
+		m.shards[i].limiters = make(map[string]*limiterEntry)
+		m.shards[i].lastCleanup = now
+	}
+	return m
+}
+
+func (m *MemoryRateLimiter) shardFor(key string) *memoryLimiterShard {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(key))
+	return &m.shards[h.Sum32()&(numRateLimiterShards-1)]
 }
 
 // Allow 检查是否允许请求.
@@ -97,41 +127,49 @@ func (m *MemoryRateLimiter) AllowN(key string, n int) bool {
 
 // getLimiter 获取或创建限流器.
 func (m *MemoryRateLimiter) getLimiter(key string) *rate.Limiter {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	now := time.Now().UnixNano()
+	s := m.shardFor(key)
 
-	if entry, ok := m.limiters[key]; ok {
-		entry.lastSeen = time.Now()
+	s.mu.RLock()
+	if entry, ok := s.limiters[key]; ok {
+		entry.lastSeen.Store(now)
+		s.mu.RUnlock()
+		return entry.limiter
+	}
+	s.mu.RUnlock()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.limiters[key]; ok {
+		entry.lastSeen.Store(now)
 		return entry.limiter
 	}
 
-	limiter := rate.NewLimiter(rate.Limit(m.config.GlobalRPS), m.config.GlobalBurst)
-	m.limiters[key] = &limiterEntry{
-		limiter:  limiter,
-		lastSeen: time.Now(),
-	}
+	rps, burst := rateForKey(m.config, key)
+	limiter := rate.NewLimiter(rate.Limit(rps), burst)
+	entry := &limiterEntry{limiter: limiter}
+	entry.lastSeen.Store(now)
+	s.limiters[key] = entry
 
-	// 定期清理过期的 limiter
-	if time.Since(m.lastCleanup) > m.cleanupInterval {
-		m.cleanup()
+	if now-s.lastCleanup > int64(m.cleanupInterval) {
+		m.cleanupShard(s, now)
 	}
 
 	return limiter
 }
 
-// cleanup 清理超过 maxIdle 未使用的 limiter.
-func (m *MemoryRateLimiter) cleanup() {
-	m.lastCleanup = time.Now()
-
-	now := time.Now()
-
-	for k, entry := range m.limiters {
-		// 保留 global limiter 和最近活跃的 limiter
-		if k != "global" && now.Sub(entry.lastSeen) > m.maxIdle {
-			delete(m.limiters, k)
+// cleanupShard 清理当前分片中超过 maxIdle 未使用的 limiter.
+func (m *MemoryRateLimiter) cleanupShard(s *memoryLimiterShard, now int64) {
+	s.lastCleanup = now
+	maxIdleNano := int64(m.maxIdle)
+	for k, entry := range s.limiters {
+		if k != "global" && now-entry.lastSeen.Load() > maxIdleNano {
+			delete(s.limiters, k)
 		}
 	}
 }
+
+const redisRateLimitTimeout = 150 * time.Millisecond
 
 // RedisRateLimiter Redis 分布式限流器.
 type RedisRateLimiter struct {
@@ -194,13 +232,15 @@ func (r *RedisRateLimiter) AllowN(key string, n int) bool {
 		return true
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), redisRateLimitTimeout)
+	defer cancel()
 
 	now := time.Now().Unix()
+	rps, burst := rateForKey(r.config, key)
 
 	result, err := r.client.Eval(ctx, rateLimitScript, []string{key},
-		r.config.GlobalRPS,
-		r.config.GlobalBurst,
+		rps,
+		burst,
 		n,
 		now,
 	).Result()
@@ -218,6 +258,37 @@ func (r *RedisRateLimiter) AllowN(key string, n int) bool {
 	}
 
 	return val == 1
+}
+
+// allowMulti executes multiple tier checks in a single Redis Pipeline RTT.
+// Returns -1 when all keys pass, or the index of the first rejected key.
+func (r *RedisRateLimiter) allowMulti(ctx context.Context, keys []string) int {
+	if r.client == nil || len(keys) == 0 {
+		return -1
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rctx, cancel := context.WithTimeout(ctx, redisRateLimitTimeout)
+	defer cancel()
+
+	now := time.Now().Unix()
+	pipe := r.client.Pipeline()
+	cmds := make([]*redis.Cmd, len(keys))
+	for i, key := range keys {
+		rps, burst := rateForKey(r.config, key)
+		cmds[i] = pipe.Eval(rctx, rateLimitScript, []string{key}, rps, burst, 1, now)
+	}
+	if _, err := pipe.Exec(rctx); err != nil {
+		log.Error("Redis rate limit pipeline error: %v", err)
+		return -1 // 降级：允许请求
+	}
+	for i, cmd := range cmds {
+		if val, ok := cmd.Val().(int64); ok && val != 1 {
+			return i
+		}
+	}
+	return -1
 }
 
 // RateLimitMiddleware 限流中间件.
@@ -242,34 +313,25 @@ func RateLimitMiddleware(limiter RateLimiter) gin.HandlerFunc {
 func MultiLevelRateLimitMiddleware(redisClient *redis.Client) gin.HandlerFunc {
 	config := DefaultRateLimiterConfig()
 
-	var limiter RateLimiter
+	var redisLimiter *RedisRateLimiter
+	var memLimiter *MemoryRateLimiter
 	if redisClient != nil {
-		limiter = NewRedisRateLimiter(redisClient, config)
+		redisLimiter = NewRedisRateLimiter(redisClient, config)
 	} else {
-		limiter = NewMemoryRateLimiter(config)
+		memLimiter = NewMemoryRateLimiter(config)
+	}
+
+	tierErrors := [3]string{
+		"global rate limit exceeded",
+		"IP rate limit exceeded",
+		"user rate limit exceeded",
 	}
 
 	return func(c *gin.Context) {
-		// 1. 全局限流
-		if !limiter.Allow("global") {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"error": "global rate limit exceeded",
-			})
-
-			return
-		}
-
-		// 2. IP 限流
 		ipKey := "ip:" + c.ClientIP()
-		if !limiter.Allow(ipKey) {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"error": "IP rate limit exceeded",
-			})
+		keys := make([]string, 0, 3)
+		keys = append(keys, "global", ipKey)
 
-			return
-		}
-
-		// 3. 用户限流（已认证用户）
 		if account, exists := c.Get("account"); exists {
 			var userID string
 			if acct, ok := account.(*models.Account); ok && acct != nil {
@@ -277,13 +339,29 @@ func MultiLevelRateLimitMiddleware(redisClient *redis.Client) gin.HandlerFunc {
 			} else {
 				userID = fmt.Sprintf("%v", account)
 			}
+			keys = append(keys, "user:"+userID)
+		}
 
-			userKey := "user:" + userID
-			if !limiter.Allow(userKey) {
+		if redisLimiter != nil {
+			var reqCtx context.Context
+			if c.Request != nil {
+				reqCtx = c.Request.Context()
+			}
+			if idx := redisLimiter.allowMulti(reqCtx, keys); idx >= 0 && idx < len(tierErrors) {
 				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-					"error": "user rate limit exceeded",
+					"error": tierErrors[idx],
 				})
+				return
+			}
+			c.Next()
+			return
+		}
 
+		for i, k := range keys {
+			if !memLimiter.Allow(k) {
+				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+					"error": tierErrors[i],
+				})
 				return
 			}
 		}
@@ -296,7 +374,7 @@ func MultiLevelRateLimitMiddleware(redisClient *redis.Client) gin.HandlerFunc {
 func APIRateLimitMiddleware(redisClient *redis.Client, pathPrefix string, rpm int) gin.HandlerFunc {
 	config := RateLimiterConfig{
 		GlobalRPS:   float64(rpm) / 60,
-		GlobalBurst: rpm / 6,
+		GlobalBurst: max(1, rpm/6),
 	}
 
 	var limiter RateLimiter
@@ -399,42 +477,51 @@ func NewSlidingWindowRateLimiter(client *redis.Client, windowSize time.Duration,
 	}
 }
 
+var slidingWindowCounter atomic.Uint64
+
+const slidingWindowScript = `
+local key = KEYS[1]
+local window_start = tonumber(ARGV[1])
+local now = tonumber(ARGV[2])
+local max_req = tonumber(ARGV[3])
+local member = ARGV[4]
+local ttl_ms = tonumber(ARGV[5])
+
+redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
+local count = redis.call('ZCARD', key)
+if count >= max_req then
+	return 0
+end
+redis.call('ZADD', key, now, member)
+redis.call('PEXPIRE', key, ttl_ms)
+return 1
+`
+
 // Allow 检查是否允许请求.
 func (s *SlidingWindowRateLimiter) Allow(key string) bool {
 	if s.client == nil {
 		return true // 降级
 	}
 
-	ctx := context.Background()
-	now := time.Now().Unix()
-	windowStart := now - int64(s.windowSize.Seconds())
+	ctx, cancel := context.WithTimeout(context.Background(), redisRateLimitTimeout)
+	defer cancel()
 
-	// 使用 Redis Sorted Set 实现滑动窗口
-	pipe := s.client.Pipeline()
+	now := time.Now().UnixMilli()
+	windowStart := now - s.windowSize.Milliseconds()
+	member := fmt.Sprintf("%d:%d", now, slidingWindowCounter.Add(1))
 
-	// 移除窗口外的请求记录
-	pipe.ZRemRangeByScore(ctx, key, "0", strconv.FormatInt(windowStart, 10))
-
-	// 获取当前窗口内的请求数
-	countCmd := pipe.ZCard(ctx, key)
-
-	// 添加当前请求，使用纳秒时间戳+随机数避免碰撞
-	pipe.ZAdd(ctx, key, redis.Z{
-		Score:  float64(now),
-		Member: fmt.Sprintf("%d:%d", now, time.Now().UnixNano()),
-	})
-
-	// 设置过期时间
-	pipe.Expire(ctx, key, s.windowSize)
-
-	_, err := pipe.Exec(ctx)
+	res, err := s.client.Eval(ctx, slidingWindowScript, []string{key},
+		windowStart,
+		now,
+		s.maxRequests,
+		member,
+		max(int64(1), s.windowSize.Milliseconds()),
+	).Int64()
 	if err != nil {
 		log.Error("Redis sliding window error: %v", err)
 
 		return true // 降级
 	}
 
-	count := countCmd.Val()
-
-	return count < int64(s.maxRequests)
+	return res == 1
 }

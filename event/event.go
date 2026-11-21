@@ -19,6 +19,7 @@ type Event struct {
 
 type EventManager struct {
 	handlers map[string][]*Handler
+	nextID   int
 	mu       sync.RWMutex
 }
 
@@ -48,7 +49,8 @@ func (em *EventManager) Register(eventName string, handler *Handler) (handleId i
 	em.mu.Lock()
 	defer em.mu.Unlock()
 
-	handler.Id = len(em.handlers[eventName]) + 1
+	em.nextID++
+	handler.Id = em.nextID
 	em.handlers[eventName] = append(em.handlers[eventName], handler)
 
 	return handler.Id
@@ -69,8 +71,11 @@ func (em *EventManager) Remove(name string, id int) {
 
 func (em *EventManager) Trigger(event Event) {
 	em.mu.RLock()
-	handlers := em.handlers[event.Name]
-	wildcardHandlers := em.handlers["*"]
+	handlers := append([]*Handler(nil), em.handlers[event.Name]...)
+	var wildcardHandlers []*Handler
+	if event.Name != "*" {
+		wildcardHandlers = append([]*Handler(nil), em.handlers["*"]...)
+	}
 	em.mu.RUnlock()
 
 	for _, handler := range handlers {

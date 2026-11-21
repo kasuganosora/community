@@ -139,10 +139,17 @@ func (lfa *ListFollowAccount) AfterDelete(tx *gorm.DB) (err error) {
 }
 
 func ListCanView(list *List, account *Account) (pass bool, err error) {
+	if list == nil {
+		return false, nil
+	}
 	if list.Visibility == ListVisibilityPublic {
 		pass = true
 
 		return pass, err
+	}
+
+	if account == nil {
+		return false, nil
 	}
 
 	if list.AccountId == account.Id {

@@ -13,23 +13,64 @@ import (
 // person mirrored on this instance. Callers use the map to collapse timeline
 // display and stream inserts. The remote row is left in place.
 func MirrorLocalIDs(conn *gorm.DB, ids []uint64, baseURL string) (map[uint64]uint64, error) {
+	return MirrorLocalIDsLoaded(conn, nil, ids, baseURL)
+}
+
+// MirrorLocalIDsLoaded avoids re-querying statuses JOIN accounts for candidates
+// whose Status and Account fields are already loaded in memory.
+func MirrorLocalIDsLoaded(conn *gorm.DB, loaded Statuses, ids []uint64, baseURL string) (map[uint64]uint64, error) {
 	out := map[uint64]uint64{}
 	if conn == nil || len(ids) == 0 {
 		return out, nil
 	}
-	var candidates []mirrorCandidate
-	err := conn.Model(&Status{}).
-		Select("statuses.id, statuses.origin_uri, statuses.origin_url, statuses.local_object_uri, statuses.reblog_id, accounts.username, accounts.domain AS account_domain").
-		Joins("JOIN accounts ON accounts.id = statuses.account_id").
-		Where("statuses.id IN ? AND statuses.deleted_at IS NULL", ids).
-		Scan(&candidates).Error
-	if err != nil {
-		return nil, err
+	loadedByID := make(map[uint64]*Status, len(loaded))
+	for _, s := range loaded {
+		if s != nil && s.DeletedAt == nil {
+			loadedByID[s.Id] = s
+		}
 	}
-	remotes := make([]mirrorCandidate, 0, len(candidates))
-	for _, row := range candidates {
-		if remoteMirrorCandidate(row) {
-			remotes = append(remotes, row)
+	remotes := make([]mirrorCandidate, 0)
+	var missingIDs []uint64
+	for _, id := range ids {
+		s := loadedByID[id]
+		if s != nil && (s.Account != nil || s.ReblogId == nil || *s.ReblogId == 0) {
+			row := mirrorCandidate{
+				ID:             s.Id,
+				OriginURI:      s.OriginUri,
+				OriginURL:      s.OriginUrl,
+				LocalObjectURI: s.LocalObjectURI,
+				ReblogID:       s.ReblogId,
+			}
+			if s.Account != nil {
+				row.Username = s.Account.Username
+				row.AccountDomain = s.Account.Domain
+			}
+			if remoteMirrorCandidate(row) {
+				remotes = append(remotes, row)
+			}
+			continue
+		}
+		if s == nil && len(loaded) > 0 {
+			// Filtered out before mirror check; still check if caller passed raw candidate IDs.
+			missingIDs = append(missingIDs, id)
+			continue
+		}
+		missingIDs = append(missingIDs, id)
+	}
+	if len(missingIDs) > 0 {
+		var candidates []mirrorCandidate
+		err := conn.Model(&Status{}).
+			Select("statuses.id, statuses.origin_uri, statuses.origin_url, statuses.local_object_uri, statuses.reblog_id, accounts.username, accounts.domain AS account_domain").
+			Joins("JOIN accounts ON accounts.id = statuses.account_id").
+			Where("statuses.id IN ? AND statuses.deleted_at IS NULL", missingIDs).
+			Scan(&candidates).Error
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range candidates {
+			if remoteMirrorCandidate(row) {
+				remotes = append(remotes, row)
+			}
 		}
 	}
 	if len(remotes) == 0 {

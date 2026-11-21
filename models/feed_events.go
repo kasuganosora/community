@@ -34,6 +34,7 @@ func HasFeedOutbox(tx *gorm.DB) bool {
 
 type FeedEventMetadata struct {
 	PreviousRecipientIDs []uint64 `json:"previous_recipient_ids,omitempty"`
+	PreviousTagIDs       []uint64 `json:"previous_tag_ids,omitempty"`
 	PreviousTagNames     []string `json:"previous_tag_names,omitempty"`
 	ActorID              uint64   `json:"actor_id,omitempty"`
 	RecipientIDs         []uint64 `json:"recipient_ids,omitempty"`
@@ -155,7 +156,7 @@ func QueueFeedInvalidation(tx *gorm.DB, metadata FeedEventMetadata) error {
 	if err != nil {
 		return err
 	}
-	return tx.Session(&gorm.Session{NewDB: true}).Create(&FeedEvent{EventKey: token, Kind: FeedInvalidate, ObjectType: "account", ObjectID: metadata.ActorID, ActorID: metadata.ActorID, OperationID: feedOperation(tx), Metadata: metadata}).Error
+	return tx.Session(&gorm.Session{NewDB: true, SkipHooks: false}).Create(&FeedEvent{EventKey: token, Kind: FeedInvalidate, ObjectType: "account", ObjectID: metadata.ActorID, ActorID: metadata.ActorID, OperationID: feedOperation(tx), Metadata: metadata}).Error
 }
 
 // FeedDatabaseTime uses the database clock for all lease CAS comparisons.
@@ -188,5 +189,5 @@ func QueueFeedNotification(tx *gorm.DB, n *Notification) error {
 	if n.Id == 0 || skipFeedHooks(tx) {
 		return nil
 	}
-	return tx.Session(&gorm.Session{NewDB: true}).Create(&FeedEvent{EventKey: fmt.Sprintf("notification:%d", n.Id), Kind: FeedNotification, ObjectType: "notification", ObjectID: n.Id, ActorID: n.FromAccountId, ObjectVersion: 1, Metadata: FeedEventMetadata{ActorID: n.FromAccountId, RecipientIDs: []uint64{n.AccountId}, NotificationID: n.Id, Local: true}}).Error
+	return tx.Session(&gorm.Session{NewDB: true, SkipHooks: false}).Create(&FeedEvent{EventKey: fmt.Sprintf("notification:%d", n.Id), Kind: FeedNotification, ObjectType: "notification", ObjectID: n.Id, ActorID: n.FromAccountId, ObjectVersion: 1, Metadata: FeedEventMetadata{ActorID: n.FromAccountId, RecipientIDs: []uint64{n.AccountId}, NotificationID: n.Id, Local: true}}).Error
 }

@@ -28,7 +28,7 @@ func NotificationTimeline(c *gin.Context) {
 
 	account := controllers.MustGetAccount(c)
 
-	query := db.GetDB().Model(&models.Notification{}).Where("account_id = ?", account.Id)
+	query := db.GetDB().WithContext(c.Request.Context()).Model(&models.Notification{}).Where("account_id = ?", account.Id)
 	// Status edits are not notifications. Drop them in the query as well as in
 	// the serializer so an all-edit page cannot end the timeline early.
 	query = query.Where("type <> ?", models.NotificationTypeStatusUpdate)
@@ -52,9 +52,11 @@ func NotificationTimeline(c *gin.Context) {
 				typeIds = append(typeIds, id)
 			}
 		}
-		if len(typeIds) > 0 {
-			query = query.Where("type in ?", typeIds)
+		if len(typeIds) == 0 {
+			c.JSON(200, []*serializer.Notification{})
+			return
 		}
+		query = query.Where("type in ?", typeIds)
 	}
 
 	if req.AccountId != "" {
@@ -73,7 +75,7 @@ func NotificationTimeline(c *gin.Context) {
 	}
 
 	if req.SinceId > 0 {
-		query = query.Where("id >= ?", req.SinceId)
+		query = query.Where("id > ?", req.SinceId)
 	}
 
 	if req.Limit > 100 {
@@ -85,21 +87,30 @@ func NotificationTimeline(c *gin.Context) {
 	}
 
 	// Authorization can hide an entire batch after a block or recipient change.
-	// Keep scanning older rows until the visible page is full or history ends;
-	// an empty filtered batch must not masquerade as the end of pagination.
+	// Keep scanning older rows (or immediately newer rows when paging upward with
+	// min_id) until the visible page is full or history ends.
+	forwardMin := req.MinId > 0 && req.MaxId == 0
+	order := "id DESC"
+	if forwardMin {
+		order = "id ASC"
+	}
 	ret := make([]*serializer.Notification, 0, req.Limit)
 	var cursor uint64
 	for len(ret) < req.Limit {
 		batchQuery := query.Session(&gorm.Session{})
 		if cursor != 0 {
-			batchQuery = batchQuery.Where("id < ?", cursor)
+			if forwardMin {
+				batchQuery = batchQuery.Where("id > ?", cursor)
+			} else {
+				batchQuery = batchQuery.Where("id < ?", cursor)
+			}
 		}
 		batchSize := req.Limit
 		if batchSize < 20 {
 			batchSize = 20
 		}
 		nfs := make(models.Notifications, 0, batchSize)
-		err = batchQuery.Order("id DESC").Limit(batchSize).Find(&nfs).Error
+		err = batchQuery.Order(order).Limit(batchSize).Find(&nfs).Error
 		controllers.AbortIfError(c, err)
 		if len(nfs) == 0 {
 			break
@@ -114,6 +125,11 @@ func NotificationTimeline(c *gin.Context) {
 		cursor = nfs[len(nfs)-1].Id
 		if len(nfs) < batchSize {
 			break
+		}
+	}
+	if forwardMin && len(ret) > 1 {
+		for i, j := 0, len(ret)-1; i < j; i, j = i+1, j-1 {
+			ret[i], ret[j] = ret[j], ret[i]
 		}
 	}
 	common.SetListLinks(c, ret, func(n *serializer.Notification) string { return n.Id })

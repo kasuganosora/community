@@ -12,33 +12,26 @@ import (
 )
 
 func List(c *gin.Context) {
-	var req TimelineRequest
+	var req PublicTimeline
 
 	err := c.BindQuery(&req)
 	controllers.AbortIf(c, err != nil, 422, gin.H{"error": err}) //nolint:goconst
 
 	listObj := controllers.GetIdFromContext(&models.List{}, c, db.GetDB())
+	account := controllers.GetAccount(c)
 
-	var statuses models.Statuses
+	canView, err := models.ListCanView(listObj, account)
+	controllers.AbortIfError(c, err)
+	controllers.AbortIf(c, !canView, http.StatusForbidden, gin.H{"error": "forbidden"})
 
 	params := req.ToFeedListParams()
 	params.Context = c.Request.Context()
-	params.Viewer = controllers.GetAccount(c)
-	statuses, err = listTimeline.GetTimelineContent(listObj, params)
-	if err != nil {
-		_ = c.Error(err)
-
-		return
-	}
-
-	account := controllers.GetAccount(c)
+	params.Viewer = account
+	statuses, err := listTimeline.GetTimelineContent(listObj, params)
+	controllers.AbortIfError(c, err)
 
 	ret, err := serializer.ToStatusesContext(c.Request.Context(), statuses, account)
-	if err != nil {
-		_ = c.Error(err)
-
-		return
-	}
+	controllers.AbortIfError(c, err)
 
 	common.SetListLinks(c, ret, func(s *serializer.Status) string { return s.Id })
 	c.JSON(http.StatusOK, ret)

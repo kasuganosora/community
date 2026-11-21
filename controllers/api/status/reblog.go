@@ -32,8 +32,16 @@ func Reblog(c *gin.Context) {
 	dbConn := db.GetDB()
 	currentAccount := controllers.MustGetAccount(c)
 
-	// 判断当前用户有没权限转发这条 status, 只要能看到这条 status 就可以转发
+	// 判断当前用户有没权限转发这条 status
 	abortUnlessVisible(c, dbConn, status, currentAccount)
+
+	// Direct 消息不可转发；仅关注者可见（Private）的动态仅允许作者本人以 Private 可见性转发，
+	// 防止通过公开转发泄露私信或锁推内容。
+	controllers.AbortIf(c, status.Visibility == models.StatusVisibilityDirect, 422, gin.H{"error": "cannot reblog direct status"})
+	controllers.AbortIf(c, status.Visibility == models.StatusVisibilityPrivate && status.AccountId != currentAccount.Id, 422, gin.H{"error": "cannot reblog private status"})
+	if status.Visibility == models.StatusVisibilityPrivate {
+		req.Visibility = "private"
+	}
 
 	// 判断当前用户有没有转发过这条 status
 	isRelogged, err := status.IsReblogged(dbConn, currentAccount)

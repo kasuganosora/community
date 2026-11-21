@@ -21,12 +21,12 @@ func init() {
 			return true
 		}
 		if event.Data == nil {
-			return false
+			return true
 		}
 
-		status := event.Data.(*models.Status) //nolint:forcetypeassert
-		if status == nil {
-			return false
+		status, ok := event.Data.(*models.Status)
+		if !ok || status == nil {
+			return true
 		}
 
 		// Old posts imported late never enter the live timelines.
@@ -44,7 +44,7 @@ func init() {
 		case "after_create":
 			go func() { _ = Push(status, false, true) }()
 		case "before_update":
-			go func() { _ = Unpush(status, true) }() // 更新之前，先删除
+			go func() { _ = Unpush(status, false) }() // 更新之前，先删除缓存项，不向客户端发 delete
 		case "after_update":
 			go func() { _ = Push(status, true, true) }()
 		case "after_delete":
@@ -119,16 +119,24 @@ func (timeline *ListTimeline) candidates(tx *gorm.DB) *gorm.DB {
 	return query.Where(members.Or(tagged))
 }
 
-// DropCache forgets a list feed so the next read rebuilds it from the current
-// members. Adding or removing someone otherwise leaves the previous snapshot.
+// DropCache forgets a list feed (including all filtered variants) so the next
+// read rebuilds it from the current members/hashtags.
 func DropCache(listID uint64) {
 	if listID == 0 || (len(appredis.GetRedises()) == 0 && !appredis.HasUniversalRedis()) {
 		return
 	}
-	timeline := &ListTimeline{List: &models.List{Id: listID}}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = feed.InvalidateTimelineContext(ctx, timeline)
+	base := &models.List{Id: listID}
+	for _, flags := range []string{"", "local", "remote", "media", "local:media", "remote:media"} {
+		timeline := &ListTimeline{
+			List:       base,
+			OnlyLocal:  strings.Contains(flags, "local"),
+			OnlyRemote: strings.Contains(flags, "remote"),
+			OnlyMedia:  strings.Contains(flags, "media"),
+		}
+		_ = feed.InvalidateTimelineContext(ctx, timeline)
+	}
 }
 
 func (timeline *ListTimeline) GetTimelineId() string {
@@ -163,7 +171,7 @@ func (timeline *ListTimeline) RebuildContext(ctx context.Context) (err error) {
 
 	statuses := make(models.Statuses, 0)
 	err = timeline.candidates(db.GetDB().WithContext(ctx).Model(&models.Status{})).
-		Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS / 4).Find(&statuses).Error
+		Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS).Find(&statuses).Error
 	if err != nil {
 		return err
 	}
@@ -172,7 +180,10 @@ func (timeline *ListTimeline) RebuildContext(ctx context.Context) (err error) {
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
-	if status.Visibility != models.StatusVisibilityPublic {
+	if status == nil || db.GetDB() == nil {
+		return nil
+	}
+	if status.Visibility != models.StatusVisibilityPublic && status.Visibility != models.StatusVisibilityUnlisted {
 		return err
 	}
 
@@ -247,7 +258,10 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
-	if status.Visibility != models.StatusVisibilityPublic {
+	if status == nil || db.GetDB() == nil {
+		return nil
+	}
+	if status.Visibility != models.StatusVisibilityPublic && status.Visibility != models.StatusVisibilityUnlisted {
 		return err
 	}
 
@@ -283,11 +297,20 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 }
 
 func GetTimelineContent(list *models.List, params *feed.ListParam) (statuses models.Statuses, err error) {
+	if params == nil {
+		params = &feed.ListParam{}
+	}
+	if params.Other == nil {
+		params.Other = make(map[string]any)
+	}
 	timeline := &ListTimeline{
 		List: list,
 	}
-	if params == nil {
-		params = &feed.ListParam{}
+	timeline.OnlyLocal, _ = params.Other["local"].(bool)
+	timeline.OnlyRemote, _ = params.Other["remote"].(bool)
+	timeline.OnlyMedia, _ = params.Other["only_media"].(bool)
+	if !feed.DurableFanoutEnabled() && (timeline.OnlyLocal || timeline.OnlyRemote || timeline.OnlyMedia) {
+		params.Other["database_only"] = true
 	}
 	ctx := params.Context
 	if ctx == nil {
@@ -295,10 +318,11 @@ func GetTimelineContent(list *models.List, params *feed.ListParam) (statuses mod
 	}
 
 	// Activity bookkeeping is coarse (the active-list window is 30 days).
-	// The controller-loaded timestamp avoids rewriting the list on every page.
+	// Use UpdateColumn so bookkeeping on read does not trigger List.AfterUpdate
+	// and invalidate the list's own Redis feed cache.
 	now := time.Now()
 	if list.LastViewedAt == nil || now.Sub(*list.LastViewedAt) >= time.Minute {
-		err = db.GetDB().WithContext(ctx).Model(&models.List{}).Where("id = ?", list.Id).Update("last_viewed_at", now).Error
+		err = db.GetDB().WithContext(ctx).Model(&models.List{}).Where("id = ?", list.Id).UpdateColumn("last_viewed_at", now).Error
 		if err != nil {
 			return
 		}

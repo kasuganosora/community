@@ -176,6 +176,13 @@ func UpdateNotificationPolicy(c *gin.Context) {
 	// Get current account
 	account := c.MustGet("account").(*models.Account) //nolint:forcetypeassert
 
+	policy := NotificationPolicy{
+		FilterNotFollowing:    req.FilterNotFollowing != nil && *req.FilterNotFollowing,
+		FilterNotFollowers:    req.FilterNotFollowers != nil && *req.FilterNotFollowers,
+		FilterNewAccounts:     req.FilterNewAccounts != nil && *req.FilterNewAccounts,
+		FilterPrivateMentions: req.FilterPrivateMentions != nil && *req.FilterPrivateMentions,
+	}
+
 	// Update user settings
 	if account.User != nil && account.User.Settings != nil {
 		if account.User.Settings.Data == nil {
@@ -206,13 +213,18 @@ func UpdateNotificationPolicy(c *gin.Context) {
 
 			return
 		}
+
+		policy.FilterNotFollowing, _ = account.User.Settings.Data["notification_filter_not_following"].(bool)
+		policy.FilterNotFollowers, _ = account.User.Settings.Data["notification_filter_not_followers"].(bool)
+		policy.FilterNewAccounts, _ = account.User.Settings.Data["notification_filter_new_accounts"].(bool)
+		policy.FilterPrivateMentions, _ = account.User.Settings.Data["notification_filter_private_mentions"].(bool)
 	}
 
 	c.JSON(200, gin.H{
-		"filter_not_following":    req.FilterNotFollowing != nil && *req.FilterNotFollowing,
-		"filter_not_followers":    req.FilterNotFollowers != nil && *req.FilterNotFollowers,
-		"filter_new_accounts":     req.FilterNewAccounts != nil && *req.FilterNewAccounts,
-		"filter_private_mentions": req.FilterPrivateMentions != nil && *req.FilterPrivateMentions,
+		"filter_not_following":    policy.FilterNotFollowing,
+		"filter_not_followers":    policy.FilterNotFollowers,
+		"filter_new_accounts":     policy.FilterNewAccounts,
+		"filter_private_mentions": policy.FilterPrivateMentions,
 		"summary": gin.H{
 			"pending_requests_count":      0,
 			"pending_notifications_count": 0,

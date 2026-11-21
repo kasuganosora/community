@@ -3,6 +3,7 @@ package mention
 import (
 	"context"
 	"github.com/kasuganosora/community/db"
+	"github.com/kasuganosora/community/db/dialect"
 	"github.com/kasuganosora/community/event"
 	"github.com/kasuganosora/community/feed"
 	"github.com/kasuganosora/community/models"
@@ -19,12 +20,12 @@ func init() {
 			return true
 		}
 		if event.Data == nil {
-			return false
+			return true
 		}
 
-		status := event.Data.(*models.Status) //nolint:forcetypeassert
-		if status == nil {
-			return false
+		status, ok := event.Data.(*models.Status)
+		if !ok || status == nil {
+			return true
 		}
 
 		// 如果是新增的事件
@@ -40,8 +41,8 @@ func init() {
 				}
 			}()
 		case "before_update":
-			go func() { // 更新之前，先删除
-				err := Unpush(status, true)
+			go func() { // 更新之前，先删除缓存项，不向客户端发 delete
+				err := Unpush(status, false)
 				if err != nil {
 					log.Printf("mention_timeline: Unpush failed: %v", err)
 				}
@@ -94,14 +95,14 @@ func (timeline *MentionTimeline) RebuildContext(ctx context.Context) error {
 
 	statuses := make(models.Statuses, 0)
 	if err := mentionCandidates(db.GetDB().WithContext(ctx), timeline.Account.Id).
-		Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error; err != nil {
+		Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS).Find(&statuses).Error; err != nil {
 		return err
 	}
 	return feed.PublishRebuild(ctx, timeline, lease, statuses, timeline.AggregateReblogs())
 }
 
 func (timeline *MentionTimeline) AggregateReblogs() bool {
-	if timeline.Account.User != nil && timeline.Account.User.Settings != nil {
+	if timeline != nil && timeline.Account != nil && timeline.Account.User != nil && timeline.Account.User.Settings != nil {
 		return timeline.Account.User.Settings.GetAggregatesReblogs()
 	}
 	return false
@@ -112,10 +113,16 @@ func (timeline *MentionTimeline) AggregateReblogs() bool {
 func mentionCandidates(tx *gorm.DB, accountID uint64) *gorm.DB {
 	mentions := tx.Session(&gorm.Session{NewDB: true}).Model(&models.StatusToAccount{}).
 		Where("account_id = ?", accountID).Select("status_id")
-	return feed.EligibleTimelineStatuses(tx.Model(&models.Status{})).Where("statuses.id IN (?)", mentions)
+	profileBackfill := dialect.JSONText(tx, "statuses.properties", models.StatusPropProfileBackfill)
+	return feed.EligibleTimelineStatuses(tx.Model(&models.Status{})).
+		Where("COALESCE("+profileBackfill+", '') <> '1'").
+		Where("statuses.id IN (?)", mentions)
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
+	if status == nil || db.GetDB() == nil {
+		return nil
+	}
 	accounts := make(models.Accounts, 0)
 
 	// 只要本地用户的
@@ -200,6 +207,9 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
+	if status == nil || db.GetDB() == nil {
+		return nil
+	}
 	// 从数据库查询该 status 的所有被 mention 的本地用户账户。
 	// 不依赖 status.ToAccounts，因为 before_update 事件触发时
 	// status.ToAccounts 可能尚未加载（仍为旧值或为空），

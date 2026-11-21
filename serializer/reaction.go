@@ -103,7 +103,7 @@ func statusReactionsBatchWithDB(conn *gorm.DB, statusIDs []uint64, viewer *model
 		}
 	}
 	mine := map[uint64]string{}
-	if viewer != nil {
+	if viewer != nil && len(groups) > 0 {
 		var rows []models.StatusReaction
 		if err := conn.Where("status_id IN ? AND account_id = ?", statusIDs, viewer.Id).Find(&rows).Error; err != nil {
 			return nil, err
