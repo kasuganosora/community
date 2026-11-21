@@ -11,6 +11,10 @@ import (
 	"strconv"
 )
 
+// maxNotificationScanRows bounds how many raw notification rows one page may
+// inspect after serializer filtering. Tests lower it.
+var maxNotificationScanRows = 1000
+
 type NotificationTimelineRequest struct {
 	ExcludeTypes []string `form:"exclude_types[]"`
 	Types        []string `form:"types[]"`
@@ -88,7 +92,11 @@ func NotificationTimeline(c *gin.Context) {
 
 	// Authorization can hide an entire batch after a block or recipient change.
 	// Keep scanning older rows (or immediately newer rows when paging upward with
-	// min_id) until the visible page is full or history ends.
+	// min_id) until the visible page is full, history ends, or the scan bound
+	// is reached. The bound stops one filtered account from reading the whole
+	// notification table. A capped empty page ends this response; older rows
+	// remain addressable by an explicit max_id/min_id from the client.
+	maxNotificationRows := maxNotificationScanRows
 	forwardMin := req.MinId > 0 && req.MaxId == 0
 	order := "id DESC"
 	if forwardMin {
@@ -96,7 +104,8 @@ func NotificationTimeline(c *gin.Context) {
 	}
 	ret := make([]*serializer.Notification, 0, req.Limit)
 	var cursor uint64
-	for len(ret) < req.Limit {
+	scanned := 0
+	for len(ret) < req.Limit && scanned < maxNotificationRows {
 		batchQuery := query.Session(&gorm.Session{})
 		if cursor != 0 {
 			if forwardMin {
@@ -115,6 +124,7 @@ func NotificationTimeline(c *gin.Context) {
 		if len(nfs) == 0 {
 			break
 		}
+		scanned += len(nfs)
 		visible, err := serializer.ToNotifications(nfs, account)
 		controllers.AbortIfError(c, err)
 		remaining := req.Limit - len(ret)

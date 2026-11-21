@@ -143,10 +143,10 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		remaining := limit - len(output)
 		candidateLimit := min(MAX_ITEMS, max(32, remaining*2))
 		if firstBatch {
+			// Hydrate at most `remaining` headers. Reblog collapse happens after
+			// visibility filtering, so a hidden boost cannot consume the slot of
+			// a visible boost of the same original or push the cursor past it.
 			candidateLimit = remaining
-			if !hasExactID && aggregate {
-				candidateLimit = min(MAX_ITEMS, remaining+6)
-			}
 		}
 		var pageHeaders models.Statuses
 		var ids []uint64
@@ -198,29 +198,6 @@ func GetStatusTimelineContent(timeline Timeline, params *ListParam, newFilterCon
 		var statuses models.Statuses
 		var err error
 		if firstBatch {
-			if len(pageHeaders) > remaining {
-				// Pre-collapse reblog falloff duplicates on lightweight (id, reblog_id)
-				// headers before running full 11-table preload hydration, keeping
-				// hydration strictly bounded to `remaining` rows.
-				preview := newPageAggregation(aggregate)
-				trimmedHeaders := make(models.Statuses, 0, remaining)
-				var lastInspectedID uint64
-				for _, h := range pageHeaders {
-					lastInspectedID = h.Id
-					if preview.accept(h) {
-						trimmedHeaders = append(trimmedHeaders, h)
-						if len(trimmedHeaders) == remaining {
-							break
-						}
-					}
-				}
-				pageHeaders = trimmedHeaders
-				ids = pageHeaders.GetIds()
-				if lastInspectedID != 0 && (len(ids) == 0 || ids[len(ids)-1] != lastInspectedID) {
-					// Preserve cursor progress past any dropped trailing duplicate reblog.
-					ids = append(ids, lastInspectedID)
-				}
-			}
 			statuses, err = loadTimelineStatuses(conn, pageHeaders)
 			if err == nil {
 				for _, status := range statuses {

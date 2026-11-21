@@ -31,6 +31,17 @@ func init() {
 			return true
 		}
 
+		// The saved row already carries the new visibility. Leaving the public
+		// stream still has to delete the previous card.
+		if event.Name == "before_update" && status.Visibility != models.StatusVisibilityPublic {
+			go func() {
+				clone := *status
+				clone.Visibility = models.StatusVisibilityPublic
+				_ = Unpush(&clone, true)
+			}()
+			return true
+		}
+
 		// 只展示 公开的
 		if status.Visibility != models.StatusVisibilityPublic {
 			return true
@@ -196,7 +207,7 @@ func pushAllChannel(status *models.Status, method string) (err error) {
 	}
 
 	for _, timeline := range timelines {
-		if timeline.OnlyMedia && len(status.Attachments) == 0 {
+		if method != "delete" && timeline.OnlyMedia && len(status.Attachments) == 0 {
 			continue
 		}
 

@@ -34,8 +34,18 @@ func init() {
 			return true
 		}
 
-		// 不展示 私信
-		if status.Visibility == models.StatusVisibilityDirect {
+		// Lists only carry public and unlisted posts. A save whose new
+		// visibility has left that audience must still emit delete; the
+		// in-memory row already has the new visibility, so Unpush would
+		// otherwise return before touching Redis.
+		if status.Visibility != models.StatusVisibilityPublic && status.Visibility != models.StatusVisibilityUnlisted {
+			if event.Name == "before_update" {
+				go func() {
+					clone := *status
+					clone.Visibility = models.StatusVisibilityPublic
+					_ = Unpush(&clone, true)
+				}()
+			}
 			return true
 		}
 
@@ -243,18 +253,36 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 	}
 
 	if pushToClient {
-		for i := range lists {
-			timeline := &ListTimeline{List: &lists[i]}
-			if feed.PushUpdateRequired(timeline) {
-				err = feed.PushToClient(timeline, method, status)
-				if err != nil {
-					return err
-				}
-			}
+		if err = pushListClients(lists, status, method); err != nil {
+			return err
 		}
 	}
 
 	return err
+}
+
+// pushListClients publishes to the base list channel and, for posts that
+// actually have media, the only_media variant. Legacy and shadow event
+// handlers are the only callers; durable fanout publishes those variants
+// from the worker and does not enter Push. Private and direct posts never
+// reach here.
+func pushListClients(lists []models.List, status *models.Status, method string) error {
+	hasMedia := method == "delete" || (status != nil && len(status.Attachments) > 0)
+	for i := range lists {
+		targets := []*ListTimeline{{List: &lists[i]}}
+		if hasMedia {
+			targets = append(targets, &ListTimeline{List: &lists[i], OnlyMedia: true})
+		}
+		for _, timeline := range targets {
+			if !feed.PushUpdateRequired(timeline) {
+				continue
+			}
+			if err := feed.PushToClient(timeline, method, status); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
@@ -286,8 +314,7 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 		}
 
 		if pushToClient {
-			err = feed.PushToClient(timeline, "delete", status)
-			if err != nil {
+			if err = pushListClients([]models.List{lists[i]}, status, "delete"); err != nil {
 				return err
 			}
 		}

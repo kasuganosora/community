@@ -33,8 +33,15 @@ func init() {
 			return true
 		}
 
-		// 不展示 私信
+		// Direct posts are not inserted into the shared tag cache. An id-only
+		// update still lets each subscriber reload SQL: mentioned accounts
+		// keep the post, everyone else receives a delete from the stream
+		// serializer. Private posts stay on the normal Push path so an
+		// authorized follower still matches them.
 		if status.Visibility == models.StatusVisibilityDirect {
+			if event.Name == "before_update" || event.Name == "after_update" {
+				go func() { _ = refreshTagAudience(status) }()
+			}
 			return true
 		}
 
@@ -260,6 +267,37 @@ func Unpush(status *models.Status, pushToClient bool) (err error) {
 	return
 }
 
+func refreshTagAudience(status *models.Status) error {
+	if status == nil {
+		return nil
+	}
+	if err := getTags(status); err != nil {
+		return err
+	}
+	notice := &models.Status{Id: status.Id}
+	for _, tag := range status.Tags {
+		names := []*TagTimeline{
+			{Tag: tag.Name},
+			{Tag: tag.Name, OnlyMedia: true},
+			{Tag: tag.Name, OnlyLocal: true},
+			{Tag: tag.Name, OnlyRemote: true},
+			{Tag: tag.Name, OnlyLocal: true, OnlyMedia: true},
+			{Tag: tag.Name, OnlyRemote: true, OnlyMedia: true},
+		}
+		for _, timeline := range names {
+			if err := feed.RemoveTimelineItem(timeline, status, true); err != nil {
+				return err
+			}
+			if feed.PushUpdateRequired(timeline) {
+				if err := feed.PushToClient(timeline, "update", notice); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func pushAllChannel(status *models.Status, method string, tagName string) (err error) {
 	timelines := []*TagTimeline{
 		{Tag: tagName},
@@ -271,7 +309,7 @@ func pushAllChannel(status *models.Status, method string, tagName string) (err e
 	}
 
 	for _, timeline := range timelines {
-		if timeline.OnlyMedia && len(status.Attachments) == 0 {
+		if method != "delete" && timeline.OnlyMedia && len(status.Attachments) == 0 {
 			continue
 		}
 

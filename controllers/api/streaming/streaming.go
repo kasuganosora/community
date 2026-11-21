@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -297,54 +298,143 @@ func getChannelNames(account *models.Account, s *StreamingRequest) ([]string, er
 	return []string{primary}, nil
 }
 
-func subscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest) (ret *redis.PubSub, err error) {
-	channels, err := getChannelNames(account, s)
-	if err != nil {
-		return
-	}
+// pubStreamOwner records which logical streams share one WebSocket PubSub.
+// user and user:notification both need the notification channel; Redis is
+// told to drop a channel only after the last stream that needs it is gone.
+type pubStreamOwner struct {
+	mu       sync.Mutex
+	streams  map[string]*StreamingRequest
+	channels map[string]struct{}
+}
 
-	if pub != nil {
-		err = pub.Subscribe(context.Background(), channels...)
+var pubStreamOwners sync.Map
+
+func streamOwnerKey(s *StreamingRequest) string {
+	if s == nil {
+		return ""
+	}
+	return s.Stream + "\x00" + s.Tag + "\x00" + s.List
+}
+
+func streamOwner(pub *redis.PubSub) *pubStreamOwner {
+	v, _ := pubStreamOwners.LoadOrStore(pub, &pubStreamOwner{
+		streams:  map[string]*StreamingRequest{},
+		channels: map[string]struct{}{},
+	})
+	return v.(*pubStreamOwner)
+}
+
+func (o *pubStreamOwner) want(account *models.Account) (map[string]struct{}, error) {
+	want := map[string]struct{}{}
+	for _, req := range o.streams {
+		names, err := getChannelNames(account, req)
 		if err != nil {
-			return
+			return nil, err
 		}
-
-		ret = pub
-
-		return
+		for _, name := range names {
+			want[name] = struct{}{}
+		}
 	}
+	return want, nil
+}
 
-	ret = db.GetUniversalRedis().Subscribe(context.Background(), channels...)
-
-	return
+func subscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest) (ret *redis.PubSub, err error) {
+	if _, err = getChannelNames(account, s); err != nil {
+		return nil, err
+	}
+	created := pub == nil
+	if created {
+		pub = db.GetUniversalRedis().Subscribe(context.Background())
+	}
+	owner := streamOwner(pub)
+	owner.mu.Lock()
+	copied := *s
+	owner.streams[streamOwnerKey(s)] = &copied
+	want, wantErr := owner.want(account)
+	var add []string
+	if wantErr == nil {
+		for name := range want {
+			if _, ok := owner.channels[name]; !ok {
+				add = append(add, name)
+			}
+		}
+	}
+	owner.mu.Unlock()
+	if wantErr != nil {
+		owner.mu.Lock()
+		delete(owner.streams, streamOwnerKey(s))
+		owner.mu.Unlock()
+		if created {
+			pubStreamOwners.Delete(pub)
+			_ = pub.Close()
+		}
+		return nil, wantErr
+	}
+	if len(add) > 0 {
+		if err = pub.Subscribe(context.Background(), add...); err != nil {
+			owner.mu.Lock()
+			delete(owner.streams, streamOwnerKey(s))
+			owner.mu.Unlock()
+			if created {
+				pubStreamOwners.Delete(pub)
+				_ = pub.Close()
+			}
+			return nil, err
+		}
+	}
+	owner.mu.Lock()
+	for _, name := range add {
+		owner.channels[name] = struct{}{}
+	}
+	owner.mu.Unlock()
+	return pub, nil
 }
 
 func unsubscribe(pub *redis.PubSub, account *models.Account, s *StreamingRequest) (ret *redis.PubSub, err error) {
 	channels, err := getChannelNames(account, s)
 	if err != nil {
-		return
+		return nil, err
 	}
-
 	if pub == nil {
 		err = errors.New("[unsubscribe]pub is nil")
 		log.ErrorV(err)
-		err = &StreamingErrorResponse{Err: "unsubscribe failed"}
-
-		return
+		return nil, &StreamingErrorResponse{Err: "unsubscribe failed"}
 	}
-
-	err = pub.Unsubscribe(context.Background(), channels...)
-	if err != nil {
+	owner := streamOwner(pub)
+	owner.mu.Lock()
+	tracked := len(owner.streams) > 0 || len(owner.channels) > 0
+	var remove []string
+	if !tracked {
+		remove = channels
+	} else {
+		delete(owner.streams, streamOwnerKey(s))
+		want, wantErr := owner.want(account)
+		if wantErr != nil {
+			owner.mu.Unlock()
+			return nil, wantErr
+		}
+		for name := range owner.channels {
+			if _, ok := want[name]; !ok {
+				remove = append(remove, name)
+			}
+		}
+		for _, name := range remove {
+			delete(owner.channels, name)
+		}
+		if len(owner.streams) == 0 && len(owner.channels) == 0 {
+			pubStreamOwners.Delete(pub)
+		}
+	}
+	owner.mu.Unlock()
+	if len(remove) == 0 {
+		return pub, nil
+	}
+	if err = pub.Unsubscribe(context.Background(), remove...); err != nil {
 		err = errors.Wrap(err, "[unsubscribe] unsubscribe failed")
 		log.ErrorV(err)
-		err = &StreamingErrorResponse{Err: "unsubscribe failed"}
-
-		return
+		return nil, &StreamingErrorResponse{Err: "unsubscribe failed"}
 	}
-
-	ret = pub
-
-	return
+	return pub, nil
 }
 
 func getChannelName(account *models.Account, s *StreamingRequest) (channelName string, err error) {
