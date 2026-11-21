@@ -27,7 +27,7 @@ declare a license itself. The reviewed upstream at
 384 dimensions, quantized ONNX). Both use masked mean pooling and L2 normalization.
 
 ```sh
-python3 scripts/recommendation/prepare_embedding_model.py \
+/tmp/community-meili-acceptance/venv/bin/python scripts/recommendation/prepare_embedding_model.py \
   --repo Xenova/multilingual-e5-small \
   --revision REVIEWED_40_CHARACTER_COMMIT \
   --output /tmp/community-meili-acceptance/model
@@ -37,11 +37,17 @@ The installer checks the revision and license against repository metadata
 (and the pinned, explicitly identified upstream for the Xenova conversion), each
 LFS object's SHA-256 or Git blob object ID, and artifact sizes. It records a
 manifest; the server verifies both local file SHA-256 hashes at every startup.
-It will not overwrite an existing model directory. Installation requires HTTPS
+After an interrupted install, rerun the command with the same output directory
+and revision. The installer verifies previously published artifacts before
+reusing them and preserves any existing files. Installation requires HTTPS
 access to `huggingface.co` and its artifact redirect domains, commonly
 `cdn-lfs.huggingface.co`, `cdn-lfs.hf.co`, `cas-bridge.xethub.hf.co`, and
 `us.aws.cdn.hf.co`. Preserve
-certificate validation and the environment's proxy/network policy.
+certificate validation and the environment's proxy/network policy. The
+recommended virtual environment uses its pinned certifi bundle by default.
+Explicit OpenSSL `SSL_CERT_FILE` or `SSL_CERT_DIR` settings take precedence,
+including for enterprise proxy certificates. Standalone installs without
+certifi use Python's default system trust store.
 
 ## Run
 

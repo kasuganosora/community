@@ -31,7 +31,8 @@ def load_manifest(root: Path) -> dict:
         raise ValueError("model revision/family is missing")
     for name in ("model.onnx", "tokenizer.json"):
         expected = value.get("files", {}).get(name, "")
-        digest = hashlib.file_digest((root / name).open("rb"), "sha256").hexdigest()
+        with (root / name).open("rb") as artifact:
+            digest = hashlib.file_digest(artifact, "sha256").hexdigest()
         if len(expected) != 64 or digest != expected:
             raise ValueError("model artifact hash mismatch: " + name)
     return value
