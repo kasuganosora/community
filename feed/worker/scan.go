@@ -99,18 +99,19 @@ func (w *Worker) fixedTargets(_ context.Context, event *models.FeedEvent) ([]tar
 	if m.Visibility == models.StatusVisibilityDirect {
 		groups = append(groups, targetGroup{"direct", locals})
 	}
-	if m.Visibility != models.StatusVisibilityDirect || event.Kind == models.FeedStatusRefresh || event.Kind == models.FeedStatusDelete {
+	if m.Visibility == models.StatusVisibilityPublic || event.Kind == models.FeedStatusRefresh || event.Kind == models.FeedStatusDelete {
 		// Refresh reconciles both old and new audience indexes. The actual
 		// projection checks current SQL visibility before adding anything.
-		if m.Visibility == models.StatusVisibilityPublic || event.Kind == models.FeedStatusRefresh || event.Kind == models.FeedStatusDelete {
-			groups = append(groups, targetGroup{"public", publicVariants()}, targetGroup{"tag", tagVariants(m.TagNames)})
-		}
+		groups = append(groups, targetGroup{"public", publicVariants()})
+	}
+	if len(m.TagNames) > 0 {
+		groups = append(groups, targetGroup{"tag", tagVariants(m.TagNames)})
 	}
 	return groups, nil
 }
 
 func globalInvalidation(event *models.FeedEvent) bool {
-	return event.Kind == models.FeedInvalidate && (event.Metadata.Reason == "domain_policy_changed" || event.Metadata.Reason == "account_policy_changed" || (event.Metadata.ActorID == 0 && len(event.Metadata.ListIDs) == 0))
+	return event.Kind == models.FeedInvalidate && (event.Metadata.Reason == "domain_policy_changed" || event.Metadata.Reason == "account_policy_changed" || event.Metadata.Reason == "account_deleted" || (event.Metadata.ActorID == 0 && len(event.Metadata.ListIDs) == 0))
 }
 
 // scan produces at most four durable batches per claim. Cursor movement and
@@ -247,12 +248,13 @@ func (w *Worker) scanLists(conn *gorm.DB, event *models.FeedEvent, cursor, upper
 		if !all {
 			fresh := conn.Session(&gorm.Session{NewDB: true})
 			members := fresh.Model(&models.ListAccount{}).Where("account_id = ?", event.ActorID).Select("list_id")
-			if tags := event.Metadata.TagIDs; len(tags) > 0 && event.Metadata.Visibility != models.StatusVisibilityDirect && event.Metadata.Visibility != models.StatusVisibilityPrivate {
+			tags := append(append([]uint64{}, event.Metadata.TagIDs...), event.Metadata.PreviousTagIDs...)
+			if len(tags) > 0 && (event.Metadata.Visibility != models.StatusVisibilityDirect && event.Metadata.Visibility != models.StatusVisibilityPrivate || event.Kind == models.FeedStatusRefresh || event.Kind == models.FeedStatusDelete) {
 				// Lists following one of the post's hashtags (tag_id is
 				// indexed), unless the owner and author block each other.
 				byTag := fresh.Model(&models.ListHashtag{}).Where("tag_id IN ?", tags).Select("list_id")
 				blocked := fresh.Model(&models.Block{}).Select("1").Where("(blocks.type = ? AND ((blocks.account_id = lists.account_id AND blocks.target_account_id = ?) OR (blocks.account_id = ? AND blocks.target_account_id = lists.account_id)) OR (blocks.type = ? AND blocks.account_id = lists.account_id AND blocks.target_domain = (SELECT accounts.domain FROM accounts WHERE accounts.id = ?)))", models.BlockTypeAccount, event.ActorID, event.ActorID, models.BlockTypeDomain, event.ActorID)
-				if event.Metadata.ReplyID != 0 {
+				if event.Metadata.ReplyID != 0 && event.Kind == models.FeedStatusCreate {
 					byTag = byTag.Where("list_id NOT IN (?)", fresh.Model(&models.List{}).Where("replies_policy = ?", models.ListRepliesPolicyNone).Select("id"))
 				}
 				query = query.Where("id IN (?) OR (id IN (?) AND NOT EXISTS (?))", members, byTag, blocked)

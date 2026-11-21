@@ -32,7 +32,7 @@ func feedLeaseJSON(id uint64, kind string, lease models.FeedLease, now time.Time
 // feedJobs exposes operational metadata only: no recipients, private payload,
 // relationship snapshots, lease bearer tokens or raw error strings.
 func feedJobs(c *gin.Context, conn *gorm.DB, kind, state string, page, limit int) {
-	validState := state == "" || state == "pending" || state == "processing" || state == "failed" || state == "complete" || state == "cancelled"
+	validState := state == "" || state == "pending" || state == "waiting" || state == "delayed" || state == "processing" || state == "failed" || state == "complete" || state == "cancelled"
 	if !validState {
 		c.JSON(422, gin.H{"error": "invalid feed queue state"})
 		return
@@ -45,8 +45,15 @@ func feedJobs(c *gin.Context, conn *gorm.DB, kind, state string, page, limit int
 	var total int64
 	if kind == "feed-event" {
 		q := conn.Model(&models.FeedEvent{})
-		if state != "" {
-			q = q.Where("state = ?", state)
+		switch state {
+		case "waiting":
+			q = q.Where("state = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)", "pending", now)
+		case "delayed":
+			q = q.Where("state = ? AND next_attempt_at > ?", "pending", now)
+		default:
+			if state != "" {
+				q = q.Where("state = ?", state)
+			}
 		}
 		if operationError(c, q.Count(&total).Error) {
 			return
@@ -65,8 +72,15 @@ func feedJobs(c *gin.Context, conn *gorm.DB, kind, state string, page, limit int
 		}
 	} else {
 		q := conn.Model(&models.FeedBatch{}).Joins("JOIN feed_events ON feed_events.id = feed_batches.event_id")
-		if state != "" {
-			q = q.Where("feed_batches.state = ?", state)
+		switch state {
+		case "waiting":
+			q = q.Where("feed_batches.state = ? AND (feed_batches.next_attempt_at IS NULL OR feed_batches.next_attempt_at <= ?)", "pending", now)
+		case "delayed":
+			q = q.Where("feed_batches.state = ? AND feed_batches.next_attempt_at > ?", "pending", now)
+		default:
+			if state != "" {
+				q = q.Where("feed_batches.state = ?", state)
+			}
 		}
 		if operationError(c, q.Count(&total).Error) {
 			return
@@ -95,8 +109,12 @@ func feedJobMutable(lease models.FeedLease, now time.Time) bool {
 }
 
 func updateFeedJobLease(tx *gorm.DB, model any, id uint64, lease models.FeedLease, state string, now time.Time) error {
+	updates := map[string]any{"state": state, "lease_generation": lease.LeaseGeneration + 1, "lease_token": "", "lease_expires_at": nil, "next_attempt_at": nil, "last_error_code": ""}
+	if state == "pending" {
+		updates["attempts"] = 0
+	}
 	result := tx.Model(model).Where("id = ? AND state = ? AND lease_generation = ? AND (lease_expires_at IS NULL OR lease_expires_at <= ?)", id, lease.State, lease.LeaseGeneration, now).
-		Updates(map[string]any{"state": state, "lease_generation": lease.LeaseGeneration + 1, "lease_token": "", "lease_expires_at": nil, "next_attempt_at": nil, "last_error_code": ""})
+		Updates(updates)
 	if result.Error != nil {
 		return result.Error
 	}

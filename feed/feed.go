@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/kasuganosora/community/db"
 	"github.com/kasuganosora/community/models"
@@ -22,66 +21,90 @@ const (
 var ErrFeedRegenerating = errors.New("feed is regenerating")
 
 // defaultService 是默认的 FeedService 实例.
-var defaultService *FeedService
-var defaultServiceOnce sync.Once
-var defaultServiceOverride bool
+var (
+	defaultServiceMu       sync.RWMutex
+	defaultService         *FeedService
+	defaultServiceOverride bool
+)
 
 // getDefaultService 获取默认的 FeedService 实例（延迟初始化）.
 func getDefaultService() *FeedService {
-	if defaultServiceOverride {
-		return defaultService
+	defaultServiceMu.RLock()
+	if defaultServiceOverride && defaultService != nil {
+		svc := defaultService
+		defaultServiceMu.RUnlock()
+		return svc
 	}
+	if !defaultServiceOverride && defaultService != nil {
+		svc := defaultService
+		defaultServiceMu.RUnlock()
+		return svc
+	}
+	defaultServiceMu.RUnlock()
 
-	defaultServiceOnce.Do(func() {
-		if defaultService == nil {
-			defaultService = NewFeedService(NewRedisClient(db.GetUniversalRedis()))
-		}
-	})
-
+	defaultServiceMu.Lock()
+	defer defaultServiceMu.Unlock()
+	if defaultService == nil {
+		defaultService = NewFeedService(NewRedisClient(db.GetUniversalRedis()))
+	}
 	return defaultService
 }
 
 // SetDefaultService 设置默认的 FeedService 实例（用于测试）.
 func SetDefaultService(service *FeedService) {
+	defaultServiceMu.Lock()
 	defaultService = service
-	defaultServiceOverride = true
+	defaultServiceOverride = service != nil
+	defaultServiceMu.Unlock()
 }
 
 // SwapDefaultService installs service as the process-wide feed service.
 // The returned function restores the previous service and whether it was an override.
 func SwapDefaultService(service *FeedService) func() {
+	defaultServiceMu.Lock()
 	previous, overridden := defaultService, defaultServiceOverride
-	SetDefaultService(service)
+	defaultService = service
+	defaultServiceOverride = service != nil
+	defaultServiceMu.Unlock()
 	return func() {
+		defaultServiceMu.Lock()
 		defaultService = previous
 		defaultServiceOverride = overridden
+		defaultServiceMu.Unlock()
 	}
 }
 
 // defaultDBService 是默认的 DBService 实例.
-var defaultDBService *DBService
-var defaultDBServiceOnce sync.Once
-var defaultDBServiceOverride bool
+var (
+	defaultDBServiceMu       sync.RWMutex
+	defaultDBService         *DBService
+	defaultDBServiceOverride bool
+)
 
 // getDefaultDBService 获取默认的 DBService 实例（延迟初始化）.
 func getDefaultDBService() *DBService {
-	if defaultDBServiceOverride {
-		return defaultDBService
+	defaultDBServiceMu.RLock()
+	if defaultDBService != nil {
+		svc := defaultDBService
+		defaultDBServiceMu.RUnlock()
+		return svc
 	}
+	defaultDBServiceMu.RUnlock()
 
-	defaultDBServiceOnce.Do(func() {
-		if defaultDBService == nil {
-			defaultDBService = NewDBService(db.GetDB())
-		}
-	})
-
+	defaultDBServiceMu.Lock()
+	defer defaultDBServiceMu.Unlock()
+	if defaultDBService == nil {
+		defaultDBService = NewDBService(db.GetDB())
+	}
 	return defaultDBService
 }
 
 // SetDefaultDBService 设置默认的 DBService 实例（用于测试）.
 func SetDefaultDBService(service *DBService) {
+	defaultDBServiceMu.Lock()
 	defaultDBService = service
-	defaultDBServiceOverride = true
+	defaultDBServiceOverride = service != nil
+	defaultDBServiceMu.Unlock()
 }
 
 type Timeline interface {
@@ -218,5 +241,5 @@ func GcTimelines() (err error) {
 
 // ResetSubscriptionCache 重置订阅缓存（用于测试）.
 func ResetSubscriptionCache() {
-	subCache = &subscriptionCache{ttl: 5 * time.Second}
+	subCache.cache.Clear()
 }

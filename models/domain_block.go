@@ -1,12 +1,36 @@
 package models
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kasuganosora/community/db/dialect"
 	"gorm.io/gorm"
 )
+
+type domainSeveritiesMemoKey struct{}
+
+type domainSeveritiesMemo struct {
+	mu      sync.Mutex
+	loaded  bool
+	suspend HostSet
+	silence HostSet
+}
+
+// WithDomainSeveritiesMemo attaches a request-scoped memo to ctx so multiple
+// visibility, quote, reply-preview, and public-silence checks within a single
+// request query domain_blocks at most once without caching across requests.
+func WithDomainSeveritiesMemo(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Value(domainSeveritiesMemoKey{}) != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, domainSeveritiesMemoKey{}, &domainSeveritiesMemo{})
+}
 
 // DomainBlock represents an instance-level domain block (admin setting).
 type DomainBlock struct {
@@ -71,16 +95,41 @@ func DomainSeverities(conn *gorm.DB) (suspend HostSet, silence HostSet, err erro
 	if conn == nil {
 		return suspend, silence, nil
 	}
+	var memo *domainSeveritiesMemo
+	if conn.Statement != nil && conn.Statement.Context != nil {
+		memo, _ = conn.Statement.Context.Value(domainSeveritiesMemoKey{}).(*domainSeveritiesMemo)
+	}
+	if memo != nil {
+		memo.mu.Lock()
+		if memo.loaded {
+			for d := range memo.suspend {
+				suspend[d] = true
+			}
+			for d := range memo.silence {
+				silence[d] = true
+			}
+			memo.mu.Unlock()
+			return suspend, silence, nil
+		}
+		defer memo.mu.Unlock()
+	}
 	var rows []DomainBlock
 	err = queryTolerantOfMissingTable(conn, func(tx *gorm.DB) error {
 		return tx.Select("domain", "severity").Find(&rows).Error
 	})
 	if err != nil {
 		if isMissingRelation(err) {
+			if memo != nil {
+				memo.suspend = HostSet{}
+				memo.silence = HostSet{}
+				memo.loaded = true
+			}
 			return suspend, silence, nil
 		}
 		return nil, nil, err
 	}
+	dbSuspend := HostSet{}
+	dbSilence := HostSet{}
 	for _, row := range rows {
 		domain := strings.ToLower(strings.TrimSpace(row.Domain))
 		if domain == "" {
@@ -88,10 +137,17 @@ func DomainSeverities(conn *gorm.DB) (suspend HostSet, silence HostSet, err erro
 		}
 		switch strings.ToLower(strings.TrimSpace(row.Severity)) {
 		case "", "suspend":
+			dbSuspend[domain] = true
 			suspend[domain] = true
 		case "silence":
+			dbSilence[domain] = true
 			silence[domain] = true
 		}
+	}
+	if memo != nil {
+		memo.suspend = dbSuspend
+		memo.silence = dbSilence
+		memo.loaded = true
 	}
 	return suspend, silence, nil
 }

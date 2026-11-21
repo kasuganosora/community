@@ -18,12 +18,12 @@ func init() {
 			return true
 		}
 		if event.Data == nil {
-			return false
+			return true
 		}
 
-		status := event.Data.(*models.Status) //nolint:forcetypeassert
-		if status == nil {
-			return false
+		status, ok := event.Data.(*models.Status)
+		if !ok || status == nil {
+			return true
 		}
 
 		// Old posts imported late never enter the live timelines.
@@ -41,7 +41,7 @@ func init() {
 		case "after_create":
 			go func() { _ = Push(status, false, true) }()
 		case "before_update":
-			go func() { _ = Unpush(status, true) }() // 更新之前，先删除
+			go func() { _ = Unpush(status, false) }() // 更新之前，先删除缓存项，不向客户端发 delete
 		case "after_update":
 			go func() { _ = Push(status, true, true) }()
 		case "after_delete":
@@ -113,7 +113,7 @@ func (timeline *PublicTimeline) RebuildContext(ctx context.Context) (err error) 
 	statuses := make(models.Statuses, 0)
 
 	err = timeline.candidates(db.GetDB().WithContext(ctx).Model(&models.Status{})).
-		Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
+		Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS).Find(&statuses).Error
 	if err != nil {
 		return
 	}
@@ -122,6 +122,9 @@ func (timeline *PublicTimeline) RebuildContext(ctx context.Context) (err error) 
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
+	if status == nil {
+		return nil
+	}
 	if status.Visibility != models.StatusVisibilityPublic {
 		return
 	}
@@ -153,6 +156,9 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
+	if status == nil {
+		return nil
+	}
 	// 从全部时间线里面删除
 	allPublicTimeline := &PublicTimeline{}
 	if err = feed.RemoveTimelineItem(allPublicTimeline, status, true); err != nil {
@@ -231,11 +237,13 @@ func GetTimelineContentAll(params *feed.ListParam) (statuses models.Statuses, er
 		return timeline.candidates(tx), nil
 	}
 
-	if local, _ := params.Other["local"].(bool); local {
-		params.Other["database_only"] = true
-	}
-	if remote, _ := params.Other["remote"].(bool); remote {
-		params.Other["database_only"] = true
+	if !feed.DurableFanoutEnabled() {
+		if local, _ := params.Other["local"].(bool); local {
+			params.Other["database_only"] = true
+		}
+		if remote, _ := params.Other["remote"].(bool); remote {
+			params.Other["database_only"] = true
+		}
 	}
 	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, dropSilencedDomains)
 }
@@ -258,15 +266,27 @@ func GetTimelineContentMedia(params *feed.ListParam) (statuses models.Statuses, 
 		return timeline.candidates(tx), nil
 	}
 
-	// Publication maintains the shared public feed. Filtered views use SQL so
-	// a separately cached filter cannot miss posts published after its rebuild.
-	params.Other["database_only"] = true
+	// Legacy fanout only maintains the shared public feed; durable fanout
+	// projects all 6 public variants directly.
+	if !feed.DurableFanoutEnabled() {
+		params.Other["database_only"] = true
+	}
 	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, dropSilencedDomains)
 }
 
 // dropSilencedDomains keeps silenced instances out of public timelines without
 // hiding them from followers. Suspended domains are removed later by visibility.
 func dropSilencedDomains(statuses models.Statuses) models.Statuses {
+	hasRemote := false
+	for _, status := range statuses {
+		if status != nil && (status.Domain != nil || (status.Reblog != nil && status.Reblog.Domain != nil)) {
+			hasRemote = true
+			break
+		}
+	}
+	if !hasRemote {
+		return statuses
+	}
 	_, silence, err := models.DomainSeverities(db.GetDB())
 	if err != nil || len(silence) == 0 {
 		return statuses

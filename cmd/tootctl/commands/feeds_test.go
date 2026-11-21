@@ -88,7 +88,7 @@ func TestBuildAccountFeedsUsesCanonicalIDsAndMembership(t *testing.T) {
 			for _, id := range []uint64{90, 80, 30, 20} {
 				score, err := client.ZScore(ctx, key, fmt.Sprint(id)).Result()
 				require.NoError(t, err)
-				require.Equal(t, float64(id), score)
+				require.Equal(t, feed.ScoreForStatusID(id), score)
 			}
 			_, err = buildAccountFeeds(accounts[4])
 			require.NoError(t, err)
@@ -99,9 +99,12 @@ func TestBuildAccountFeedsUsesCanonicalIDsAndMembership(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, want, got)
 				for _, member := range got {
+					var memberID uint64
+					_, err := fmt.Sscan(member, &memberID)
+					require.NoError(t, err)
 					score, err := client.ZScore(ctx, listKey, member).Result()
 					require.NoError(t, err)
-					require.Equal(t, member, fmt.Sprintf("%.0f", score))
+					require.Equal(t, feed.ScoreForStatusID(memberID), score)
 				}
 			}
 		})

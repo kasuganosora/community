@@ -189,15 +189,21 @@ redis.call('EXPIRE',expiry,604800)
 redis.call('HINCRBY',m,'generation',1)
 redis.call('EXPIRE',m,604800)
 if removing then
- redis.call('ZREM',k,ARGV[6])
- -- Removing a representative requires SQL re-evaluation of aggregation.
- redis.call('HSET',m,'ready',0)
+ local removed=redis.call('ZREM',k,ARGV[6])
+ local removedDup=0
+ if ARGV[9]~='0' then removedDup=redis.call('SREM',k..':reblogs:'..ARGV[9],ARGV[6]) end
+ -- Removing a cached item or duplicate reblog requires SQL re-evaluation of aggregation.
+ if removed>0 or removedDup>0 then redis.call('HSET',m,'ready',0) end
 else
  if ARGV[9]~='0' and ARGV[10]=='1' then
   -- SQL rebuild preserves aggregation and its falloff rather than guessing it.
   redis.call('HSET',m,'ready',0)
- else redis.call('ZADD',k,ARGV[12],ARGV[6]) end
- redis.call('ZREMRANGEBYRANK',k,0,-513)
+ else
+  redis.call('ZADD',k,ARGV[12],ARGV[6])
+  local evicted=redis.call('ZREMRANGEBYRANK',k,0,-513)
+  if evicted>0 then redis.call('HSET',m,'complete',0) end
+  redis.call('HSET',m,'count',redis.call('ZCARD',k))
+ end
 end
 redis.call('EXPIRE',k,604800)
 return 1

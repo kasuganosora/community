@@ -13,7 +13,7 @@ import (
 )
 
 func DirectStreaming(c *gin.Context) {
-	account := controllers.GetAccount(c)
+	account := controllers.MustGetAccount(c)
 	timeline := &direct.DirectTimeline{
 		Account: account,
 	}
@@ -32,12 +32,13 @@ func DirectStreaming(c *gin.Context) {
 // Redis publishes a JSON envelope, not an in-process *Conversation pointer.
 func serializerConversationEvent(account *models.Account, payload string) (string, string, error) {
 	var event struct {
+		Type    string               `json:"type"`
 		Payload *models.Conversation `json:"payload"`
 	}
 	if err := json.Unmarshal([]byte(payload), &event); err != nil {
 		return "", "", err
 	}
-	if event.Payload == nil || event.Payload.Id == 0 {
+	if (event.Type != "" && event.Type != "conversation") || event.Payload == nil || event.Payload.Id == 0 {
 		return "", "", errEventNotVisible
 	}
 	account, err := currentStreamingAccount(account)

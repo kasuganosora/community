@@ -8,7 +8,7 @@ import (
 func Health(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	err := db.GetRedis().Ping(ctx).Err()
+	err := db.GetUniversalRedis().Ping(ctx).Err()
 	if err != nil {
 		c.AbortWithStatus(500)
 

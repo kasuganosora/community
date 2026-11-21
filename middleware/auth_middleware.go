@@ -147,8 +147,9 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		// 获取用户信息
 		user := &models.User{}
+		conn := db.GetDB().WithContext(c.Request.Context())
 
-		err = db.GetDB().WithContext(c.Request.Context()).Where("id = ?", tokenData.UserId).First(user).Error
+		err = conn.Where("id = ?", tokenData.UserId).First(user).Error
 		if err != nil {
 			if abortOnClientCancel(c, err) {
 				return
@@ -165,8 +166,14 @@ func AuthMiddleware() gin.HandlerFunc {
 
 			return
 		}
+		if models.FeedOutboxRequired() || conn.Migrator().HasTable(&models.UserSetting{}) {
+			settings := &models.UserSetting{}
+			if settingsErr := conn.Where("user_id = ?", user.Id).First(settings).Error; settingsErr == nil {
+				user.Settings = settings
+			}
+		}
 
-		account, err := user.GetAccountBase(db.GetDB().WithContext(c.Request.Context()))
+		account, err := user.GetAccountBase(conn)
 		if err != nil {
 			if abortOnClientCancel(c, err) {
 				return
@@ -183,6 +190,7 @@ func AuthMiddleware() gin.HandlerFunc {
 
 			return
 		}
+		account.User = user
 
 		// Moderation is evaluated against current rows on every request,
 		// including OAuth tokens already present in the token cache.
@@ -433,7 +441,11 @@ func streamingAccessToken(c *gin.Context) string {
 				return token
 			}
 		}
-		return strings.TrimSpace(protocols[0])
+		first := strings.TrimSpace(protocols[0])
+		if first == "" || first == secretredact.PublicSubprotocol {
+			return ""
+		}
+		return first
 	}
 	return ""
 }

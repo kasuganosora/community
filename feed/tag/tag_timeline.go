@@ -20,12 +20,12 @@ func init() {
 			return true
 		}
 		if event.Data == nil {
-			return false
+			return true
 		}
 
-		status := event.Data.(*models.Status) //nolint:forcetypeassert
-		if status == nil {
-			return false
+		status, ok := event.Data.(*models.Status)
+		if !ok || status == nil {
+			return true
 		}
 
 		// Old posts imported late never enter the live timelines.
@@ -42,20 +42,29 @@ func init() {
 		switch event.Name {
 		case "after_create":
 			go func() {
+				if status.Tags == nil && db.GetDB() == nil {
+					return
+				}
 				err := Push(status, false, true)
 				if err != nil {
 					log.Printf("tag_timeline: Push failed: %v", err)
 				}
 			}()
 		case "before_update":
-			go func() { // 更新之前，先删除
-				err := Unpush(status, true)
+			go func() { // 更新之前，先删除缓存项，不向客户端发 delete
+				if status.Tags == nil && db.GetDB() == nil {
+					return
+				}
+				err := Unpush(status, false)
 				if err != nil {
 					log.Printf("tag_timeline: Unpush failed: %v", err)
 				}
 			}()
 		case "after_update":
 			go func() {
+				if status.Tags == nil && db.GetDB() == nil {
+					return
+				}
 				err := Push(status, true, true)
 				if err != nil {
 					log.Printf("tag_timeline: Push failed: %v", err)
@@ -63,6 +72,9 @@ func init() {
 			}()
 		case "after_delete":
 			go func() {
+				if status.Tags == nil && db.GetDB() == nil {
+					return
+				}
 				err := Unpush(status, true)
 				if err != nil {
 					log.Printf("tag_timeline: Unpush failed: %v", err)
@@ -136,7 +148,7 @@ func (timeline *TagTimeline) RebuildContext(ctx context.Context) (err error) {
 	if timeline.OnlyMedia {
 		query = query.Where("(SELECT 1 FROM media_attachments WHERE media_attachments.status_id = statuses.id LIMIT 1) IS NOT NULL")
 	}
-	err = query.Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
+	err = query.Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS).Find(&statuses).Error
 	if err != nil {
 		return err
 	}
@@ -145,6 +157,11 @@ func (timeline *TagTimeline) RebuildContext(ctx context.Context) (err error) {
 }
 
 func Push(status *models.Status, update bool, pushToClient bool) (err error) {
+	if status == nil {
+		return nil
+	}
+	cloned := *status
+	status = &cloned
 	// 取得这个status有那些tag
 	if err = getTags(status); err != nil {
 		return err
@@ -169,7 +186,6 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 		}
 
 		err = feed.BatchAddToTimelineItems(timelines, status, true)
-
 		if err != nil {
 			return err
 		}
@@ -210,6 +226,11 @@ func Push(status *models.Status, update bool, pushToClient bool) (err error) {
 }
 
 func Unpush(status *models.Status, pushToClient bool) (err error) {
+	if status == nil {
+		return nil
+	}
+	cloned := *status
+	status = &cloned
 	// 取得这个status有那些tag
 	if err = getTags(status); err != nil {
 		return
@@ -279,7 +300,7 @@ func getTags(status *models.Status) (err error) {
 	}
 
 	status.Tags = make(models.Tags, 0)
-	err = db.GetDB().Model(&models.Status{}).Association("Tags").Find(&status.Tags)
+	err = db.GetDB().Model(status).Association("Tags").Find(&status.Tags)
 
 	return
 }
@@ -296,18 +317,26 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 	if params.Other == nil {
 		params.Other = make(map[string]any)
 	}
+	timeline.OnlyLocal, _ = params.Other["local"].(bool)
+	timeline.OnlyRemote, _ = params.Other["remote"].(bool)
+	timeline.OnlyMedia, _ = params.Other["only_media"].(bool)
+
+	reqCtx := contextForParams(params)
 	// Resolve once per request, including requests which cross several cache
 	// batches after filtering. This identifier is not an authorization cache.
-	tagModel, err := models.FindTagByName(db.GetDB().WithContext(contextForParams(params)), tag)
+	tagModel, err := models.FindTagByName(db.GetDB().WithContext(reqCtx), tag)
 	if err != nil {
 		return nil, err
 	}
 
-	membership, err := tagMembership(db.GetDB().WithContext(contextForParams(params)), tagModel.Id)
-	if err != nil {
-		return nil, err
-	}
+	var membership func(*gorm.DB) *gorm.DB
 	newFilterCondition := func(tx *gorm.DB) (query *gorm.DB, err error) {
+		if membership == nil {
+			membership, err = tagMembership(db.GetDB().WithContext(reqCtx), tagModel.Id)
+			if err != nil {
+				return nil, err
+			}
+		}
 		query = membership(feed.ExcludeBackfilled(feed.EligibleTimelineStatuses(tx)))
 		// Preserve the personalized tag audience, but filter it before LIMIT
 		// and association loading instead of hydrating inaccessible pages.
@@ -320,25 +349,19 @@ func GetTimelineContent(tag string, account *models.Account, params *feed.ListPa
 				[]int{models.StatusVisibilityPublic, models.StatusVisibilityUnlisted}, models.StatusVisibilityPrivate,
 				account.Id, account.Id, models.FollowStatusFollowed, models.StatusVisibilityDirect, account.Id)
 		}
-		if isLocal := params.Other["local"]; isLocal != nil && isLocal.(bool) { //nolint:forcetypeassert
+		if timeline.OnlyLocal {
 			query = query.Where("domain is null")
-		} else if isRemote := params.Other["remote"]; isRemote != nil && isRemote.(bool) { //nolint:forcetypeassert
+		} else if timeline.OnlyRemote {
 			query = query.Where("domain is not null")
 		}
 
-		if onlyMedia, _ := params.Other["only_media"].(bool); onlyMedia {
+		if timeline.OnlyMedia {
 			query = query.Where("(SELECT 1 FROM media_attachments WHERE media_attachments.status_id = statuses.id LIMIT 1) IS NOT NULL")
 		}
 		return
 	}
 
-	if local, _ := params.Other["local"].(bool); local {
-		params.Other["database_only"] = true
-	}
-	if remote, _ := params.Other["remote"].(bool); remote {
-		params.Other["database_only"] = true
-	}
-	if media, _ := params.Other["only_media"].(bool); media {
+	if !feed.DurableFanoutEnabled() && (timeline.OnlyLocal || timeline.OnlyRemote || timeline.OnlyMedia) {
 		params.Other["database_only"] = true
 	}
 	return feed.GetStatusTimelineContent(timeline, params, newFilterCondition, nil)

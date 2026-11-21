@@ -103,6 +103,13 @@ func FilterVisibleStatuses(conn *gorm.DB, viewer *Account, statuses Statuses) (S
 		}
 	}
 	globalAccounts := map[uint64]bool{}
+	hasRemoteDomain := viewer != nil && viewer.Domain != nil && strings.TrimSpace(*viewer.Domain) != ""
+	for _, a := range authors {
+		if a != nil && a.Domain != nil && strings.TrimSpace(*a.Domain) != "" {
+			hasRemoteDomain = true
+			break
+		}
+	}
 	globalDomains := map[string]bool{}
 	blockedAccounts := map[uint64]bool{}
 	blockedDomains := map[string]bool{}
@@ -115,10 +122,23 @@ func FilterVisibleStatuses(conn *gorm.DB, viewer *Account, statuses Statuses) (S
 		if viewer != nil && viewer.Domain != nil {
 			viewerDomain = *viewer.Domain
 		}
+		targetAccountIDs := append(append([]uint64{}, authorIDs...), viewerID)
 		var blocks []Block
-		query := conn.Where("account_id = ?", 0)
-		if viewer != nil {
-			query = conn.Where("account_id IN ? OR (account_id IN ? AND ((type = ? AND target_account_id = ?) OR (type = ? AND target_domain = ?)))", []uint64{0, viewerID}, authorIDs, BlockTypeAccount, viewerID, BlockTypeDomain, viewerDomain)
+		var query *gorm.DB
+		if !hasRemoteDomain {
+			if viewer == nil {
+				query = conn.Where("account_id = 0 AND type = ? AND target_account_id IN ?", BlockTypeAccount, authorIDs)
+			} else {
+				query = conn.Where("(account_id IN ? AND type = ? AND target_account_id IN ?) OR (account_id IN ? AND type = ? AND target_account_id = ?)",
+					[]uint64{0, viewerID}, BlockTypeAccount, targetAccountIDs, authorIDs, BlockTypeAccount, viewerID)
+			}
+		} else {
+			if viewer == nil {
+				query = conn.Where("account_id = 0 AND ((type = ? AND target_account_id IN ?) OR type = ?)", BlockTypeAccount, authorIDs, BlockTypeDomain)
+			} else {
+				query = conn.Where("(account_id IN ? AND ((type = ? AND target_account_id IN ?) OR type = ?)) OR (account_id IN ? AND ((type = ? AND target_account_id = ?) OR (type = ? AND target_domain = ?)))",
+					[]uint64{0, viewerID}, BlockTypeAccount, targetAccountIDs, BlockTypeDomain, authorIDs, BlockTypeAccount, viewerID, BlockTypeDomain, viewerDomain)
+			}
 		}
 		if err := query.Find(&blocks).Error; err != nil {
 			return nil, err
@@ -148,12 +168,14 @@ func FilterVisibleStatuses(conn *gorm.DB, viewer *Account, statuses Statuses) (S
 			}
 		}
 	}
-	suspend, _, err := DomainSeverities(conn)
-	if err != nil {
-		return nil, err
-	}
-	for domain := range suspend {
-		globalDomains[domain] = true
+	if hasRemoteDomain {
+		suspend, _, err := DomainSeverities(conn)
+		if err != nil {
+			return nil, err
+		}
+		for domain := range suspend {
+			globalDomains[domain] = true
+		}
 	}
 	var allowed func(*Status, map[*Status]bool) bool
 	allowed = func(s *Status, chain map[*Status]bool) bool {
@@ -215,6 +237,105 @@ func FilterVisibleStatuses(conn *gorm.DB, viewer *Account, statuses Statuses) (S
 		if allowed(s, map[*Status]bool{}) {
 			result = append(result, s)
 		}
+	}
+	return result, nil
+}
+
+// FilterVisibleAccounts filters out banned accounts and accounts blocked in
+// either direction (including global and instance-level domain blocks) using a
+// single batched query instead of per-row AccountsBlocked lookups.
+func FilterVisibleAccounts(conn *gorm.DB, viewer *Account, accounts Accounts) (Accounts, error) {
+	result := make(Accounts, 0, len(accounts))
+	if len(accounts) == 0 {
+		return result, nil
+	}
+	ids := make([]uint64, 0, len(accounts))
+	seen := map[uint64]bool{}
+	for _, a := range accounts {
+		if a != nil && a.Id != 0 && !seen[a.Id] {
+			seen[a.Id] = true
+			ids = append(ids, a.Id)
+		}
+	}
+	globalAccounts := map[uint64]bool{}
+	globalDomains := map[string]bool{}
+	blockedAccounts := map[uint64]bool{}
+	blockedDomains := map[string]bool{}
+	if len(ids) > 0 {
+		viewerID := uint64(0)
+		viewerDomain := ""
+		if viewer != nil {
+			viewerID = viewer.Id
+			if viewer.Domain != nil {
+				viewerDomain = *viewer.Domain
+			}
+		}
+		var blocks []Block
+		query := conn.Where("account_id = ?", 0)
+		if viewer != nil {
+			query = conn.Where(
+				"account_id IN ? OR (account_id IN ? AND ((type = ? AND target_account_id = ?) OR (type = ? AND target_domain = ?)))",
+				[]uint64{0, viewerID}, ids, BlockTypeAccount, viewerID, BlockTypeDomain, viewerDomain,
+			)
+		}
+		if err := query.Find(&blocks).Error; err != nil {
+			return nil, err
+		}
+		for _, b := range blocks {
+			if b.AccountId == 0 {
+				if b.Type == BlockTypeAccount {
+					globalAccounts[b.TargetAccountId] = true
+				} else if b.Type == BlockTypeDomain {
+					globalDomains[strings.ToLower(b.TargetDomain)] = true
+				}
+				continue
+			}
+			if b.AccountId == viewerID {
+				if b.Type == BlockTypeAccount {
+					blockedAccounts[b.TargetAccountId] = true
+				} else if b.Type == BlockTypeDomain {
+					blockedDomains[strings.ToLower(b.TargetDomain)] = true
+				}
+				continue
+			}
+			if b.Type == BlockTypeAccount && b.TargetAccountId == viewerID {
+				blockedAccounts[b.AccountId] = true
+			}
+			if b.Type == BlockTypeDomain && viewer != nil && viewer.Domain != nil && strings.EqualFold(b.TargetDomain, viewerDomain) {
+				blockedAccounts[b.AccountId] = true
+			}
+		}
+	}
+	suspend, _, err := DomainSeverities(conn)
+	if err != nil {
+		return nil, err
+	}
+	for domain := range suspend {
+		globalDomains[domain] = true
+	}
+	for _, a := range accounts {
+		if a == nil || a.IsBan {
+			continue
+		}
+		if viewer != nil && viewer.Id == a.Id {
+			result = append(result, a)
+			continue
+		}
+		if globalAccounts[a.Id] || (a.Domain != nil && domainListed(globalDomains, *a.Domain)) {
+			continue
+		}
+		if viewer != nil {
+			if globalAccounts[viewer.Id] || blockedAccounts[a.Id] {
+				continue
+			}
+			if viewer.Domain != nil && domainListed(globalDomains, *viewer.Domain) {
+				continue
+			}
+			if a.Domain != nil && domainListed(blockedDomains, *a.Domain) {
+				continue
+			}
+		}
+		result = append(result, a)
 	}
 	return result, nil
 }

@@ -212,10 +212,7 @@ func TestColdRebuildWaitingRequestCanCancel(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	close(release)
 	<-done
-	rebuildMu.Lock()
-	_, exists := rebuildCalls["cancel:waiting"]
-	rebuildMu.Unlock()
-	require.False(t, exists)
+	require.False(t, hasRebuildCall("cancel:waiting"))
 }
 
 type pipelineCounter struct{ calls atomic.Int64 }

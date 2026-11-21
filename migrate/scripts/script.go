@@ -85,6 +85,7 @@ var ScripsType = []MigrationScript{
 	ReplyParentBackfillScript{},
 	MediaProcessingScript{},
 	SuggestionActivityIndexScript{},
+	TimelineQueryIndexesScript{},
 }
 
 type MigrationScript interface {

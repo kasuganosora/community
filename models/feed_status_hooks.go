@@ -25,6 +25,9 @@ func QueueFeedStatus(tx *gorm.DB, kind string, status *Status) error {
 	if current.ScheduledAt != nil && kind != FeedStatusDelete {
 		return nil
 	}
+	if kind == FeedStatusCreate && current.IsProfileBackfill() {
+		return nil
+	}
 	if current.DeletedAt != nil {
 		kind = FeedStatusDelete
 	}
@@ -49,7 +52,7 @@ func QueueFeedStatus(tx *gorm.DB, kind string, status *Status) error {
 		return err
 	}
 
-	if tx.Migrator().HasTable("media_attachments") {
+	if feedTableAvailable(tx, "media_attachments") {
 		var n int64
 		if err := tx.Table("media_attachments").Where("status_id = ?", current.Id).Count(&n).Error; err != nil {
 			return err
@@ -59,10 +62,12 @@ func QueueFeedStatus(tx *gorm.DB, kind string, status *Status) error {
 	if kind == FeedStatusRefresh {
 		if prior, ok := tx.Statement.Context.Value(feedPreviousAudienceKey{}).(feedPreviousAudience); ok && prior.id == current.Id {
 			metadata.PreviousRecipientIDs = append(metadata.PreviousRecipientIDs, prior.metadata.RecipientIDs...)
+			metadata.PreviousTagIDs = append(metadata.PreviousTagIDs, prior.metadata.TagIDs...)
 			metadata.PreviousTagNames = append(metadata.PreviousTagNames, prior.metadata.TagNames...)
 		}
 		if previous := status.feedPreviousMetadata; previous != nil {
 			metadata.PreviousRecipientIDs = append(metadata.PreviousRecipientIDs, previous.RecipientIDs...)
+			metadata.PreviousTagIDs = append(metadata.PreviousTagIDs, previous.TagIDs...)
 			metadata.PreviousTagNames = append(metadata.PreviousTagNames, previous.TagNames...)
 		}
 		// AP handlers may have replaced joins before Save. The preceding durable
@@ -75,6 +80,7 @@ func QueueFeedStatus(tx *gorm.DB, kind string, status *Status) error {
 			}
 			if result.RowsAffected > 0 {
 				metadata.PreviousRecipientIDs = append(metadata.PreviousRecipientIDs, old.Metadata.RecipientIDs...)
+				metadata.PreviousTagIDs = append(metadata.PreviousTagIDs, old.Metadata.TagIDs...)
 				metadata.PreviousTagNames = append(metadata.PreviousTagNames, old.Metadata.TagNames...)
 			}
 		}
@@ -84,18 +90,22 @@ func QueueFeedStatus(tx *gorm.DB, kind string, status *Status) error {
 	return tx.Create(&FeedEvent{EventKey: fmt.Sprintf("status:%d:%d", current.Id, revision), Kind: kind, ObjectType: "status", ObjectID: current.Id, ActorID: current.AccountId, ObjectVersion: revision, OperationID: feedOperation(tx), Metadata: metadata}).Error
 }
 
+func feedTableAvailable(tx *gorm.DB, name string) bool {
+	return FeedOutboxRequired() || tx.Migrator().HasTable(name)
+}
+
 func captureFeedAudience(tx *gorm.DB, id uint64, metadata *FeedEventMetadata) error {
-	if tx.Migrator().HasTable("status_to_accounts") {
+	if feedTableAvailable(tx, "status_to_accounts") {
 		if err := tx.Table("status_to_accounts").Where("status_id = ?", id).Order("account_id").Pluck("account_id", &metadata.RecipientIDs).Error; err != nil {
 			return err
 		}
 	}
-	if tx.Migrator().HasTable("status_tags") {
+	if feedTableAvailable(tx, "status_tags") {
 		if err := tx.Table("status_tags").Where("status_id = ?", id).Order("tag_id").Pluck("tag_id", &metadata.TagIDs).Error; err != nil {
 			return err
 		}
 	}
-	if len(metadata.TagIDs) > 0 && tx.Migrator().HasTable("tags") {
+	if len(metadata.TagIDs) > 0 && feedTableAvailable(tx, "tags") {
 		if err := tx.Table("tags").Where("id IN ?", metadata.TagIDs).Pluck("name", &metadata.TagNames).Error; err != nil {
 			return err
 		}

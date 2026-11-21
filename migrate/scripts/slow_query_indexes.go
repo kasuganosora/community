@@ -109,6 +109,37 @@ func (SlowQueryIndexesScript) Up(db *gorm.DB) error {
 
 func (SlowQueryIndexesScript) Down(*gorm.DB) error { return nil }
 
+// TimelineQueryIndexesScript adds online composite indexes for timeline
+// publication-time pagination, reverse-block authorization checks, mention
+// subqueries, and notification pagination.
+type TimelineQueryIndexesScript struct{}
+
+var timelineQueryIndexes = []onlineIndex{
+	{name: "idx_blocks_target_account_type", table: "blocks",
+		pg: "(target_account_id, type, account_id)", mysql: "(target_account_id, type, account_id)", sqlite: "(target_account_id, type, account_id)"},
+	{name: "idx_statuses_account_created_id", table: "statuses",
+		pg: "(account_id, created_at, id)", mysql: "(account_id, created_at, id)", sqlite: "(account_id, created_at, id)"},
+	{name: "idx_statuses_visibility_created_id", table: "statuses",
+		pg: "(visibility, created_at, id)", mysql: "(visibility, created_at, id)", sqlite: "(visibility, created_at, id)"},
+	{name: "idx_status_to_accounts_account_status", table: "status_to_accounts",
+		pg: "(account_id, status_id)", mysql: "(account_id, status_id)", sqlite: "(account_id, status_id)"},
+	{name: "idx_notifications_account_type_id", table: "notifications",
+		pg: "(account_id, type, id)", mysql: "(account_id, type, id)", sqlite: "(account_id, type, id)"},
+}
+
+func (TimelineQueryIndexesScript) NonTransactional() bool { return true }
+
+func (TimelineQueryIndexesScript) Up(db *gorm.DB) error {
+	for _, ix := range timelineQueryIndexes {
+		if err := createOnlineIndex(db, ix); err != nil {
+			return fmt.Errorf("%s: %w", ix.name, err)
+		}
+	}
+	return nil
+}
+
+func (TimelineQueryIndexesScript) Down(*gorm.DB) error { return nil }
+
 func createOnlineIndex(db *gorm.DB, ix onlineIndex) error {
 	m := db.Migrator()
 	if !m.HasTable(ix.table) {

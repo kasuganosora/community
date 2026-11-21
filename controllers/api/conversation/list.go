@@ -66,25 +66,39 @@ func List(c *gin.Context) {
 			return
 		}
 
-		subQuery = subQuery.Where("conversation_id >= ?", sinceId)
+		subQuery = subQuery.Where("conversation_id > ?", sinceId)
 	}
 
-	if req.Limit == 0 {
+	if req.Limit <= 0 {
 		req.Limit = 20
+	}
+	if req.Limit > 80 {
+		req.Limit = 80
 	}
 
 	// Public replies also have conversations for threading. Only return threads
 	// with direct messages visible to this account, filtering before pagination.
 	directStatuses := visibleDirectStatuses(db.GetDB(), account.Id)
 
+	forwardMin := req.MinId != "" && req.MaxId == ""
+	order := "id DESC"
+	if forwardMin {
+		order = "id ASC"
+	}
+
 	// Newest conversation id first, matching the client's max_id cursor
 	// (the id of the last row is the exclusive upper bound of the next page).
-	err := db.GetDB().Where("id IN (?)", subQuery).Where("id IN (?)", directStatuses.Select("conversation_id")).Order("id DESC").Limit(req.Limit).Find(&conversations).Error
+	err := db.GetDB().WithContext(c.Request.Context()).Where("id IN (?)", subQuery).Where("id IN (?)", directStatuses.Select("conversation_id")).Order(order).Limit(req.Limit).Find(&conversations).Error
 	if err != nil {
 		err = errors.Wrap(err, "get conversations error")
 		_ = c.Error(err)
 
 		return
+	}
+	if forwardMin && len(conversations) > 1 {
+		for i, j := 0, len(conversations)-1; i < j; i, j = i+1, j-1 {
+			conversations[i], conversations[j] = conversations[j], conversations[i]
+		}
 	}
 
 	// A thread may contain public replies or messages addressed to a different
@@ -135,6 +149,7 @@ func visibleDirectStatuses(conn *gorm.DB, accountId uint64) *gorm.DB {
 	domainAuthors := conn.Model(&models.Account{}).Select("id").Where("domain IN (?)", domains)
 	globallyBlockedViewer := conn.Model(&models.Block{}).Select("1").Where("account_id = 0 AND type = ? AND target_account_id = ?", models.BlockTypeAccount, accountId)
 	return conn.Model(&models.Status{}).
+		Where("NOT EXISTS (SELECT 1 FROM accounts WHERE accounts.id = statuses.account_id AND accounts.is_ban = ?)", true).
 		Where("account_id = ? OR (account_id NOT IN (?) AND account_id NOT IN (?) AND account_id NOT IN (?) AND NOT EXISTS (?))", accountId, blocked, reverse, domainAuthors, globallyBlockedViewer).
 		Where("visibility = ? AND deleted_at IS NULL AND scheduled_at IS NULL", models.StatusVisibilityDirect).
 		Where("account_id = ? OR id IN (?)", accountId, recipients)

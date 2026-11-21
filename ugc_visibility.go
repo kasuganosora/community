@@ -188,6 +188,12 @@ func (w *bufferedWriter) Written() bool { return w.buf.Len() > 0 || w.status != 
 func (w *bufferedWriter) Size() int     { return w.buf.Len() }
 
 func (w *bufferedWriter) flush(c *gin.Context) {
+	if !w.Written() && len(c.Errors) > 0 {
+		w.Header().Del("Content-Length")
+		w.ResponseWriter.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.ResponseWriter.Write([]byte(`{"error":"internal server error"}`))
+		return
+	}
 	status := w.Status()
 	body := w.buf.Bytes()
 	if status == http.StatusOK && strings.Contains(w.Header().Get("Content-Type"), "json") {
@@ -261,7 +267,7 @@ func hiddenUGC(m map[string]any, remote bool) bool {
 }
 
 // signinOnlyStatus recognises a serialized status whose author, boosted
-// author or quoted author has require_signin_to_view set.
+// author, quoted author or embedded reply author has require_signin_to_view set.
 func signinOnlyStatus(m map[string]any, depth int) bool {
 	if depth > 4 {
 		return false
@@ -274,7 +280,7 @@ func signinOnlyStatus(m map[string]any, depth int) bool {
 			return true
 		}
 	}
-	for _, key := range []string{"reblog", "quote"} {
+	for _, key := range []string{"reblog", "quote", "reply"} {
 		if inner, ok := m[key].(map[string]any); ok && signinOnlyStatus(inner, depth+1) {
 			return true
 		}
@@ -283,19 +289,28 @@ func signinOnlyStatus(m map[string]any, depth int) bool {
 }
 
 // isRemoteUGC recognises a serialized remote account (acct contains "@")
-// or a status by / boosting a remote account.
+// or a status by / boosting / quoting / embedding a reply from a remote account.
 func isRemoteUGC(m map[string]any) bool {
+	return isRemoteUGCDepth(m, 0)
+}
+
+func isRemoteUGCDepth(m map[string]any, depth int) bool {
+	if depth > 4 {
+		return false
+	}
 	if acct, ok := m["acct"].(string); ok {
 		_, hasUsername := m["username"]
 		return hasUsername && strings.Contains(acct, "@")
 	}
 	if account, ok := m["account"].(map[string]any); ok {
 		if _, isStatus := m["content"]; isStatus {
-			if isRemoteUGC(account) {
+			if isRemoteUGCDepth(account, depth+1) {
 				return true
 			}
-			if reblog, ok := m["reblog"].(map[string]any); ok && isRemoteUGC(reblog) {
-				return true
+			for _, key := range []string{"reblog", "quote", "reply"} {
+				if inner, ok := m[key].(map[string]any); ok && isRemoteUGCDepth(inner, depth+1) {
+					return true
+				}
 			}
 		}
 	}

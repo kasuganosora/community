@@ -37,10 +37,7 @@ func currentTimelineStatus(account *models.Account, id uint64, channel string) (
 	if id == 0 {
 		return nil, "", errEventNotVisible
 	}
-	params := &feed.ListParam{Viewer: account, Limit: 1, MinId: id - 1, Other: map[string]any{"database_only": true}}
-	if id < ^uint64(0) {
-		params.MaxId = id + 1
-	}
+	params := &feed.ListParam{Viewer: account, Limit: 1, Other: map[string]any{"database_only": true, "exact_id": id}}
 	parts := strings.Split(stream[0], ":")
 	for _, part := range parts[1:] {
 		switch part {

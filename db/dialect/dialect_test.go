@@ -39,6 +39,7 @@ func TestHelpersPerDialect(t *testing.T) {
 
 	assert.Equal(t, "payload->>'type'", JSONText(pg, "payload", "type"))
 	assert.Equal(t, "json_extract(payload, '$.type')", JSONText(lite, "payload", "type"))
+	assert.Equal(t, "JSON_UNQUOTE(JSON_EXTRACT(payload, '$.type'))", JSONText(nil, "payload", "type"))
 }
 
 func TestPostgresType(t *testing.T) {

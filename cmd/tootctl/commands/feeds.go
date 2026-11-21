@@ -72,6 +72,11 @@ func buildFeeds(c *cli.Context) error {
 	if concurrency < 1 {
 		return errors.New("concurrency must be greater than zero")
 	}
+	// BeginRebuild bounds in-process concurrent rebuilds to 8 slots; capping the
+	// CLI worker pool avoids spurious ErrFeedRegenerating failures at -c > 8.
+	if concurrency > 8 {
+		concurrency = 8
+	}
 
 	if username == "" && !buildAll {
 		return errors.New("USERNAME is required, or use --all")
@@ -240,10 +245,13 @@ func (t feedKeyTimeline) GetKeyFormat() string  { return "%s" }
 func (t feedKeyTimeline) GetTimelineId() string { return string(t) }
 func (t feedKeyTimeline) Rebuild() error        { return feed.ErrNeedsRebuild }
 
+var v3FeedKinds = []string{"home", "list", "mention", "public", "hashtag", "notification"}
+
 func clearFeeds(c *cli.Context) error {
 	start := time.Now()
 	var cleared atomic.Int64
-	for _, pattern := range []string{"feed:v3:{home:*}:items:meta", "feed:v3:{list:*}:items:meta"} {
+	for _, kind := range v3FeedKinds {
+		pattern := "feed:v3:{" + kind + ":*}:items:meta"
 		if err := scanFeedMetadata(c.Context, pattern, func(key string) error {
 			if err := feed.InvalidateTimelineContext(c.Context, feedKeyTimeline(strings.TrimSuffix(key, ":meta"))); err != nil {
 				return err
@@ -261,7 +269,7 @@ func clearFeeds(c *cli.Context) error {
 // GetFeedStats counts v3 timeline metadata, including complete empty feeds.
 func GetFeedStats() (map[string]any, error) {
 	stats := map[string]any{"redis_available": true}
-	for _, kind := range []string{"home", "list"} {
+	for _, kind := range v3FeedKinds {
 		var count atomic.Int64
 		err := scanFeedMetadata(context.Background(), "feed:v3:{"+kind+":*}:items:meta", func(string) error { count.Add(1); return nil })
 		if err != nil {

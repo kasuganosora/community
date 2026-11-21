@@ -22,7 +22,7 @@ type ReplyPreview struct {
 	Filtered    []FilterResult `json:"filtered"`
 }
 
-func attachReplyPreviews(conn *gorm.DB, statuses []*Status, viewer *models.Account) error {
+func attachReplyPreviews(conn *gorm.DB, statuses []*Status, viewer *models.Account, preloadedFilters ...models.Filters) error {
 	targets := map[uint64][]*Status{}
 	for _, out := range statuses {
 		if out.Reblog != nil {
@@ -67,13 +67,18 @@ func attachReplyPreviews(conn *gorm.DB, statuses []*Status, viewer *models.Accou
 	if err != nil {
 		return err
 	}
-	viewerID := uint64(0)
-	if viewer != nil {
-		viewerID = viewer.Id
-	}
-	filters, err := models.GetFilters(conn, viewerID)
-	if err != nil {
-		return err
+	var filters models.Filters
+	if len(preloadedFilters) > 0 {
+		filters = preloadedFilters[0]
+	} else {
+		viewerID := uint64(0)
+		if viewer != nil {
+			viewerID = viewer.Id
+		}
+		filters, err = models.GetFilters(conn, viewerID)
+		if err != nil {
+			return err
+		}
 	}
 	for _, parent := range parents {
 		domain := ""

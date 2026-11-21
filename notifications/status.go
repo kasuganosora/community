@@ -120,11 +120,22 @@ func processMentionNotification(conn *gorm.DB, statusID uint64, update bool, ver
 		}
 		// Publish notification events only after their rows commit; otherwise
 		// the feed can publish records that disappear if this worker rolls back.
+		hookTx := tx
 		tx = tx.Session(&gorm.Session{SkipHooks: true})
 		if update {
-			return updateMentionNotificationForAccounts(tx, &status, ids, &created)
+			err = updateMentionNotificationForAccounts(tx, &status, ids, &created)
+		} else {
+			err = createMentionNotificationForAccounts(tx, &status, ids, &created)
 		}
-		return createMentionNotificationForAccounts(tx, &status, ids, &created)
+		if err != nil {
+			return err
+		}
+		for _, n := range created {
+			if err := models.QueueFeedNotification(hookTx, n); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -441,7 +452,7 @@ func removeReblogNotification(status *models.Status) {
 	nsList := make([]*models.Notification, 0)
 
 	err = db.GetDB().
-		Where("type In ? and status_id = ?", []int{models.NotificationTypeReblog, models.NotificationTypeStatusUpdate}, reblogStatus.Id).
+		Where("type In ? and status_id = ? and from_account_id = ?", []int{models.NotificationTypeReblog, models.NotificationTypeStatusUpdate}, reblogStatus.Id, status.AccountId).
 		Find(&nsList).Error
 	if err != nil {
 		log.ErrorV(errors.Wrap(err, fmt.Sprintf("[removeReblogNotification] find reblog notification error, status id %d", status.Id)))
@@ -472,11 +483,11 @@ func creatReblogNotification(status *models.Status) {
 	}
 
 	reblogStatus, err := getReblogStatus(status)
-	if err != nil {
+	if err != nil || reblogStatus == nil {
 		return
 	}
 
-	reblogStatusAccount, err := getStatusAccount(status)
+	reblogStatusAccount, err := getStatusAccount(reblogStatus)
 	if err != nil {
 		return
 	}
@@ -485,7 +496,7 @@ func creatReblogNotification(status *models.Status) {
 		return
 	}
 
-	// 如果不是本站的用户，不需要创建通知
+	// 如果原作者不是本站的用户，不需要创建通知
 	if reblogStatusAccount.Domain != nil {
 		return
 	}

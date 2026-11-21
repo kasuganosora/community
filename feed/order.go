@@ -14,6 +14,7 @@ import (
 // Serial ids are not publication time: a federated post ingested late gets a
 // higher id than posts that were published after it.
 const StatusTimelineOrder = "statuses.created_at DESC, statuses.id DESC"
+const StatusTimelineOrderAsc = "statuses.created_at ASC, statuses.id ASC"
 
 // TimelineRankCreatedAt marks a Redis timeline whose scores are publication
 // time. Caches written with serial ids do not carry it and are rebuilt.

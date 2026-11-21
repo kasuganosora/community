@@ -85,6 +85,9 @@ func JSONText(conn *gorm.DB, col, key string) string {
 	if IsPostgres(conn) {
 		return col + "->>'" + key + "'"
 	}
+	if IsMySQL(conn) {
+		return "JSON_UNQUOTE(JSON_EXTRACT(" + col + ", '$." + key + "'))"
+	}
 
 	return "json_extract(" + col + ", '$." + key + "')"
 }

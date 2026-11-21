@@ -27,7 +27,7 @@ func statusFilterContext(path string) string {
 		return "home"
 	case strings.Contains(path, "/timelines/public"), strings.Contains(path, "/timelines/tag/"):
 		return "public"
-	case strings.Contains(path, "/notifications"):
+	case strings.Contains(path, "/notifications"), strings.Contains(path, "/timelines/mention"):
 		return "notifications"
 	case strings.Contains(path, "/accounts/") && strings.Contains(path, "/statuses"):
 		return "account"

@@ -828,130 +828,159 @@ func (s *Status) Public(db *gorm.DB) (err error) {
 }
 
 func (s *Status) CanView(account *Account, myFollows map[uint64]*Follow) (canView bool) {
+	if s == nil || s.DeletedAt != nil {
+		return false
+	}
 	if s.LocalOnly && account != nil && account.Domain != nil {
 		return false
 	}
 	if account == nil {
-		return s.Visibility == StatusVisibilityPublic || s.Visibility == StatusVisibilityUnlisted
-	}
-
-	if s.AccountId == account.Id {
-		canView = true
-
-		return canView
-	}
-
-	if s.IsScheduled() && s.AccountId != account.Id {
-		canView = false
-
-		return canView
-	}
-
-	// 公开或者对所有人可见
-	if s.Visibility == StatusVisibilityPublic || s.Visibility == StatusVisibilityUnlisted {
-		canView = true
-
-		return canView
-	}
-
-	// 有没提到我的
-	isMention := false
-
-	for _, a := range s.ToAccounts {
-		if a.Id == account.Id {
-			isMention = true
-
-			break
+		if s.IsScheduled() {
+			return false
 		}
-	}
+		canView = s.Visibility == StatusVisibilityPublic || s.Visibility == StatusVisibilityUnlisted
+	} else if s.AccountId == account.Id {
+		canView = true
+	} else if s.IsScheduled() {
+		return false
+	} else if s.Visibility == StatusVisibilityPublic || s.Visibility == StatusVisibilityUnlisted {
+		canView = true
+	} else {
+		// 有没提到我的
+		isMention := false
+		for _, a := range s.ToAccounts {
+			if a.Id == account.Id {
+				isMention = true
+				break
+			}
+		}
 
-	if s.Visibility == StatusVisibilityPrivate {
-		if _, ok := myFollows[s.AccountId]; ok {
+		if s.Visibility == StatusVisibilityPrivate {
+			if _, ok := myFollows[s.AccountId]; ok || isMention {
+				canView = true
+			}
+		} else if s.Visibility == StatusVisibilityDirect && isMention {
 			canView = true
-
-			return canView
 		}
-
-		if isMention {
-			canView = true
-
-			return canView
-		}
-
-		return canView
 	}
 
-	if s.Visibility == StatusVisibilityDirect && isMention {
-		canView = true
-
-		return canView
-	}
-
-	// 如果是 rebolg 的，检查原始状态
-	if s.ReblogId != nil && *s.ReblogId > 0 && canView {
+	// 如果是 reblog 的，必须同时有权限查看原始状态
+	if canView && s.ReblogId != nil && *s.ReblogId > 0 {
 		if s.Reblog == nil {
-			canView = false
-
-			return canView
+			return false
 		}
-
-		canView = s.Reblog.CanView(account, myFollows)
-
-		return canView
+		return s.Reblog.CanView(account, myFollows)
 	}
 
 	return canView
 }
 
 func (s *Status) CanViewEx(db *gorm.DB, account *Account) (ok bool, err error) {
+	if s == nil || s.DeletedAt != nil {
+		return false, nil
+	}
 	if s.LocalOnly && account != nil && account.Domain != nil {
 		return false, nil
 	}
-	if account == nil {
-		return !s.IsScheduled() && s.CanView(nil, nil), nil
-	}
-	if s.AccountId == account.Id {
-		ok = true
-
-		return
-	}
-
-	if s.IsScheduled() {
-		return false, nil
-	}
-	author := s.Account
-	if author == nil {
-		author = &Account{}
-		if err := db.First(author, s.AccountId).Error; err != nil {
-			return false, err
+	var checkOriginal func() (bool, error)
+	if s.ReblogId != nil && *s.ReblogId > 0 {
+		checkOriginal = func() (bool, error) {
+			orig := s.Reblog
+			if orig == nil {
+				if db == nil {
+					return false, nil
+				}
+				loaded := &Status{}
+				if err := db.Preload("ToAccounts").Preload("Account").First(loaded, *s.ReblogId).Error; err != nil {
+					if errors.Is(err, gorm.ErrRecordNotFound) {
+						return false, nil
+					}
+					return false, err
+				}
+				orig = loaded
+			}
+			return orig.CanViewEx(db, account)
 		}
 	}
-	blocked, err := AccountsBlocked(db, account, author)
-	if err != nil || blocked {
-		return false, err
+	if account == nil {
+		if s.IsScheduled() || (s.Visibility != StatusVisibilityPublic && s.Visibility != StatusVisibilityUnlisted) {
+			return false, nil
+		}
+		if s.Account != nil && s.Account.IsBan {
+			return false, nil
+		}
+		if checkOriginal != nil {
+			return checkOriginal()
+		}
+		return true, nil
+	}
+	if s.IsScheduled() && s.AccountId != account.Id {
+		return false, nil
+	}
+	if s.AccountId != account.Id {
+		author := s.Account
+		if author == nil && db != nil {
+			author = &Account{}
+			if err := db.First(author, s.AccountId).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					return false, nil
+				}
+				return false, err
+			}
+		}
+		if author != nil {
+			if author.IsBan {
+				return false, nil
+			}
+			if db != nil {
+				blocked, err := AccountsBlocked(db, account, author)
+				if err != nil || blocked {
+					return false, err
+				}
+			}
+		}
 	}
 
-	if s.Visibility != StatusVisibilityPrivate {
-		return s.CanView(account, nil), nil
+	var selfVisible bool
+	if s.AccountId == account.Id {
+		selfVisible = true
+	} else if s.Visibility == StatusVisibilityPublic || s.Visibility == StatusVisibilityUnlisted {
+		selfVisible = true
+	} else if s.Visibility == StatusVisibilityDirect {
+		for _, a := range s.ToAccounts {
+			if a.Id == account.Id {
+				selfVisible = true
+				break
+			}
+		}
+	} else if s.Visibility == StatusVisibilityPrivate {
+		for _, a := range s.ToAccounts {
+			if a.Id == account.Id {
+				selfVisible = true
+				break
+			}
+		}
+		if !selfVisible && db != nil {
+			follows := make(Follows, 0)
+			err = db.Scopes(Followed).Where("account_id = ?", account.Id).Find(&follows).Error
+			if err != nil {
+				return false, errors.Wrap(err, "get follows failed")
+			}
+			for _, f := range follows {
+				if f.FollowId == s.AccountId {
+					selfVisible = true
+					break
+				}
+			}
+		}
 	}
-
-	follows := make(Follows, 0)
-
-	err = db.Scopes(Followed).Where("account_id = ?", account.Id).Find(&follows).Error
-	if err != nil {
-		err = errors.Wrap(err, "get follows failed")
-
-		return
+	if !selfVisible {
+		return false, nil
 	}
-
-	followMap := make(map[uint64]*Follow)
-	for _, f := range follows {
-		followMap[f.FollowId] = f
+	if checkOriginal != nil {
+		return checkOriginal()
 	}
-
-	ok = s.CanView(account, followMap)
-
-	return
+	return true, nil
 }
 
 func (s *Status) SetConversationId(id uint64) {

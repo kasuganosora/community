@@ -24,12 +24,12 @@ func init() {
 			return true
 		}
 		if event.Data == nil {
-			return false
+			return true
 		}
 
-		status := event.Data.(*models.Status) //nolint:forcetypeassert
-		if status == nil {
-			return false
+		status, ok := event.Data.(*models.Status)
+		if !ok || status == nil {
+			return true
 		}
 
 		// Old posts imported late never enter the live timelines.
@@ -93,25 +93,12 @@ func (timeline *HomeTimeline) RebuildContext(ctx context.Context) (err error) {
 
 	statuses := make(models.Statuses, 0)
 
-	err = homeCandidates(db.GetDB().WithContext(ctx), timeline.Account.Id).Preload("ToAccounts").Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS / 2).Find(&statuses).Error
+	err = homeCandidates(db.GetDB().WithContext(ctx), timeline.Account.Id).Order(feed.StatusTimelineOrder).Limit(feed.MAX_ITEMS).Find(&statuses).Error
 	if err != nil {
 		return err
 	}
 
-	// 过滤掉只有对方可见的status
-	statuses = statuses.Filter(func(status *models.Status) bool {
-		if status.Visibility == models.StatusVisibilityDirect {
-			return status.AccountId == timeline.Account.Id || status.ToAccounts.Contains(timeline.Account.Id)
-		}
-
-		return true
-	})
-
-	aggregate := true
-	if timeline.Account.User != nil && timeline.Account.User.Settings != nil {
-		aggregate = timeline.Account.User.Settings.GetAggregatesReblogs()
-	}
-	return feed.PublishRebuild(ctx, timeline, lease, statuses, aggregate)
+	return feed.PublishRebuild(ctx, timeline, lease, statuses, timeline.AggregateReblogs())
 }
 
 // ClearMentionsPushStatus 清除提及的推送状态.
@@ -200,6 +187,11 @@ func UnPushFromHome(account *models.Account, status *models.Status, pushToClient
 }
 
 func Push(status *models.Status, update bool) (err error) {
+	if status == nil || db.GetDB() == nil {
+		return nil
+	}
+	cloned := *status
+	status = &cloned
 	if status.ToAccounts == nil {
 		status.ToAccounts = make(models.Accounts, 0)
 
@@ -324,6 +316,11 @@ func Push(status *models.Status, update bool) (err error) {
 }
 
 func Unpush(status *models.Status) (err error) {
+	if status == nil || db.GetDB() == nil {
+		return nil
+	}
+	cloned := *status
+	status = &cloned
 	if status.ToAccounts == nil {
 		status.ToAccounts = make(models.Accounts, 0)
 
@@ -401,11 +398,17 @@ func homeCandidates(tx *gorm.DB, accountID uint64) *gorm.DB {
 	following := tx.Session(&gorm.Session{NewDB: true}).Model(&models.Follow{}).Where("account_id = ? AND status = ?", accountID, models.FollowStatusFollowed).Select("follow_id")
 	mentions := tx.Session(&gorm.Session{NewDB: true}).Model(&models.StatusToAccount{}).Where("account_id = ?", accountID).Select("status_id")
 	hiddenReblogs := tx.Session(&gorm.Session{NewDB: true}).Model(&models.Follow{}).Where("follows.account_id = ?", accountID).Where(models.HiddenReblogsCondition(tx)).Select("follows.follow_id")
-	return feed.EligibleTimelineStatuses(tx.Model(&models.Status{})).Where("(statuses.reblog_id IS NULL OR statuses.reblog_id = 0 OR statuses.account_id NOT IN (?))", hiddenReblogs).Where("(COALESCE("+dialect.JSONText(tx, "statuses.properties", models.StatusPropBackfilled)+", '') <> '1' OR statuses.account_id = ? OR statuses.id IN (?))", accountID, mentions).Where("(statuses.account_id = ? OR statuses.account_id IN (?) OR statuses.id IN (?))", accountID, following, mentions).Where("(statuses.visibility <> ? OR statuses.account_id = ? OR statuses.id IN (?))", models.StatusVisibilityDirect, accountID, mentions)
+	profileBackfill := dialect.JSONText(tx, "statuses.properties", models.StatusPropProfileBackfill)
+	return feed.EligibleTimelineStatuses(tx.Model(&models.Status{})).
+		Where("(statuses.reblog_id IS NULL OR statuses.reblog_id = 0 OR statuses.account_id NOT IN (?))", hiddenReblogs).
+		Where("COALESCE("+profileBackfill+", '') <> '1'").
+		Where("(COALESCE("+dialect.JSONText(tx, "statuses.properties", models.StatusPropBackfilled)+", '') <> '1' OR statuses.account_id = ? OR statuses.id IN (?))", accountID, mentions).
+		Where("(statuses.account_id = ? OR statuses.account_id IN (?) OR statuses.id IN (?))", accountID, following, mentions).
+		Where("(statuses.visibility <> ? OR statuses.account_id = ? OR statuses.id IN (?))", models.StatusVisibilityDirect, accountID, mentions)
 }
 
 func (timeline *HomeTimeline) AggregateReblogs() bool {
-	if timeline.Account != nil && timeline.Account.User != nil && timeline.Account.User.Settings != nil {
+	if timeline != nil && timeline.Account != nil && timeline.Account.User != nil && timeline.Account.User.Settings != nil {
 		return timeline.Account.User.Settings.GetAggregatesReblogs()
 	}
 	return true
