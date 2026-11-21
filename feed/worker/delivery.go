@@ -188,6 +188,7 @@ func (w *Worker) deliver(ctx context.Context, event *models.FeedEvent, batch *mo
 	}
 	followers := map[uint64]bool{}
 	hiddenReblogs := map[uint64]bool{}
+	exclusiveHome := map[uint64]bool{}
 	if status != nil && (batch.TargetKind == "home" || status.Visibility == models.StatusVisibilityPrivate) {
 		ids := []uint64{}
 		for _, target := range targets {
@@ -210,6 +211,13 @@ func (w *Worker) deliver(ctx context.Context, event *models.FeedEvent, batch *mo
 				}
 				for _, id := range hidden {
 					hiddenReblogs[id] = true
+				}
+			}
+			if batch.TargetKind == "home" {
+				var exclErr error
+				exclusiveHome, exclErr = home.ExclusiveHomeRecipients(conn, status.AccountId, ids)
+				if exclErr != nil {
+					return exclErr
 				}
 			}
 		}
@@ -244,7 +252,7 @@ func (w *Worker) deliver(ctx context.Context, event *models.FeedEvent, batch *mo
 	projectionTargetIndexes := []int{}
 	superseded := map[int]bool{}
 	for i, target := range targets {
-		allowed := eligible(target, status, followers, hiddenReblogs, eligibleLists, hasMedia)
+		allowed := eligible(target, status, followers, hiddenReblogs, exclusiveHome, eligibleLists, hasMedia)
 		if notice != nil {
 			allowed = target.account != nil && notice.AccountId == target.account.Id
 		}
@@ -425,7 +433,7 @@ func resolveEligibleLists(conn *gorm.DB, targets []deliveryTarget, status *model
 
 // This is candidate membership, not the final authorization check. HTTP and
 // streaming reload SQL and apply blocks, bans, quotes and reblog authorization.
-func eligible(target deliveryTarget, status *models.Status, followers, hiddenReblogs, eligibleLists map[uint64]bool, hasMedia bool) bool {
+func eligible(target deliveryTarget, status *models.Status, followers, hiddenReblogs, exclusiveHome, eligibleLists map[uint64]bool, hasMedia bool) bool {
 	if status == nil || status.Account == nil || status.Account.IsBan {
 		return false
 	}
@@ -445,6 +453,9 @@ func eligible(target deliveryTarget, status *models.Status, followers, hiddenReb
 		}
 		if target.account.Id == status.AccountId {
 			return true
+		}
+		if exclusiveHome[target.account.Id] {
+			return false
 		}
 		if status.ReblogId != nil && *status.ReblogId > 0 && hiddenReblogs[target.account.Id] {
 			return false

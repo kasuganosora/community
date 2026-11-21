@@ -45,7 +45,7 @@ func workerFixture(t *testing.T) (*Worker, *redis.Client) {
 	for _, sql := range []string{
 		"CREATE TABLE accounts (id BIGINT PRIMARY KEY, user_id BIGINT, domain TEXT, deleted_at TIMESTAMP, created_at TIMESTAMP, last_activity_at TIMESTAMP, feed_last_seen_at TIMESTAMP)",
 		"CREATE TABLE follows (id BIGINT PRIMARY KEY,account_id BIGINT,follow_id BIGINT,status INT)",
-		"CREATE TABLE lists (id BIGINT PRIMARY KEY,account_id BIGINT,replies_policy INT DEFAULT 0,deleted_at TIMESTAMP)",
+		"CREATE TABLE lists (id BIGINT PRIMARY KEY,account_id BIGINT,replies_policy INT DEFAULT 0,deleted_at TIMESTAMP,exclusive INTEGER NOT NULL DEFAULT 0)",
 		"CREATE TABLE list_hashtags (id BIGINT PRIMARY KEY,list_id BIGINT,tag_id BIGINT)",
 		"CREATE TABLE blocks (id BIGINT PRIMARY KEY,account_id BIGINT,type INT,target_account_id BIGINT,target_domain TEXT)",
 		"CREATE TABLE list_accounts (id BIGINT PRIMARY KEY,list_id BIGINT,account_id BIGINT)",
@@ -75,6 +75,24 @@ func queueEvent(t *testing.T, w *Worker, key string, kind string, visibility uin
 	require.NoError(t, w.DB.Create(&e).Error)
 	return e
 }
+func TestExclusiveListSkipsHomeProjection(t *testing.T) {
+	w, client := workerFixture(t)
+	ctx := context.Background()
+	require.NoError(t, w.DB.Exec("INSERT INTO statuses (id,account_id,visibility,feed_revision) VALUES (10,1,?,1)", models.StatusVisibilityPublic).Error)
+	require.NoError(t, w.DB.Exec("INSERT INTO follows (id,account_id,follow_id,status) VALUES (1,2,1,?)", models.FollowStatusFollowed).Error)
+	require.NoError(t, w.DB.Exec("INSERT INTO lists (id,account_id,exclusive) VALUES (1,2,1),(2,3,0)").Error)
+	require.NoError(t, w.DB.Exec("INSERT INTO list_accounts (id,list_id,account_id) VALUES (1,1,1),(2,2,1)").Error)
+	e := queueEvent(t, w, "exclusive-home", models.FeedStatusCreate, models.StatusVisibilityPublic)
+	b := models.FeedBatch{EventID: e.ID, TargetKind: "home", Recipients: []models.FeedRecipient{{AccountID: 1}, {AccountID: 2}, {AccountID: 3}}}
+	require.NoError(t, w.DB.Create(&b).Error)
+	require.NoError(t, w.DB.Exec("INSERT INTO follows (id,account_id,follow_id,status) VALUES (2,3,1,?)", models.FollowStatusFollowed).Error)
+	_, err := w.DeliverOnce(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"10"}, client.ZRange(ctx, feed.TimelineKey(&home.HomeTimeline{Account: &models.Account{Id: 1}}), 0, -1).Val())
+	require.Empty(t, client.ZRange(ctx, feed.TimelineKey(&home.HomeTimeline{Account: &models.Account{Id: 2}}), 0, -1).Val())
+	require.Equal(t, []string{"10"}, client.ZRange(ctx, feed.TimelineKey(&home.HomeTimeline{Account: &models.Account{Id: 3}}), 0, -1).Val())
+}
+
 func TestNotificationTargetsRecipientNotActor(t *testing.T) {
 	w, _ := workerFixture(t)
 	event := models.FeedEvent{Kind: models.FeedNotification, Metadata: models.FeedEventMetadata{ActorID: 1, RecipientIDs: []uint64{2}}}
