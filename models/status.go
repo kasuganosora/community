@@ -54,6 +54,7 @@ type Status struct { //nolint:recvcheck
 
 	InReplyToId        *uint64        `json:"in_reply_to_id"`
 	InReplyToAccountId *uint64        `json:"in_reply_to_account_id"`
+	PinnedReplyId      *uint64        `gorm:"index"                         json:"pinned_reply_id,omitempty"`
 	Sensitive          bool           `gorm:"not null;default:false"        json:"sensitive"`
 	Language           string         `gorm:"type:varchar(16)"              json:"language"`
 	FavouritesCount    uint64         `gorm:"not null;default:0"            json:"favourites_count"`

@@ -15,6 +15,7 @@ import (
 	"github.com/kasuganosora/community/controllers/api/filter"
 	"github.com/kasuganosora/community/controllers/api/follow_request"
 	group2 "github.com/kasuganosora/community/controllers/api/group"
+	historyapi "github.com/kasuganosora/community/controllers/api/history"
 	"github.com/kasuganosora/community/controllers/api/instance"
 	"github.com/kasuganosora/community/controllers/api/list"
 	"github.com/kasuganosora/community/controllers/api/marker"
@@ -40,6 +41,7 @@ import (
 	mediaproxyserve "github.com/kasuganosora/community/mediaproxy/serve"
 	"github.com/kasuganosora/community/middleware"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/resilience"
 	"github.com/kasuganosora/community/seo"
 	"net/http"
 )
@@ -72,6 +74,11 @@ func SetRouter(app gin.IRouter) {
 	registerPublicFileRoutes(app)
 
 	apiGroup := app.Group("/api")
+	apiGroup.Use(middleware.AdaptiveOverloadMiddleware(resilience.VegasConfig{
+		MinLimit:     64,
+		MaxLimit:     2048,
+		InitialLimit: 256,
+	}))
 	apiGroup.Use(middleware.AttachFilterContext())
 
 	// API v1 - Mastodon 标准 API
@@ -207,6 +214,8 @@ func SetRouter(app gin.IRouter) {
 	maybeAuthGroupV1.GET("/timelines/public", timelines.Public)
 	maybeAuthGroupV1.GET("/timelines/list/:id", timelines.List)
 	maybeAuthGroupV1.GET("/timelines/tag/:tag", timelines.Tag)
+	maybeAuthGroupV1.GET("/bookmark_folders/:id", favourite.GetBookmarkFolder)
+	maybeAuthGroupV1.GET("/bookmark_folders/:id/statuses", favourite.BookmarkFolderStatuses)
 	maybeAuthGroupV1.GET("/streaming", streaming.Streaming)
 	maybeAuthGroupV1.GET("/streaming/list", streaming.ListStreaming)
 	maybeAuthGroupV1.GET("/streaming/hashtag/local", streaming.HashtagStreamingLocal)
@@ -393,6 +402,8 @@ func SetRouter(app gin.IRouter) {
 		POST("/statuses/:id/replace", status.Replace).
 		POST("/statuses/:id/pin", status.Pin).
 		POST("/statuses/:id/unpin", status.UnPin).
+		POST("/statuses/:id/pin_reply", status.PinReply).
+		DELETE("/statuses/:id/pin_reply", status.UnpinReply).
 		POST("/statuses/:id/reblog", status.Reblog).
 		POST("/statuses/:id/unreblog", status.Unreblog).
 		PUT("/statuses/:id/reactions/:name", status.AddReaction).
@@ -409,7 +420,12 @@ func SetRouter(app gin.IRouter) {
 		POST("/statuses/:id/unfavourite", status.Unfavourite)
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteBookmarks})).
 		POST("/statuses/:id/bookmark", status.Bookmark).
-		POST("/statuses/:id/unbookmark", status.Unbookmark)
+		POST("/statuses/:id/unbookmark", status.Unbookmark).
+		POST("/bookmark_folders", favourite.CreateBookmarkFolder).
+		PUT("/bookmark_folders/:id", favourite.UpdateBookmarkFolder).
+		DELETE("/bookmark_folders/:id", favourite.DeleteBookmarkFolder).
+		POST("/bookmark_folders/:id/statuses", favourite.AddStatusToBookmarkFolder).
+		DELETE("/bookmark_folders/:id/statuses/:status_id", favourite.RemoveStatusFromBookmarkFolder)
 
 	// 媒体上传（写入，需登录 + 媒体写入 scope + 限流：每用户每分钟 30 次）
 	mediaGroup := v1ApiGroup.Group("", middleware.AuthMiddleware(), middleware.CheckAuthMiddleware(),
@@ -440,7 +456,17 @@ func SetRouter(app gin.IRouter) {
 		GET("/streaming/feed", streaming.FeedStreaming).
 		GET("/timelines/mention", timelines.Mention).
 		GET("/favourites", favourite.Favourites).
-		GET("/bookmarks", favourite.Bookmarks)
+		GET("/bookmarks", favourite.Bookmarks).
+		GET("/bookmark_folders", favourite.ListBookmarkFolders).
+		GET("/history", historyapi.List).
+		GET("/history/settings", historyapi.GetSettings)
+
+	// 跨设备浏览历史写入
+	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeWrite, Value: models.AppScopeWriteStatuses})).
+		POST("/history", historyapi.Record).
+		DELETE("/history", historyapi.Clear).
+		DELETE("/history/:status_id", historyapi.Remove).
+		PUT("/history/settings", historyapi.UpdateSettings)
 
 	// 流式接口（需要读取状态 + 读取通知 scope）
 	authGroupV1.Group("", middleware.CheckScopeMiddleware(middleware.Scope{Type: models.AppScopeTypeRead, Value: models.AppScopeReadStatuses},

@@ -86,6 +86,7 @@ var ScripsType = []MigrationScript{
 	MediaProcessingScript{},
 	SuggestionActivityIndexScript{},
 	TimelineQueryIndexesScript{},
+	CommunityEnhancementsScript{},
 }
 
 type MigrationScript interface {

@@ -27,9 +27,17 @@ import (
 	"github.com/kasuganosora/community/avatarcache"
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/mediaproxy"
+	"github.com/kasuganosora/community/resilience"
 	"github.com/kasuganosora/community/systemsettings"
 	"golang.org/x/time/rate"
 )
+
+var originBreakers = resilience.NewBreakerGroup(resilience.BreakerConfig{
+	K:           2.0,
+	Window:      20 * time.Second,
+	Buckets:     10,
+	MinRequests: 20,
+}, 4096)
 
 const (
 	connectTimeout = 5 * time.Second
@@ -57,8 +65,8 @@ var hostWaitBound = 12 * time.Second
 var (
 	fetchTimeout       = 15 * time.Second // whole download of a cached image/emoji
 	avatarFetchTimeout = 5 * time.Second  // tighter bound for remote avatar fetches
-	headerTimeout = 10 * time.Second // relay: connect + TLS + response headers
-	stallTimeout  = 15 * time.Second // relay: no upstream bytes for this long
+	headerTimeout      = 10 * time.Second // relay: connect + TLS + response headers
+	stallTimeout       = 15 * time.Second // relay: no upstream bytes for this long
 
 	// NewClient builds the outbound client; it must pin dialing to public
 	// addresses, bound redirects and check every redirect target.
@@ -510,6 +518,13 @@ func relay(c *gin.Context, key, rawURL, host, kind string, claims mediaproxy.Cla
 	if rng := c.GetHeader("Range"); rng != "" {
 		req.Header.Set("Range", rng)
 	}
+	breaker := originBreakers.Get(host)
+	if berr := breaker.Allow(); berr != nil {
+		timer.Stop()
+		c.Header("Retry-After", "5")
+		answerFailure(c, host, kind, started, failure{status: http.StatusServiceUnavailable, class: classBusy}, nil)
+		return
+	}
 	resp, err := NewClient().Do(req)
 	timer.Stop()
 	if err != nil {
@@ -519,10 +534,16 @@ func relay(c *gin.Context, key, rawURL, host, kind string, claims mediaproxy.Cla
 			c.Status(http.StatusBadGateway)
 			return
 		}
+		breaker.MarkFailed()
 		fail(classifyFetchError(err, timedOut.Load()))
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+		breaker.MarkFailed()
+	} else {
+		breaker.MarkSuccess()
+	}
 
 	switch {
 	case resp.StatusCode == http.StatusNotModified:
@@ -786,6 +807,7 @@ func fetchImage(ctx context.Context, rawURL string) ([]byte, error) {
 }
 
 func fetchImageWithTimeout(ctx context.Context, rawURL string, timeout time.Duration) ([]byte, error) {
+	parentCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -794,11 +816,23 @@ func fetchImageWithTimeout(ctx context.Context, rawURL string, timeout time.Dura
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; CommunityMediaProxy/1.0; +"+strings.TrimRight(systemsettings.GetBaseURL(), "/")+")")
 	req.Header.Set("Accept", "image/*;q=0.9,*/*;q=0.1")
+	breaker := originBreakers.Get(strings.ToLower(req.URL.Host))
+	if berr := breaker.Allow(); berr != nil {
+		return nil, errBusy
+	}
 	resp, err := NewClient().Do(req)
 	if err != nil {
+		if parentCtx.Err() == nil {
+			breaker.MarkFailed()
+		}
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+		breaker.MarkFailed()
+	} else {
+		breaker.MarkSuccess()
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, upstreamStatusError{code: resp.StatusCode, retryAfter: resp.Header.Get("Retry-After")}
 	}

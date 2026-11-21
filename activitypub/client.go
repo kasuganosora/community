@@ -14,13 +14,25 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/kasuganosora/community/log"
 	"github.com/kasuganosora/community/models"
+	"github.com/kasuganosora/community/resilience"
 	"gorm.io/gorm"
 )
+
+// remoteHostBreakers applies Google SRE adaptive circuit breaking per remote
+// federation host so a degraded or unreachable peer cannot saturate delivery
+// workers or outbound HTTP connection pools.
+var remoteHostBreakers = resilience.NewBreakerGroup(resilience.BreakerConfig{
+	K:           2.0,
+	Window:      30 * time.Second,
+	Buckets:     10,
+	MinRequests: 20,
+}, 4096)
 
 // sharedHTTPClient is a package-level shared HTTP client with proper connection
 // pooling and SSRF protection. All Client instances reuse this to avoid creating
@@ -120,6 +132,9 @@ func isTransientFetchError(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, resilience.ErrCircuitOpen) {
+		return true
+	}
 	if status := fetchStatusCode(err); status != 0 {
 		switch status {
 		case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests:
@@ -163,12 +178,26 @@ func (c *Client) get(ctx context.Context, uri string) ([]byte, int, error) {
 		}
 	}
 
+	breaker := remoteHostBreakers.Get(strings.ToLower(req.URL.Host))
+	if err := breaker.Allow(); err != nil {
+		return nil, 0, fmt.Errorf("fetching resource from %s: %w", req.URL.Host, err)
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if ctx.Err() == nil {
+			breaker.MarkFailed()
+		}
 		return nil, 0, fmt.Errorf("fetching resource: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+		breaker.MarkFailed()
+	} else {
+		breaker.MarkSuccess()
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, resp.StatusCode, &FetchError{StatusCode: resp.StatusCode}
@@ -229,12 +258,26 @@ func (c *Client) Post(ctx context.Context, inboxURL string, activity map[string]
 		}
 	}
 
+	breaker := remoteHostBreakers.Get(strings.ToLower(req.URL.Host))
+	if err := breaker.Allow(); err != nil {
+		return fmt.Errorf("posting activity to %s: %w", req.URL.Host, err)
+	}
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if ctx.Err() == nil {
+			breaker.MarkFailed()
+		}
 		return fmt.Errorf("posting activity: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+		breaker.MarkFailed()
+	} else {
+		breaker.MarkSuccess()
+	}
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))

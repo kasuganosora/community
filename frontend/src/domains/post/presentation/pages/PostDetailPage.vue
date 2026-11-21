@@ -38,6 +38,10 @@ const reporting = ref(false)
 const status = ref<MastodonStatus | null>(null)
 const ancestors = ref<MastodonStatus[]>([])
 const descendants = ref<MastodonStatus[]>([])
+const pinnedReplyId = ref<string | null>(null)
+const replySort = ref<'chronological' | 'hot'>('chronological')
+const authorOnly = ref(false)
+const pinReplyBusy = ref<string | null>(null)
 const loading = ref(true)
 const error = ref<string | null>(null)
 // The author requires sign-in to view their posts (visitor only).
@@ -85,23 +89,68 @@ const { toggleReblog, toggleFavourite, toggleBookmark } = useStatusActions((id, 
 let requestVersion = 0
 let contextVersion = 0
 
-async function loadContext() {
-  if (contextLoading.value) return
+async function loadContext(replaceDescendants = false) {
+  if (contextLoading.value && !replaceDescendants) return
   const version = requestVersion, contextRequest = ++contextVersion
   const statusId = route.params.statusId as string
   const current = () => version === requestVersion && contextRequest === contextVersion
   contextLoading.value = true
   contextError.value = null
   try {
-    const data = await postApi.getContext(statusId)
+    const data = await postApi.getContext(statusId, {
+      sort: replySort.value,
+      author_only: authorOnly.value,
+    })
     if (!current()) return
     ancestors.value = data.ancestors
-    // A reply sent while the context request was pending is already visible.
-    descendants.value = mergeById(data.descendants, descendants.value)
+    pinnedReplyId.value = data.pinned_reply_id ?? null
+    // A reply sent while the context request was pending is already visible unless explicitly re-sorting/filtering.
+    descendants.value = replaceDescendants ? data.descendants : mergeById(data.descendants, descendants.value)
   } catch (e) {
     if (current()) contextError.value = e instanceof Error ? e.message : t('post.PostDetailPage.s17')
   } finally {
     if (current()) contextLoading.value = false
+  }
+}
+
+function setReplySort(mode: 'chronological' | 'hot') {
+  if (replySort.value === mode) return
+  replySort.value = mode
+  void loadContext(true)
+}
+
+function toggleAuthorOnly() {
+  authorOnly.value = !authorOnly.value
+  void loadContext(true)
+}
+
+function canPinReply(reply: MastodonStatus): boolean {
+  if (!isOwn.value || !mainStatus.value) return false
+  if (reply.visibility === 'direct') return false
+  if ((mainStatus.value.visibility === 'public' || mainStatus.value.visibility === 'unlisted') && reply.visibility === 'private') {
+    return false
+  }
+  return true
+}
+
+async function togglePinReply(reply: MastodonStatus) {
+  if (!mainStatus.value || !isOwn.value || pinReplyBusy.value) return
+  pinReplyBusy.value = reply.id
+  try {
+    if (pinnedReplyId.value === reply.id) {
+      await postApi.unpinReply(mainStatus.value.id)
+      pinnedReplyId.value = null
+      MessagePlugin.success(t('post.ReplyGovernance.unpinned'))
+    } else {
+      await postApi.pinReply(mainStatus.value.id, reply.id)
+      pinnedReplyId.value = reply.id
+      MessagePlugin.success(t('post.ReplyGovernance.pinned'))
+    }
+    void loadContext(true)
+  } catch (e) {
+    MessagePlugin.error(e instanceof Error && e.message ? e.message : t('post.ReplyGovernance.pinFailed'))
+  } finally {
+    pinReplyBusy.value = null
   }
 }
 
@@ -112,7 +161,8 @@ async function loadPost() {
   error.value = null
   signinRequired.value = false
   status.value = null
-  ancestors.value = []; descendants.value = []
+  ancestors.value = []; descendants.value = []; pinnedReplyId.value = null
+  replySort.value = 'chronological'; authorOnly.value = false
   contextLoading.value = false; contextError.value = null
   void loadContext()
   try {
@@ -220,8 +270,9 @@ async function adoptStreamedReply(id: string) {
   streamedReplyLoads.add(id)
   const epoch = sessionEpoch.value
   try {
-    const reply = await postApi.getStatus(id)
+    const reply = await postApi.getStatus(id, { background: true })
     if (epoch !== sessionEpoch.value) return
+    if (authorOnly.value && reply.account.id !== mainStatus.value?.account.id) return
     insertReply(reply)
   } catch { /* hidden, deleted, or not a reply in this thread */ }
   finally { streamedReplyLoads.delete(id) }
@@ -234,6 +285,7 @@ function onStreamedStatus(message: FeedStreamStatus) {
     if (!threadContains(id)) return
     ancestors.value = ancestors.value.filter(item => item.id !== id)
     descendants.value = descendants.value.filter(item => item.id !== id)
+    if (pinnedReplyId.value === id) pinnedReplyId.value = null
     if (focusedIds().has(id)) markStatusDeleted(id)
     return
   }
@@ -251,8 +303,12 @@ async function catchUpThread() {
   const statusId = routeStatusId()
   if (!statusId) return
   try {
-    const data = await postApi.getContext(statusId)
+    const data = await postApi.getContext(statusId, {
+      sort: replySort.value,
+      author_only: authorOnly.value,
+    })
     if (version !== requestVersion || statusId !== routeStatusId()) return
+    pinnedReplyId.value = data.pinned_reply_id ?? null
     for (const reply of data.descendants) insertReply(reply)
     contextError.value = null
   } catch { /* keep the open thread; the next gap tries again */ }
@@ -387,21 +443,73 @@ async function togglePin() {
 
       <PostComposer ref="replyComposer" :reply-to="mainStatus" @posted="onReplied" />
 
+      <!-- Reply governance toolbar (chronological / hot sort + author-only filter) -->
+      <div v-if="descendants.length || authorOnly || replySort === 'hot'" class="reply-toolbar">
+        <div class="reply-toolbar__tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            class="reply-toolbar__chip"
+            :class="{ 'is-active': replySort === 'chronological' }"
+            :aria-selected="replySort === 'chronological'"
+            @click="setReplySort('chronological')"
+          >
+            {{ $t('post.ReplyGovernance.sortTime') }}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="reply-toolbar__chip"
+            :class="{ 'is-active': replySort === 'hot' }"
+            :aria-selected="replySort === 'hot'"
+            @click="setReplySort('hot')"
+          >
+            <t-icon name="trending-up" :size="13" />
+            {{ $t('post.ReplyGovernance.sortHot') }}
+          </button>
+        </div>
+        <button
+          type="button"
+          class="reply-toolbar__chip"
+          :class="{ 'is-active': authorOnly }"
+          :aria-pressed="authorOnly"
+          @click="toggleAuthorOnly"
+        >
+          {{ $t('post.ReplyGovernance.authorOnly') }}
+        </button>
+      </div>
+
       <div v-if="contextLoading" class="page-loading" role="status" :aria-label="$t('post.PostDetailPage.s13')"><t-loading /></div>
       <div v-else-if="contextError" class="detail-context-error" role="alert">
         <span>{{ $t('post.PostDetailPage.s14', [contextError]) }}</span>
-        <button type="button" class="btn btn--secondary btn--sm" @click="loadContext">{{ $t('post.PostDetailPage.s3') }}</button>
+        <button type="button" class="btn btn--secondary btn--sm" @click="loadContext()">{{ $t('post.PostDetailPage.s3') }}</button>
       </div>
 
       <!-- Descendants (replies below) -->
-      <PostCard
-        v-for="s in descendants"
-        :key="s.id"
-        :status="s"
-        @reblog="toggleReblog"
-        @favourite="toggleFavourite"
-        @bookmark="toggleBookmark"
-      />
+      <div v-for="s in descendants" :key="s.id" class="reply-item" :class="{ 'reply-item--pinned': pinnedReplyId === s.id }">
+        <div v-if="pinnedReplyId === s.id || canPinReply(s)" class="reply-item__bar">
+          <span v-if="pinnedReplyId === s.id" class="reply-item__pinned-badge">
+            <t-icon name="pin-filled" :size="13" />
+            {{ $t('post.ReplyGovernance.pinnedBadge') }}
+          </span>
+          <span v-else />
+          <button
+            v-if="canPinReply(s)"
+            type="button"
+            class="btn btn--ghost btn--sm reply-item__pin-btn"
+            :disabled="pinReplyBusy === s.id"
+            @click="togglePinReply(s)"
+          >
+            {{ pinnedReplyId === s.id ? $t('post.ReplyGovernance.unpinReply') : $t('post.ReplyGovernance.pinReply') }}
+          </button>
+        </div>
+        <PostCard
+          :status="s"
+          @reblog="toggleReblog"
+          @favourite="toggleFavourite"
+          @bookmark="toggleBookmark"
+        />
+      </div>
     </template>
     <ReportDialog v-if="reporting && mainStatus" v-model="reporting" :account-id="mainStatus.account.id" :status-id="mainStatus.id" />
   </div>
@@ -410,6 +518,58 @@ async function togglePin() {
 <style scoped>
 .detail-page {
   min-height: 100dvh;
+}
+.reply-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--gutter);
+  border-bottom: 1px solid var(--color-separator);
+}
+.reply-toolbar__tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.reply-toolbar__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-separator);
+  border-radius: var(--radius-full, 999px);
+  background: transparent;
+  color: var(--color-label-secondary);
+  font-size: var(--text-caption1, 12px);
+  cursor: pointer;
+}
+.reply-toolbar__chip.is-active {
+  background: var(--color-accent-soft, rgba(0, 122, 255, 0.12));
+  border-color: var(--color-accent, #007aff);
+  color: var(--color-accent-text, #007aff);
+  font-weight: var(--weight-semibold, 600);
+}
+.reply-item--pinned {
+  background: var(--color-accent-soft, rgba(0, 122, 255, 0.04));
+}
+.reply-item__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--gutter) 0;
+  font-size: var(--text-caption1, 12px);
+}
+.reply-item__pinned-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-accent-text, #007aff);
+  font-weight: var(--weight-semibold, 600);
+}
+.reply-item__pin-btn {
+  font-size: var(--text-caption1, 12px);
+  padding: 2px 8px;
 }
 .detail-context-error {
   display: flex;

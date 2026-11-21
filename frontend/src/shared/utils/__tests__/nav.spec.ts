@@ -23,5 +23,8 @@ describe('activeNavSection', () => {
     expect(activeNavSection('/messages/groups', 'alice')).toBe('groups')
     expect(activeNavSection('/messages/groups/room-id', 'alice')).toBe('groups')
     expect(activeNavSection('/messages/groups-other', 'alice')).toBe('messages')
+    // History and bookmark folder routes
+    expect(activeNavSection('/history', 'alice')).toBe('history')
+    expect(activeNavSection('/bookmark_folders/42', 'alice')).toBe('bookmarks')
   })
 })

@@ -18,6 +18,7 @@ import {
 import { isInteractiveClick } from '@/shared/utils/dom'
 import { useUiChrome } from '@/shared/composables/useUiChrome'
 import ReportDialog from '@/domains/user/presentation/components/ReportDialog.vue'
+import BookmarkFolderDialog from '@/domains/bookmark/presentation/components/BookmarkFolderDialog.vue'
 import UserAvatar from '@/shared/components/common/UserAvatar.vue'
 import RelativeTime from '@/shared/components/common/RelativeTime.vue'
 import PostContent from './PostContent.vue'
@@ -85,29 +86,34 @@ function handleReply() {
   navigateToDetail({ reply: '1' })
 }
 
+const folderDialogOpen = ref(false)
 const { swipeOffset, swipeAction, swiping, consumeClickSuppression } = usePostCardSwipe(cardRef, {
-  enabled: () => props.swipeable && !editing.value && !reporting.value && !menuOpen.value,
+  enabled: () => props.swipeable && !editing.value && !reporting.value && !folderDialogOpen.value && !menuOpen.value,
   allowRightActions: () => !!authStore.currentUser,
   onLike: () => emit('favourite', displayStatus.value),
   onReply: () => handleReply(),
   onDetail: () => navigateToDetail(),
 })
 
-useTimelineRowPin(() => editing.value || reporting.value || menuOpen.value || swiping.value || swipeOffset.value !== 0, () => {
-  editing.value = false; reporting.value = false; menuOpen.value = false
+useTimelineRowPin(() => editing.value || reporting.value || folderDialogOpen.value || menuOpen.value || swiping.value || swipeOffset.value !== 0, () => {
+  editing.value = false; reporting.value = false; folderDialogOpen.value = false; menuOpen.value = false
   MessagePlugin.info(t('shared.PostCard.s6'))
 })
-const menuOptions = computed(() => [...(isOwn.value
-  ? [
-      { content: displayStatus.value.pinned ? t('shared.PostCard.s7') : t('shared.PostCard.s8'), value: 'pin' },
-      { content: REPLACE_MENU, value: 'edit' },
-      { content: t('shared.PostCard.s9'), value: 'delete', theme: 'error' as const },
-    ]
-  : [{ content: t('shared.PostCard.s10'), value: 'report' }]), ...(props.recommendation ? [
+const menuOptions = computed(() => [
+  ...(authStore.currentUser ? [{ content: t('bookmark.Folders.addToFolderMenu'), value: 'bookmark-folder' }] : []),
+  ...(isOwn.value
+    ? [
+        { content: displayStatus.value.pinned ? t('shared.PostCard.s7') : t('shared.PostCard.s8'), value: 'pin' },
+        { content: REPLACE_MENU, value: 'edit' },
+        { content: t('shared.PostCard.s9'), value: 'delete', theme: 'error' as const },
+      ]
+    : [{ content: t('shared.PostCard.s10'), value: 'report' }]),
+  ...(props.recommendation ? [
     { content: t('shared.PostCard.s11'), value: 'recommendation-why' },
     { content: t('shared.PostCard.s12'), value: 'recommendation-hide' },
     { content: t('shared.PostCard.s13'), value: 'recommendation-author' },
-  ] : [])])
+  ] : []),
+])
 
 async function togglePin() {
   try {
@@ -166,7 +172,8 @@ function onEdited(updated: MastodonStatus) {
 }
 
 function onMenuClick(data: { value?: unknown }) {
-  if (data.value === 'edit') editing.value = true
+  if (data.value === 'bookmark-folder') folderDialogOpen.value = true
+  else if (data.value === 'edit') editing.value = true
   else if (data.value === 'delete') confirmDelete()
   else if (data.value === 'pin') void togglePin()
   else if (data.value === 'report') reporting.value = true
@@ -309,6 +316,7 @@ function onMenuClick(data: { value?: unknown }) {
       <PostComposer :edit-status="displayStatus" autofocus @posted="onEdited" @cancel="editing = false" />
     </t-dialog>
     <ReportDialog v-if="reporting" v-model="reporting" :account-id="displayStatus.account.id" :status-id="displayStatus.id" />
+    <BookmarkFolderDialog v-if="folderDialogOpen" v-model="folderDialogOpen" :status-id="displayStatus.id" />
   </article>
 </template>
 

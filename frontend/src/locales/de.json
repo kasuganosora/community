@@ -2021,6 +2021,38 @@
       "s4": "Mehr laden",
       "s5": "Noch keine Lesezeichen",
       "s6": "Tippe bei einem Beitrag auf Lesezeichen, dann findest du ihn hier."
+    },
+    "Folders": {
+      "addToFolderMenu": "Zu Ordner hinzufügen",
+      "addToFolderTitle": "In Lesezeichen-Ordnern speichern",
+      "allBookmarks": "Alle Lesezeichen",
+      "newFolder": "Neuer Ordner",
+      "editFolder": "Ordner bearbeiten",
+      "edit": "Bearbeiten",
+      "save": "Speichern",
+      "titleLabel": "Ordnername",
+      "descLabel": "Beschreibung (optional)",
+      "descPlaceholder": "Beschreibung eingeben…",
+      "newFolderPlaceholder": "Ordnername eingeben",
+      "createAndAdd": "Erstellen & hinzufügen",
+      "public": "Öffentlich",
+      "private": "Privat",
+      "publicToggleHint": "Öffentlich teilen (über Link sichtbar)",
+      "copyShareLink": "Link kopieren",
+      "linkCopied": "Öffentlicher Ordner-Link kopiert",
+      "sharedTitle": "Geteilter Lesezeichen-Ordner",
+      "notFoundOrPrivate": "Dieser Ordner existiert nicht oder ist privat.",
+      "noFoldersYet": "Noch keine Ordner. Unten einen erstellen.",
+      "emptyFolder": "Dieser Ordner ist leer",
+      "emptyFolderHint": "Nutze „Zu Ordner hinzufügen“ im Beitragsmenü.",
+      "removeFromFolder": "Aus Ordner entfernen",
+      "created": "Ordner erstellt",
+      "updated": "Ordner aktualisiert",
+      "deleted": "Ordner gelöscht",
+      "deleteConfirmTitle": "Ordner löschen",
+      "deleteConfirmBody": "Ordner „{0}“ löschen? Beiträge bleiben erhalten.",
+      "loadFailed": "Ordner konnten nicht geladen werden",
+      "actionFailed": "Aktion fehlgeschlagen"
     }
   },
   "data": {
@@ -2861,6 +2893,17 @@
       "s21": "Angeheftet",
       "s22": "Losgelöst",
       "s23": "Anheften fehlgeschlagen"
+    },
+    "ReplyGovernance": {
+      "sortTime": "Chronologisch",
+      "sortHot": "Beliebt",
+      "authorOnly": "Nur Autor",
+      "pinnedBadge": "Vom Autor angeheftet",
+      "pinReply": "Antwort anheften",
+      "unpinReply": "Anheften lösen",
+      "pinned": "Antwort angeheftet",
+      "unpinned": "Antwort gelöst",
+      "pinFailed": "Anheften fehlgeschlagen"
     }
   },
   "settings": {
@@ -3988,6 +4031,28 @@
     "mediaDisk": "Der Zwischenspeicher ist voll. Bitte später erneut versuchen.",
     "mediaFailed": "Die Verarbeitung ist fehlgeschlagen. Die Originaldatei wurde nicht veröffentlicht.",
     "mediaCancelled": "Die Verarbeitung wurde abgebrochen.",
-    "mediaNotReady": "Der Anhang ist noch nicht fertig."
+    "mediaNotReady": "Der Anhang ist noch nicht fertig.",
+    "spamDuplicate": "Doppelter Inhalt zu häufig gesendet, bitte kurz warten",
+    "serverOverloaded": "Server vorübergehend überlastet, bitte gleich erneut versuchen"
+  },
+  "history": {
+    "HistoryPage": {
+      "title": "Verlauf",
+      "pause": "Verlauf pausieren",
+      "resume": "Verlauf fortsetzen",
+      "pausedBanner": "Der Verlauf ist pausiert. Neue Aufrufe werden nicht gespeichert.",
+      "pausedToast": "Verlauf pausiert",
+      "resumedToast": "Verlauf fortgesetzt",
+      "clearAll": "Alles löschen",
+      "clearConfirmTitle": "Verlauf löschen",
+      "clearConfirmBody": "Gesamten Verlauf löschen? Dies kann nicht rückgängig gemacht werden.",
+      "cleared": "Verlauf gelöscht",
+      "viewedAt": "Angesehen {0}",
+      "removeOne": "Eintrag entfernen",
+      "emptyTitle": "Noch kein Verlauf",
+      "emptyDesc": "Geöffnete Beiträge erscheinen hier geräteübergreifend.",
+      "loadFailed": "Verlauf konnte nicht geladen werden",
+      "actionFailed": "Aktion fehlgeschlagen"
+    }
   }
 }

@@ -59,6 +59,8 @@ var appModels = []any{
 	&models.AuthToken{},
 	&models.AvatarDecoration{},
 	&models.Block{},
+	&models.BookmarkFolder{},
+	&models.BookmarkFolderItem{},
 	&models.BookmarkStatus{},
 	&models.Contact{},
 	&models.ContactRequest{},

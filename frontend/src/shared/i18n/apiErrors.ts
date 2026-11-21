@@ -915,6 +915,9 @@ const API_ERRORS: Record<string, string> = {
   "invalid events": 'webhookInvalid',
   "subscription requires a valid https destination and supported events": 'webhookInvalid',
   "community webhook connectivity test": 'webhookTest',
+  "duplicate content posted too frequently, please slow down": 'spamDuplicate',
+  "posting too frequently, please slow down": 'rateLimited',
+  "server temporarily overloaded, please retry shortly": 'serverOverloaded',
 }
 
 /** Messages with a variable part; capture groups become {0}, {1}… */

@@ -34,7 +34,7 @@ onBeforeUnmount(() => { window.removeEventListener('scroll', onScroll); if (scro
 watch(() => route.fullPath, () => { scrollY.value = window.scrollY })
 const fabHidden = computed(() => {
   const name = String(route.name)
-  return isSettings.value || isGroups.value || (name === 'search' && route.query.type === 'groups') || name === 'messages' || name === 'chat-conversation' || name === 'post-detail' || (PROFILE_ROUTES.has(name) && scrollY.value < 600)
+  return isSettings.value || isGroups.value || (name === 'search' && route.query.type === 'groups') || name === 'messages' || name === 'chat-conversation' || name === 'post-detail' || name === 'bookmark-folder' || (PROFILE_ROUTES.has(name) && scrollY.value < 600)
 })
 
 useKeyboardInset()

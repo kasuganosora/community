@@ -346,6 +346,25 @@ export interface MastodonSuggestion {
 export interface MastodonContext {
   ancestors: MastodonStatus[]
   descendants: MastodonStatus[]
+  pinned_reply_id?: string | null
+}
+
+export interface BookmarkFolder {
+  id: string
+  account_id: string
+  title: string
+  description: string
+  is_public: boolean
+  items_count: number
+  has_status?: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface HistoryItem {
+  viewed_at: string
+  cursor: string
+  status: MastodonStatus
 }
 
 export interface SearchResult {

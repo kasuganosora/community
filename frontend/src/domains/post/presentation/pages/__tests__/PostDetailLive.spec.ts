@@ -96,7 +96,8 @@ describe('live replies on the open thread', () => {
     await onStatus({ event: 'update', id: '902' })
     expect(ids(wrapper)).toEqual(['child', 'grand', '900', 'sibling', '902'])
     expect(replyCount(wrapper)).toBe('5')
-    expect(postApi.getStatus).toHaveBeenCalledWith('902')
+    expect(postApi.getStatus).toHaveBeenCalledWith('a')
+    expect(postApi.getStatus).toHaveBeenCalledWith('902', { background: true })
     const replyFetches = vi.mocked(postApi.getStatus).mock.calls.filter(call => call[0] === '902')
     expect(replyFetches).toHaveLength(1)
 

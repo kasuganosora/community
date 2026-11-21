@@ -63,7 +63,7 @@ async function handleMediaError(id: string) {
   }
   renewTried = true
   try {
-    const status = await postApi.getStatus(props.statusId)
+    const status = await postApi.getStatus(props.statusId, { background: true })
     if (!status.media_attachments?.length) throw new Error('no media')
     renewed.value = status.media_attachments
     failedMedia.value = new Set()

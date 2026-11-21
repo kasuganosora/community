@@ -1,6 +1,10 @@
 package status
 
 import (
+	"sort"
+	"strconv"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/kasuganosora/community/activitypub"
 	"github.com/kasuganosora/community/controllers"
@@ -13,12 +17,16 @@ import (
 
 // ContextResponse represents the context response for a status.
 type ContextResponse struct {
-	Ancestors   []*serializer.Status `json:"ancestors"`
-	Descendants []*serializer.Status `json:"descendants"`
+	Ancestors     []*serializer.Status `json:"ancestors"`
+	Descendants   []*serializer.Status `json:"descendants"`
+	PinnedReplyId *string              `json:"pinned_reply_id,omitempty"`
 }
 
 // Context handles GET /api/v1/statuses/:id/context
 // Returns ancestors and descendants of a status.
+// Supports optional query parameters:
+//   - sort=hot (default: chronological) to rank replies by engagement score
+//   - author_only=true to show only replies written by the parent status author
 func Context(c *gin.Context) {
 	status := controllers.GetIdFromContext(&models.Status{}, c, db.GetDB(), models.StatusLoadAllQuery)
 	account := controllers.GetAccount(c)
@@ -42,6 +50,24 @@ func Context(c *gin.Context) {
 
 	// Get descendants (replies to this status)
 	descendants := getDescendants(db.GetDB(), status.Id, 60, 0)
+	if status.PinnedReplyId != nil && *status.PinnedReplyId > 0 {
+		pinnedID := *status.PinnedReplyId
+		found := false
+		for _, d := range descendants {
+			if d != nil && d.Id == pinnedID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			var pinned models.Status
+			if err := models.StatusLoadAllQuery(db.GetDB()).First(&pinned, pinnedID).Error; err == nil {
+				if isReplyDescendant(db.GetDB(), status.Id, &pinned, 20) {
+					descendants = append(descendants, &pinned)
+				}
+			}
+		}
+	}
 
 	// Load extended fields for all statuses
 	allStatuses := append(append([]*models.Status{}, ancestors...), descendants...)
@@ -62,6 +88,46 @@ func Context(c *gin.Context) {
 		return
 	}
 
+	// Optional "author_only=true" filter (keeps only replies by the root status author).
+	if strings.EqualFold(c.Query("author_only"), "true") || c.Query("author_only") == "1" {
+		filtered := make([]*models.Status, 0, len(descendants))
+		for _, d := range descendants {
+			if d.AccountId == status.AccountId {
+				filtered = append(filtered, d)
+			}
+		}
+		descendants = filtered
+	}
+
+	// Optional "sort=hot" engagement ranking (openBshi reply hot-sort pattern).
+	if strings.EqualFold(c.Query("sort"), "hot") && len(descendants) > 1 {
+		sort.SliceStable(descendants, func(i, j int) bool {
+			si := replyHotScore(descendants[i])
+			sj := replyHotScore(descendants[j])
+			if si != sj {
+				return si > sj
+			}
+			return descendants[i].Id < descendants[j].Id
+		})
+	}
+
+	// Promote author-pinned reply to the top of descendants when present and visible.
+	var pinnedReplyStr *string
+	if status.PinnedReplyId != nil && *status.PinnedReplyId > 0 {
+		pinnedID := *status.PinnedReplyId
+		for idx, d := range descendants {
+			if d.Id == pinnedID {
+				if idx > 0 {
+					copy(descendants[1:idx+1], descendants[0:idx])
+					descendants[0] = d
+				}
+				s := strconv.FormatUint(pinnedID, 10)
+				pinnedReplyStr = &s
+				break
+			}
+		}
+	}
+
 	// Serialize
 	ancestorStatuses, err := serializer.ToStatuses(ancestors, account)
 	if err != nil {
@@ -78,9 +144,17 @@ func Context(c *gin.Context) {
 	}
 
 	c.JSON(200, ContextResponse{
-		Ancestors:   ancestorStatuses,
-		Descendants: descendantStatuses,
+		Ancestors:     ancestorStatuses,
+		Descendants:   descendantStatuses,
+		PinnedReplyId: pinnedReplyStr,
 	})
+}
+
+func replyHotScore(s *models.Status) uint64 {
+	if s == nil {
+		return 0
+	}
+	return s.FavouritesCount*2 + s.ReblogsCount*3 + s.RepliesCount*2
 }
 
 // getAncestors recursively gets parent statuses.

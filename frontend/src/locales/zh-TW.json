@@ -2021,6 +2021,38 @@
       "s4": "載入更多",
       "s5": "還沒有收藏",
       "s6": "點選帖子上的收藏按鈕，之後可以在這裡找到它們。"
+    },
+    "Folders": {
+      "addToFolderMenu": "加入收藏夾",
+      "addToFolderTitle": "選擇收藏夾",
+      "allBookmarks": "全部收藏",
+      "newFolder": "新建收藏夾",
+      "editFolder": "編輯收藏夾",
+      "edit": "編輯",
+      "save": "儲存",
+      "titleLabel": "收藏夾名稱",
+      "descLabel": "簡介（選填）",
+      "descPlaceholder": "寫一段收藏夾說明…",
+      "newFolderPlaceholder": "輸入收藏夾名稱",
+      "createAndAdd": "新建並收藏",
+      "public": "公開",
+      "private": "私密",
+      "publicToggleHint": "設為公開（允許他人透過連結瀏覽）",
+      "copyShareLink": "複製連結",
+      "linkCopied": "公開收藏夾連結已複製",
+      "sharedTitle": "公開收藏夾",
+      "notFoundOrPrivate": "該收藏夾不存在或未公開。",
+      "noFoldersYet": "還沒有建立收藏夾，可在下方新建一個。",
+      "emptyFolder": "收藏夾裡還沒有內容",
+      "emptyFolderHint": "點擊任意貼文右上角選單的「加入收藏夾」即可加入。",
+      "removeFromFolder": "移出收藏夾",
+      "created": "收藏夾已建立",
+      "updated": "收藏夾已更新",
+      "deleted": "收藏夾已刪除",
+      "deleteConfirmTitle": "刪除收藏夾",
+      "deleteConfirmBody": "確定要刪除收藏夾「{0}」嗎？貼文本身不會被刪除。",
+      "loadFailed": "載入收藏夾失敗",
+      "actionFailed": "操作失敗，請稍後再試"
     }
   },
   "data": {
@@ -2861,6 +2893,17 @@
       "s21": "已置頂",
       "s22": "已取消置頂",
       "s23": "置頂失敗"
+    },
+    "ReplyGovernance": {
+      "sortTime": "依時間",
+      "sortHot": "依熱度",
+      "authorOnly": "只看作者",
+      "pinnedBadge": "作者置頂",
+      "pinReply": "置頂回覆",
+      "unpinReply": "取消置頂",
+      "pinned": "已置頂該回覆",
+      "unpinned": "已取消置頂回覆",
+      "pinFailed": "置頂操作失敗"
     }
   },
   "settings": {
@@ -3988,6 +4031,28 @@
     "mediaDisk": "暫存空間已滿，請稍後再試。",
     "mediaFailed": "處理失敗，未發布原始檔案。",
     "mediaCancelled": "處理已取消。",
-    "mediaNotReady": "附件尚未就緒。"
+    "mediaNotReady": "附件尚未就緒。",
+    "spamDuplicate": "重複內容發送過於頻繁，請稍後再試",
+    "serverOverloaded": "伺服器目前負載較高，請稍後再試"
+  },
+  "history": {
+    "HistoryPage": {
+      "title": "瀏覽紀錄",
+      "pause": "暫停紀錄",
+      "resume": "恢復紀錄",
+      "pausedBanner": "已暫停紀錄瀏覽歷史，新瀏覽的貼文不會再被記錄。",
+      "pausedToast": "已暫停紀錄瀏覽歷史",
+      "resumedToast": "已恢復紀錄瀏覽歷史",
+      "clearAll": "清空紀錄",
+      "clearConfirmTitle": "清空瀏覽紀錄",
+      "clearConfirmBody": "確定要清空全部瀏覽紀錄嗎？此操作無法復原。",
+      "cleared": "瀏覽紀錄已清空",
+      "viewedAt": "瀏覽於 {0}",
+      "removeOne": "刪除此紀錄",
+      "emptyTitle": "尚無瀏覽紀錄",
+      "emptyDesc": "你查看過的貼文詳情會自動保存在這裡，支援跨裝置同步。",
+      "loadFailed": "載入瀏覽紀錄失敗",
+      "actionFailed": "操作失敗，請稍後再試"
+    }
   }
 }

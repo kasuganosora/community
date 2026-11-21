@@ -4,19 +4,28 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
+	"github.com/kasuganosora/community/resilience"
 	"github.com/kasuganosora/thinkbot/llm"
 )
 
 var (
-	clientsMu sync.Mutex
-	clients   = map[string]llm.Provider{} // provider id -> stats-recording client
+	clientsMu        sync.Mutex
+	clients          = map[string]llm.Provider{} // provider id -> stats-recording client
+	providerBreakers = resilience.NewBreakerGroup(resilience.BreakerConfig{
+		K:           2.0,
+		Window:      30 * time.Second,
+		Buckets:     10,
+		MinRequests: 20,
+	}, 256)
 )
 
 func invalidateClients() {
 	clientsMu.Lock()
 	clients = map[string]llm.Provider{}
 	clientsMu.Unlock()
+	providerBreakers.Reset()
 }
 
 // ErrNotConfigured is returned when a service has no usable provider.
@@ -47,6 +56,7 @@ func SetTestProviderFactory(f func(ProviderConfig) (llm.Provider, error)) {
 	testOverride = f
 	clients = map[string]llm.Provider{}
 	clientsMu.Unlock()
+	providerBreakers.Reset()
 }
 
 // Generate runs a single non-streaming request for feature through p,
@@ -80,14 +90,27 @@ func Generate(ctx context.Context, p ProviderConfig, feature string, params llm.
 		v := *p.Temperature
 		params.Temperature = &v
 	}
+	breaker := providerBreakers.Get(p.ID)
+	if berr := breaker.Allow(); berr != nil {
+		return nil, berr
+	}
+	callerCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, p.Timeout()+5e9)
 	defer cancel()
 	ctx = llm.WithStatsFeature(ctx, feature)
 	result, err := client.DoGenerate(ctx, params)
 	if err != nil {
+		if callerCtx.Err() == nil {
+			if le, ok := llm.AsLLMError(err); ok && (le.Reason == llm.ErrorReasonInvalidRequest || le.Reason == llm.ErrorReasonContentPolicy) {
+				breaker.MarkSuccess()
+			} else {
+				breaker.MarkFailed()
+			}
+		}
 		recordFailure(p, feature, params.Model.ID)
 		return nil, err
 	}
+	breaker.MarkSuccess()
 	if result.Usage.TotalTokens <= 0 {
 		// StatsRecordingProvider skips zero-token results; still count the call.
 		addUsage(UsageDaily{Day: Today(), Feature: feature, ProviderID: p.ID, Model: params.Model.ID, Calls: 1, Currency: p.Currency})
@@ -110,6 +133,9 @@ type TestResult struct {
 // ErrorCode maps an llm error to a stable code. The message of the provider is
 // never returned to clients because it may echo request data.
 func ErrorCode(err error) string {
+	if errors.Is(err, resilience.ErrCircuitOpen) {
+		return "llm_circuit_open"
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "llm_timeout"
 	}

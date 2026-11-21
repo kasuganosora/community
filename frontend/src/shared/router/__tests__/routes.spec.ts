@@ -103,9 +103,16 @@ describe('routes', () => {
   })
   it('registers the pages linked from the UI', () => {
     const main = routes.find(r => r.children)?.children?.map(c => c.path) ?? []
-    for (const p of ['tags/:tag', '@:username/followers', '@:username/following', 'lists', 'lists/:id', 'settings']) {
+    for (const p of ['tags/:tag', '@:username/followers', '@:username/following', 'lists', 'lists/:id', 'settings', 'bookmark_folders/:id', 'history']) {
       expect(main).toContain(p)
     }
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    const sharedFolder = router.resolve('/bookmark_folders/42')
+    expect(sharedFolder.name).toBe(RouteNames.BOOKMARK_FOLDER)
+    expect(sharedFolder.meta.requiresAuth).toBe(false)
+    const historyRoute = router.resolve('/history')
+    expect(historyRoute.name).toBe(RouteNames.HISTORY)
+    expect(historyRoute.meta.requiresAuth).toBe(true)
   })
   it('maps Mastodon web timeline paths to explore', () => {
     const router = createRouter({ history: createMemoryHistory(), routes })
