@@ -162,14 +162,14 @@ func serializerStatusEventUncached(account *models.Account, payload string, chan
 		} else {
 			statuses, contextName, err = currentTimelineStatus(account, event.Payload.Id, channel[0])
 			if err != nil {
-				return "", "", err
+				return retractHiddenUpdate(event.Type, event.Payload.Id, err)
 			}
 		}
 	} else {
 		// Non-timeline callers still reload current SQL and authorize embedded objects.
 		if err = models.StatusLoadAllQuery(db.GetDB()).First(&current, event.Payload.Id).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return "", "", errors.Wrap(errEventNotVisible, "status no longer exists")
+				return retractHiddenUpdate(event.Type, event.Payload.Id, errors.Wrap(errEventNotVisible, "status no longer exists"))
 			}
 			return "", "", err
 		}
@@ -179,14 +179,14 @@ func serializerStatusEventUncached(account *models.Account, payload string, chan
 		statuses = models.Statuses{&current}
 	}
 	if account == nil && !visitorCanSeeStatuses(statuses) {
-		return "", "", errEventNotVisible
+		return retractHiddenUpdate(event.Type, event.Payload.Id, errEventNotVisible)
 	}
 	rows, err := serializer.ToStatusesContext(models.WithFilterContext(context.Background(), contextName), statuses, account)
 	if err != nil {
 		return "", "", err
 	}
 	if len(rows) != 1 {
-		return "", "", errEventNotVisible
+		return retractHiddenUpdate(event.Type, event.Payload.Id, errEventNotVisible)
 	}
 	sStatus := rows[0]
 
@@ -437,6 +437,16 @@ func serializerAnnouncementReactionEvent(payload json.RawMessage) (eventType str
 }
 
 var errEventNotVisible = errors.New("streaming: event is no longer visible")
+
+// retractHiddenUpdate turns an update the viewer can no longer see into a
+// delete of that id. Callers that previously dropped the frame left the old
+// card on screen after a visibility tighten.
+func retractHiddenUpdate(eventType string, id uint64, err error) (string, string, error) {
+	if id != 0 && (eventType == "update" || eventType == "status.update") && errors.Is(err, errEventNotVisible) {
+		return "delete", strconv.FormatUint(id, 10), nil
+	}
+	return "", "", err
+}
 
 var errEventAccountMissing = errors.New("streaming: status event account missing")
 

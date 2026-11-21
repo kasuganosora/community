@@ -19,6 +19,9 @@ const (
 	numPubSubShards  = 8
 )
 
+// shardReadyTimeout bounds subscription confirmation. Tests shorten it.
+var shardReadyTimeout = 3 * time.Second
+
 type hintSubscriber struct {
 	ch        chan feedNotice
 	closed    chan struct{}
@@ -108,6 +111,7 @@ type pubsubShardKey struct {
 type pubsubShard struct {
 	key       pubsubShardKey
 	mu        sync.Mutex
+	wireMu    sync.Mutex // serializes Subscribe/Unsubscribe on this shard's connection
 	pub       *redis.PubSub
 	startOnce sync.Once
 	closed    chan struct{}
@@ -206,8 +210,28 @@ func acquireShardAndSubscribe(ctx context.Context, client redis.UniversalClient,
 		pub := shard.pub
 		shardPool.mu.Unlock()
 
-		if err := pub.Subscribe(ctx, channel); err != nil {
-			detachRoomFromShard(shard, channel, room, false)
+		// wireMu is taken only after shardPool.mu is released, and shard.mu is not
+		// held across the network call. Unsubscribe uses the same order.
+		shard.wireMu.Lock()
+		shard.mu.Lock()
+		stillOwned := !shard.dead && shard.rooms[channel] == room
+		shard.mu.Unlock()
+		if !stillOwned {
+			shard.wireMu.Unlock()
+			return nil, context.Canceled
+		}
+		if err := ctx.Err(); err != nil {
+			shard.wireMu.Unlock()
+			detachRoomFromShard(shard, channel, room, true)
+			return nil, err
+		}
+		err := pub.Subscribe(ctx, channel)
+		shard.wireMu.Unlock()
+		if err != nil {
+			// The server may already have accepted SUBSCRIBE, and go-redis records
+			// the channel even when the write returns an error. Drop it unless a
+			// replacement room now owns the name.
+			detachRoomFromShard(shard, channel, room, true)
 			return nil, err
 		}
 		shard.mu.Lock()
@@ -233,7 +257,8 @@ func detachRoomFromShard(shard *pubsubShard, channel string, room *streamRoom, s
 	var unsubPub *redis.PubSub
 	shardPool.mu.Lock()
 	shard.mu.Lock()
-	if shard.rooms[channel] == room {
+	removed := shard.rooms[channel] == room
+	if removed {
 		delete(shard.rooms, channel)
 	}
 	if len(shard.rooms) == 0 && !shard.dead {
@@ -242,7 +267,7 @@ func detachRoomFromShard(shard *pubsubShard, channel string, room *streamRoom, s
 			delete(shardPool.shards, shard.key)
 		}
 		closePub = shard.pub
-	} else if sendUnsub && !shard.dead {
+	} else if removed && sendUnsub && !shard.dead {
 		unsubPub = shard.pub
 	}
 	shard.mu.Unlock()
@@ -254,9 +279,16 @@ func detachRoomFromShard(shard *pubsubShard, channel string, room *streamRoom, s
 		return
 	}
 	if unsubPub != nil {
-		unsubCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_ = unsubPub.Unsubscribe(unsubCtx, channel)
-		cancel()
+		shard.wireMu.Lock()
+		shard.mu.Lock()
+		shouldUnsub := !shard.dead && shard.rooms[channel] == nil
+		shard.mu.Unlock()
+		if shouldUnsub {
+			unsubCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = unsubPub.Unsubscribe(unsubCtx, channel)
+			cancel()
+		}
+		shard.wireMu.Unlock()
 	}
 }
 
@@ -439,7 +471,7 @@ func ensureSubscribedRoom(ctx context.Context, client redis.UniversalClient, cha
 		b.mu.Unlock()
 
 		if created {
-			initCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			initCtx, cancel := context.WithTimeout(context.Background(), shardReadyTimeout)
 			shard, err := acquireShardAndSubscribe(initCtx, client, channel, room)
 			if err == nil {
 				b.mu.Lock()
@@ -462,21 +494,25 @@ func ensureSubscribedRoom(ctx context.Context, client redis.UniversalClient, cha
 				}
 				room.readyOnce.Do(func() { close(room.ready) })
 				b.mu.Unlock()
-				detachRoomFromShard(shard, channel, room, false)
+				// Ready timed out or the shard closed after SUBSCRIBE was written.
+				// Unsubscribe unless a replacement room now owns the channel.
+				detachRoomFromShard(shard, channel, room, true)
 				if ctxErr := ctx.Err(); ctxErr != nil {
 					return nil, ctxErr
 				}
 				return nil, err
 			}
-			// If caller canceled while created room finished subscribing and nobody else attached, clean up unused room.
+			// If the caller leaves before anyone attaches, or this room was replaced
+			// before it was stored, drop any subscription it still owns.
 			defer func(r *streamRoom, s *pubsubShard) {
 				b.mu.Lock()
 				unused := b.rooms[key] == r && r.empty()
 				if unused {
 					delete(b.rooms, key)
 				}
+				detached := unused || b.rooms[key] != r
 				b.mu.Unlock()
-				if unused {
+				if detached {
 					detachRoomFromShard(s, channel, r, true)
 				}
 			}(room, shard)

@@ -29,3 +29,12 @@ func ConfigureRuntime(mode string) error {
 
 func DurableFanoutEnabled() bool { return deliveryMode.Load() == 1 }
 func ForceDatabaseReads() bool   { return databaseReads.Load() }
+
+func runtimeSnapshot() (int32, bool) {
+	return deliveryMode.Load(), databaseReads.Load()
+}
+
+func restoreRuntime(mode int32, reads bool) {
+	deliveryMode.Store(mode)
+	databaseReads.Store(reads)
+}

@@ -82,21 +82,25 @@ func TestSerializerStatusEvent_ReblogTargetMissing(t *testing.T) {
 	payload := mustEventJSON(t, "update", &models.Status{Id: 11, AccountId: 2, ReblogId: &gone, Visibility: models.StatusVisibilityPublic})
 
 	require.NotPanics(t, func() {
-		_, _, err := serializerStatusEvent(nil, payload)
-		require.ErrorIs(t, err, errEventNotVisible)
+		eventType, body, err := serializerStatusEvent(nil, payload)
+		require.NoError(t, err)
+		require.Equal(t, "delete", eventType)
+		require.Equal(t, "11", body)
 	})
 }
 
-// If the author genuinely does not exist the event is skipped with an error
-// (logged by the SSE loop) instead of panicking.
+// If the author genuinely does not exist the update becomes a delete of that
+// id instead of panicking or leaving a card on screen.
 func TestSerializerStatusEvent_AccountMissingSkipped(t *testing.T) {
 	setupTestDB(t)
 
 	payload := mustEventJSON(t, "update", &models.Status{Id: 12, AccountId: 404, Visibility: models.StatusVisibilityPublic})
 
 	require.NotPanics(t, func() {
-		_, _, err := serializerStatusEvent(nil, payload)
-		require.ErrorIs(t, err, errEventNotVisible)
+		eventType, body, err := serializerStatusEvent(nil, payload)
+		require.NoError(t, err)
+		require.Equal(t, "delete", eventType)
+		require.Equal(t, "12", body)
 	})
 }
 
