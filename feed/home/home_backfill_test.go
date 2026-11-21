@@ -97,4 +97,11 @@ func TestHomeCandidatesSkipReblogsFromHiddenFollows(t *testing.T) {
 	require.NoError(t, homeCandidates(conn, 1).Order("statuses.id DESC").Find(&page).Error)
 	require.Len(t, page, 1)
 	require.EqualValues(t, 1, page[0].Id)
+	excluded, err := ExclusiveHomeRecipients(conn, 3, []uint64{1, 3})
+	require.NoError(t, err)
+	require.Equal(t, map[uint64]bool{1: true}, excluded)
+	require.NoError(t, conn.Exec("UPDATE lists SET deleted_at = CURRENT_TIMESTAMP WHERE id = 1").Error)
+	excluded, err = ExclusiveHomeRecipients(conn, 3, []uint64{1})
+	require.NoError(t, err)
+	require.Empty(t, excluded)
 }

@@ -16,6 +16,19 @@ import (
 // notification badge), so nothing past this is ever looked at.
 const UnreadCap = 40
 
+// unreadNotificationScanLimit bounds raw rows inspected while hidden
+// notifications are discarded. It matches one notifications page so a long
+// run of blocked or incomplete rows cannot read the whole inbox.
+var unreadNotificationScanLimit = 1000
+
+// SetUnreadNotificationScanLimitForTest lowers the raw-row ceiling. The
+// returned function restores the previous ceiling.
+func SetUnreadNotificationScanLimitForTest(limit int) func() {
+	previous := unreadNotificationScanLimit
+	unreadNotificationScanLimit = limit
+	return func() { unreadNotificationScanLimit = previous }
+}
+
 // UnreadCounts handles GET /api/v1/unread_counts (an extension, not Mastodon):
 // the three nav badges in one request. The web app calls it when the window
 // regains focus or its stream reconnects; there is no polling.
@@ -74,8 +87,15 @@ func unreadNotifications(conn *gorm.DB, account *models.Account, limit int, incl
 	base = models.FilterNotificationTypes(base, include, exclude)
 	var count int
 	var cursor uint64
-	for count < limit {
+	scanned := 0
+	for count < limit && scanned < unreadNotificationScanLimit {
 		batchSize := min(100, max(20, limit-count))
+		if remain := unreadNotificationScanLimit - scanned; remain < batchSize {
+			batchSize = remain
+		}
+		if batchSize <= 0 {
+			break
+		}
 		query := base.Session(&gorm.Session{})
 		if cursor != 0 {
 			query = query.Where("id < ?", cursor)
@@ -92,6 +112,7 @@ func unreadNotifications(conn *gorm.DB, account *models.Account, limit int, incl
 			return 0, err
 		}
 		count += len(visible)
+		scanned += len(rows)
 		cursor = rows[len(rows)-1].Id
 		if len(rows) < batchSize {
 			break

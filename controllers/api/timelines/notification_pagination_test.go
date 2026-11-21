@@ -44,7 +44,8 @@ func TestGroupedNotificationsUseMastodonEnvelope(t *testing.T) {
 	require.Len(t, page.NotificationGroups, 2)
 	group := page.NotificationGroups[0]
 	require.Equal(t, "follow", group.Type)
-	require.Equal(t, "ungrouped-"+strconv.FormatUint(group.MostRecentNotificationId, 10), group.GroupKey)
+	require.Equal(t, "ungrouped-"+group.MostRecentNotificationId, group.GroupKey)
+	require.Contains(t, w.Body.String(), `"most_recent_notification_id":"`+group.MostRecentNotificationId+`"`)
 	require.Equal(t, []string{"2"}, group.SampleAccountIds)
 	require.Equal(t, 1, group.NotificationsCount)
 	require.NotContains(t, w.Body.String(), `"status_id"`)
@@ -131,6 +132,35 @@ func TestNotificationMutesAndUnreadTypeFilters(t *testing.T) {
 	item, err = serializer.ToNotification(row, viewer)
 	require.NoError(t, err)
 	require.NotNil(t, item)
+}
+
+func TestUnreadCountStopsBeforeHiddenPrefix(t *testing.T) {
+	conn := setupTestDB(t)
+	setGlobalTestDB(t, conn)
+	require.NoError(t, conn.AutoMigrate(&models.Marker{}))
+	restore := conversation.SetUnreadNotificationScanLimitForTest(20)
+	t.Cleanup(restore)
+	viewer, sender := makeAccount(1), makeAccount(2)
+	require.NoError(t, conn.Create(viewer).Error)
+	require.NoError(t, conn.Create(sender).Error)
+	require.NoError(t, conn.Create(&models.Notification{Id: 1, Type: models.NotificationTypeFollow, AccountId: viewer.Id, FromAccountId: sender.Id}).Error)
+	for id := uint64(2); id <= 21; id++ {
+		require.NoError(t, conn.Create(&models.Notification{Id: id, Type: models.NotificationTypeFollow, AccountId: viewer.Id}).Error)
+	}
+	c, w := newTestContext(t, http.MethodGet, "/api/v2/notifications/unread_count", "")
+	setAccount(c, viewer)
+	conversation.UnreadNotificationCount(c)
+	require.Empty(t, c.Errors)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.JSONEq(t, `{"count":0}`, w.Body.String())
+
+	restore()
+	c, w = newTestContext(t, http.MethodGet, "/api/v2/notifications/unread_count", "")
+	setAccount(c, viewer)
+	conversation.UnreadNotificationCount(c)
+	require.Empty(t, c.Errors)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.JSONEq(t, `{"count":1}`, w.Body.String())
 }
 
 func TestNotificationPagesScanPastHiddenBatches(t *testing.T) {

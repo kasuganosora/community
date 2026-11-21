@@ -1,7 +1,5 @@
 package serializer
 
-import "strconv"
-
 // NotificationGroups is the Mastodon v2 notification page. Accounts and
 // statuses are shared across the groups that refer to them.
 type NotificationGroups struct {
@@ -26,7 +24,7 @@ type NotificationGroup struct {
 	GroupKey                 string    `json:"group_key"`
 	NotificationsCount       int       `json:"notifications_count"`
 	Type                     string    `json:"type"`
-	MostRecentNotificationId uint64    `json:"most_recent_notification_id"`
+	MostRecentNotificationId string    `json:"most_recent_notification_id"`
 	PageMinId                string    `json:"page_min_id"`
 	PageMaxId                string    `json:"page_max_id"`
 	LatestPageNotificationAt *APITime  `json:"latest_page_notification_at"`
@@ -57,10 +55,9 @@ func ToNotificationGroups(notifications []*Notification, partialAvatars bool) No
 			accounts[id] = true
 			out.Accounts = append(out.Accounts, n.Account)
 		}
-		idNumber, _ := strconv.ParseUint(n.Id, 10, 64)
 		group := NotificationGroup{
 			GroupKey: n.GroupKey, NotificationsCount: 1, Type: n.Type,
-			MostRecentNotificationId: idNumber, PageMinId: n.Id, PageMaxId: n.Id,
+			MostRecentNotificationId: n.Id, PageMinId: n.Id, PageMaxId: n.Id,
 			LatestPageNotificationAt: n.CreatedAt, SampleAccountIds: []string{id},
 			Report: n.Report, EmojiReaction: n.EmojiReaction, List: n.List,
 		}
