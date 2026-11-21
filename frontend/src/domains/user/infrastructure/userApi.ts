@@ -1,3 +1,4 @@
+import { credentialRequestOptions } from '@/shared/api/credentialRequest'
 import { cursorPage, type CursorPage } from '@/shared/utils/pagination'
 import client, { isTimeoutError, requestTimeout, tokenService } from '@/shared/api/client'
 import type { MastodonAccount, MastodonStatus, MastodonRelationship } from '@/shared/types/mastodon'
@@ -339,6 +340,7 @@ export const userApi = {
     const body = new URLSearchParams({ old_password: oldPassword, new_password: newPassword })
     if (otp) body.set('otp_attempt', otp)
     await client.put('/api/v1/accounts/me/password', body, {
+      ...credentialRequestOptions,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     })
   },

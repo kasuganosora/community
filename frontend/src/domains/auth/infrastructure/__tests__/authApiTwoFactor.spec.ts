@@ -20,6 +20,8 @@ describe('authApi two-factor login', () => {
   it('posts the challenge and code to the second step', async () => {
     post.mockResolvedValueOnce({ data: { message: 'login success', token: 't' } })
     await expect(authApi.loginTwoFactor('abc', '123456')).resolves.toEqual({ message: 'login success', token: 't' })
-    expect(post).toHaveBeenLastCalledWith('/api/v1/accounts/login/two_factor', { challenge: 'abc', code: '123456' })
+    expect(post).toHaveBeenLastCalledWith('/api/v1/accounts/login/two_factor', { challenge: 'abc', code: '123456' }, {
+      adapter: 'fetch', fetchOptions: { redirect: 'error' },
+    })
   })
 })

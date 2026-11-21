@@ -1,3 +1,4 @@
+import { credentialRequestOptions } from '@/shared/api/credentialRequest'
 import client from '@/shared/api/client'
 export interface SettingField {
   deployment_key?: string
@@ -26,7 +27,7 @@ export const settingsAdminApi = {
     return (await client.get<SettingsSection>(`/api/v1/admin/settings/${encodeURIComponent(section)}`)).data
   },
   async save(section: string, values: Record<string, string | number | boolean>, clear_secrets: string[]) {
-    return (await client.put<SettingsSection>(`/api/v1/admin/settings/${encodeURIComponent(section)}`, { values, clear_secrets })).data
+    return (await client.put<SettingsSection>(`/api/v1/admin/settings/${encodeURIComponent(section)}`, { values, clear_secrets }, credentialRequestOptions)).data
   },
   async test(section: 'email' | 'storage') {
     return (await client.post<{ success: boolean; message?: string }>(`/api/v1/admin/settings/${section}/test`, {}, { timeout: 30000 })).data

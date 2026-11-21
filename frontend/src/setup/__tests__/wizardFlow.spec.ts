@@ -22,6 +22,7 @@ beforeEach(() => {
   calls.length = 0; overrides.clear()
   vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
     const path = url.replace('/api/setup/', '')
+    if (url.startsWith('/api/setup/')) expect(init?.redirect).toBe('error')
     calls.push({ path, body: init?.body ? JSON.parse(String(init.body)) : {}, signal: init?.signal })
     const override = overrides.get(path)
     if (override) return override()

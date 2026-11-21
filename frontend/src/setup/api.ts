@@ -26,6 +26,7 @@ export async function call<T = Record<string, unknown>>(method: 'GET' | 'POST', 
   try {
     res = await fetch(`/api/setup/${path}`, {
       method,
+      redirect: 'error',
       headers: { 'Content-Type': 'application/json', 'X-Setup-Token': getToken() },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal,

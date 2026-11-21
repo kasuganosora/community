@@ -1,3 +1,4 @@
+import { credentialRequestOptions } from '@/shared/api/credentialRequest'
 import client from '@/shared/api/client'
 export interface SiteRule { id: string; text: string }
 export interface CaptchaConfig { enabled: boolean; provider: string; site_key: string; effective_enabled?: boolean; environment_override?: boolean }
@@ -17,7 +18,7 @@ export const operationsAdminApi = {
   async captcha() { return (await client.get<CaptchaConfig>(`${base}/captcha/config`)).data },
   async saveCaptcha(config: CaptchaConfig, secret: string) {
     // Unchanged write-only credentials and unreadable thresholds must be omitted.
-    await client.put(`${base}/captcha/config`, { enabled: config.enabled, provider: config.provider, site_key: config.site_key, ...(secret ? { secret_key: secret } : {}) })
+    await client.put(`${base}/captcha/config`, { enabled: config.enabled, provider: config.provider, site_key: config.site_key, ...(secret ? { secret_key: secret } : {}) }, credentialRequestOptions)
   },
   async relays() { return (await client.get<Relay[]>(`${base}/relays`)).data },
   async addRelay(inbox_url: string) { return (await client.post<Relay>(`${base}/relays`, { inbox_url })).data },

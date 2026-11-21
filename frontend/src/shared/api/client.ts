@@ -174,6 +174,7 @@ async function performPersistentExchange(initialToken: string): Promise<Persiste
           Accept: 'application/json',
         },
         credentials: 'include',
+        redirect: 'error',
         body: JSON.stringify({ persistent_token: currentToken }),
         signal: controller.signal,
       })

@@ -6,9 +6,10 @@ beforeEach(() => { vi.resetAllMocks(); vi.mocked(client.put).mockResolvedValue({
 describe('administrator operations', () => {
   it('preserves write-only secret and hidden captcha settings on ordinary edits', async () => {
     await api.saveCaptcha({ enabled: true, provider: 'hcaptcha', site_key: 'public' }, '')
-    expect(client.put).toHaveBeenCalledWith('/api/v1/admin/captcha/config', { enabled: true, provider: 'hcaptcha', site_key: 'public' })
+    const config = { adapter: 'fetch', fetchOptions: { redirect: 'error' } }
+    expect(client.put).toHaveBeenCalledWith('/api/v1/admin/captcha/config', { enabled: true, provider: 'hcaptcha', site_key: 'public' }, config)
     await api.saveCaptcha({ enabled: true, provider: 'hcaptcha', site_key: 'public' }, 'replacement')
-    expect(client.put).toHaveBeenLastCalledWith('/api/v1/admin/captcha/config', { enabled: true, provider: 'hcaptcha', site_key: 'public', secret_key: 'replacement' })
+    expect(client.put).toHaveBeenLastCalledWith('/api/v1/admin/captcha/config', { enabled: true, provider: 'hcaptcha', site_key: 'public', secret_key: 'replacement' }, config)
   })
   it('uses actual rule writes and propagates failure for draft recovery', async () => {
     vi.mocked(client.put).mockRejectedValueOnce(new Error('denied'))

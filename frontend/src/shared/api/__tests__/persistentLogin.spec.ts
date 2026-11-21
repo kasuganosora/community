@@ -59,6 +59,7 @@ describe('persistent login cookie exchange & token rotation', () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe('/api/v1/accounts/session/refresh')
       expect(init?.credentials).toBe('include')
+      expect(init?.redirect).toBe('error')
       expect(JSON.parse(String(init?.body))).toEqual({ persistent_token: 'pl1.alice-cred-1' })
       return new Response(
         JSON.stringify({ message: 'login success', token: 'new-cookie-session', persistent_token: 'pl1.alice-cred-2' }),

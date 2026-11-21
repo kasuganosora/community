@@ -1,3 +1,4 @@
+import { credentialRequestOptions } from '@/shared/api/credentialRequest'
 import client from '@/shared/api/client'
 
 export type LlmProviderType = 'openai' | 'openai_compatible' | 'anthropic' | 'google' | 'grok'
@@ -69,7 +70,7 @@ const base = '/api/v1/admin/settings/external/llm'
 export const llmAdminApi = {
   async get() { return (await client.get<LlmSettings>(base)).data },
   async save(body: { providers: LlmProviderInput[]; services: Record<string, string>; translation: LlmTranslationSettings }) {
-    return (await client.put<LlmSettings>(base, body)).data
+    return (await client.put<LlmSettings>(base, body, credentialRequestOptions)).data
   },
   async test(id: string) { return (await client.post<LlmTestResult>(`${base}/test`, { id }, { timeout: 120000 })).data },
   async usage(days = 30) { return (await client.get<LlmUsage>(`${base}/usage`, { params: { days } })).data },

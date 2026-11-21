@@ -1,3 +1,4 @@
+import { credentialRequestOptions } from '@/shared/api/credentialRequest'
 import client, { tokenService } from '@/shared/api/client'
 
 export interface AccessToken { id: string; name: string; scopes: string[]; created_at: string; expires_at: string | null; last_used_at?: string | null; revoked_reason?: string }
@@ -7,13 +8,13 @@ export interface Delivery { id: string; event: string; state: 'pending' | 'proce
 const path = '/api/v1/settings'
 export const connectionsApi = {
   async tokens() { return (await client.get<AccessToken[]>(`${path}/tokens`)).data },
-  async createToken(input: { name: string; scopes: string[]; expires_in_days: number; password?: string; otp?: string }) { return (await client.post<{ token: string; item: AccessToken }>(`${path}/tokens`, input)).data },
-  async updateToken(id: string, input: { name: string; scopes: string[]; password?: string; otp?: string }) { return (await client.patch<AccessToken>(`${path}/tokens/${encodeURIComponent(id)}`, input)).data },
+  async createToken(input: { name: string; scopes: string[]; expires_in_days: number; password?: string; otp?: string }) { return (await client.post<{ token: string; item: AccessToken }>(`${path}/tokens`, input, credentialRequestOptions)).data },
+  async updateToken(id: string, input: { name: string; scopes: string[]; password?: string; otp?: string }) { return (await client.patch<AccessToken>(`${path}/tokens/${encodeURIComponent(id)}`, input, credentialRequestOptions)).data },
   async revokeToken(id: string) { await client.delete(`${path}/tokens/${encodeURIComponent(id)}`) },
   async hooks() { return (await client.get<Webhook[]>(`${path}/webhooks`)).data },
   async saveHook(input: HookDraft, id?: string) {
     const url = `${path}/webhooks${id ? `/${encodeURIComponent(id)}` : ''}`
-    return (await client.request<{ item: Webhook; secret: string }>({ method: id ? 'PUT' : 'POST', url, data: input })).data
+    return (await client.request<{ item: Webhook; secret: string }>({ ...credentialRequestOptions, method: id ? 'PUT' : 'POST', url, data: input })).data
   },
   async deleteHook(id: string) { await client.delete(`${path}/webhooks/${encodeURIComponent(id)}`) },
   async deliveries(id: string) { return (await client.get<Delivery[]>(`${path}/webhooks/${encodeURIComponent(id)}/deliveries`)).data },

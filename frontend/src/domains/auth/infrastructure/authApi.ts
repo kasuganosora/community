@@ -1,3 +1,4 @@
+import { credentialRequestOptions } from '@/shared/api/credentialRequest'
 import client from '@/shared/api/client'
 import type { MastodonAccount } from '@/shared/types/mastodon'
 import type { AuthCredentials, RegisterCredentials, LoginResponse, TwoFactorChallenge } from '../domain/entities'
@@ -17,7 +18,7 @@ export const authApi = {
         username: credentials.username,
         password: credentials.password,
         captcha_response: credentials.captchaResponse || undefined,
-      })
+      }, credentialRequestOptions)
       return data
     } catch (e) {
       const challenge = twoFactorChallengeOf(e)
@@ -28,7 +29,7 @@ export const authApi = {
 
   /** Second step of a password login for accounts with two-factor authentication. */
   async loginTwoFactor(challenge: string, code: string): Promise<LoginResponse> {
-    const { data } = await client.post<LoginResponse>('/api/v1/accounts/login/two_factor', { challenge, code })
+    const { data } = await client.post<LoginResponse>('/api/v1/accounts/login/two_factor', { challenge, code }, credentialRequestOptions)
     return data
   },
 
@@ -46,6 +47,7 @@ export const authApi = {
     if (credentials.inviteCode) form.set('user[invite_code]', credentials.inviteCode)
     if (credentials.captchaResponse) form.set('grecaptcha[response]', credentials.captchaResponse)
     const { data } = await client.post<{ message: string; approval_required?: boolean }>('/api/v1/accounts/register', form, {
+      ...credentialRequestOptions,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     })
     return data
@@ -59,7 +61,7 @@ export const authApi = {
   async refreshPersistentSession(persistentToken: string): Promise<LoginResponse> {
     const { data } = await client.post<LoginResponse>('/api/v1/accounts/session/refresh', {
       persistent_token: persistentToken,
-    })
+    }, credentialRequestOptions)
     return data
   },
 
@@ -67,7 +69,7 @@ export const authApi = {
     await client.post('/api/v1/accounts/persistent/revoke', {
       persistent_token: persistentToken,
       clear_cookie: clearCookie,
-    })
+    }, credentialRequestOptions)
   },
 
   /**
@@ -77,17 +79,11 @@ export const authApi = {
   async logout(token?: string, activePersistentToken?: string | null): Promise<void> {
     try {
       if (token) {
-        await client.post('/api/v1/accounts/persistent/revoke', {
-          persistent_token: token,
-          clear_cookie: false,
-        })
+        await authApi.revokePersistentSession(token, false)
         return
       }
       if (activePersistentToken && activePersistentToken.startsWith('pl1.')) {
-        await client.post('/api/v1/accounts/persistent/revoke', {
-          persistent_token: activePersistentToken,
-          clear_cookie: true,
-        })
+        await authApi.revokePersistentSession(activePersistentToken, true)
         return
       }
       await client.get('/api/v1/accounts/logout')
@@ -102,7 +98,7 @@ export const authApi = {
   },
 
   async passkeyLoginFinish(credential: Record<string, unknown>): Promise<LoginResponse> {
-    const { data } = await client.post<LoginResponse>('/api/v1/auth/passkey/login/finish', credential)
+    const { data } = await client.post<LoginResponse>('/api/v1/auth/passkey/login/finish', credential, credentialRequestOptions)
     return data
   },
 
@@ -112,7 +108,7 @@ export const authApi = {
   },
 
   async passkeyRegisterFinish(credential: Record<string, unknown>): Promise<{ id: string; name: string }> {
-    const { data } = await client.post<{ id: string; name: string }>('/api/v1/auth/passkey/register/finish', credential)
+    const { data } = await client.post<{ id: string; name: string }>('/api/v1/auth/passkey/register/finish', credential, credentialRequestOptions)
     return data
   },
 
